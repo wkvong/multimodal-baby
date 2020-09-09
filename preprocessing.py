@@ -44,10 +44,12 @@ if __name__ == "__main__":
     #         # clean up split utterances, remove commas and whitespace etc.
     #         split_utterance = [utterance.strip().replace(',', '') for utterance in split_utterance if len(utterance) > 0]
 
-
     # 4. filter based on parent
-
+    parent_speakers = ['M', 'Mom', 'mom', 'm', 'mother', 'Mother', 'papa', 'the mom']
+    combined_transcript = combined_transcript[combined_transcript['Speaker'].isin(parent_speakers)]
+    
     # 5. save dataframe
+    combined_transcript.to_csv('data/combined_transcript.csv')
 
     # TODO: all descriptives should be moved to a separate file!
     
