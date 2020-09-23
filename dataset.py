@@ -19,7 +19,7 @@ from torch.utils.data import Dataset, DataLoader
 from utils import *
 
 def convert_timestamps_to_seconds(timestamps):
-    # function to convert a variety of timestamps in the SAYcam annotations to seconds
+    # function to convert a variety of timestamps in the SAYCam annotations to seconds
     # extracts the first timestamp and converts this to the number of seconds
     
     new_timestamps = []
@@ -274,49 +274,7 @@ def pad_collate_fn(batch):
     return images, utterances, utterance_lengths
 
 
-def plot_image_utterance_pairs():
-    # function to plot image-utterance pairs for visualization
-
-    # get transcript information
-    dataset = SAYcamTrainDataset()
-    transcripts = dataset.transcripts
-    base_dir = '/home/wv9/code/WaiKeen/multimodal-baby/data/'
-    image_dir = os.path.join(base_dir, 'train')
-
-    print(len(transcripts))
-    print(transcripts.columns)
-
-    # group by video
-    # videos = transcripts.groupby('video_filename')
-    video_name = transcripts['video_filename'].iloc[0]
-    single_transcript = transcripts[transcripts['video_filename'] == video_name]
-    print(video_name)
-    print(single_transcript['utterance'])
-
-    n_cols = 5
-    n_rows = len(single_transcript) // n_cols + 1
-
-    axes = []
-    fig = plt.figure(figsize=(2 * n_cols, 2 * n_rows))
-
-    for i in range(len(single_transcript)):
-        image_filename = single_transcript['frame_filename'].iloc[i]
-        image = np.array(Image.open(os.path.join(image_dir, image_filename)).convert('RGB'))
-        
-        utterance = single_transcript['utterance'].iloc[i]
-        axes.append(fig.add_subplot(n_rows, n_cols, i+1))
-        plt.imshow(image)
-        plt.xticks([])
-        plt.yticks([])
-
-    plt.savefig('test.png')
-
-    # for name, video in videos:
-    #     print(name)
-    #     print(video)
-    
-
-class SAYcamTrainDataset(Dataset):
+class SAYCamTrainDataset(Dataset):
     # train dataset class
     def __init__(self):
         self.transcripts = pd.read_csv('data/frame_utterance_pairs.csv')
@@ -364,7 +322,7 @@ class SAYcamTrainDataset(Dataset):
 
     def _preprocess_transcripts(self):
         # replace any double quote chars and asterisks with empty strings
-        self.transcripts['utterance'] = self.transcripts['utterance'].replace('"', '')
+        self.transcripts['utterance'] = self.transcripts['utterance'].replace('"', '', regex=True)
         self.transcripts['utterance'] = self.transcripts['utterance'].replace('*', '')
 
         # get indices of non-empty or non-null strings and keep these
@@ -373,7 +331,7 @@ class SAYcamTrainDataset(Dataset):
         
     
     def _build_vocab(self):
-        # builds vocabulary from utterances extracted from SAYcam
+        # builds vocabulary from utterances extracted from SAYCam
         if os.path.exists('data/vocab.pickle'):
             with open('data/vocab.pickle', 'rb') as f:
                 vocab = pickle.load(f)
@@ -407,17 +365,85 @@ class SAYcamTrainDataset(Dataset):
             with open('data/vocab.pickle', 'wb') as f:
                 pickle.dump(vocab, f)
 
-class SAYcamValDataset(Dataset):
+class SAYCamValDataset(Dataset):
     # val dataset class
-    pass
+    def __init__(self, n_evaluations, n_foils):
+        self.n_evaluations = n_evaluations
+        self.n_foils = n_foils
 
-class SAYcamTestDataset(Dataset):
+        self.base_dir = '/home/wv9/code/WaiKeen/multimodal-baby/data/evaluation'
+        self.val_dir = os.path.join(self.base_dir, 'val')
+        self.categories = sorted(os.listdir(self.val_dir))
+
+        # remove categories not in vocab
+        self.categories.remove('plushanimal')
+        self.categories.remove('greenery')
+        self.n_categories = len(self.categories)  # number of remaining categories
+        assert self.n_foils < self.n_categories  # make sure there are enough foil categories
+
+        # read in vocab from training
+        with open('data/vocab.pickle', 'rb') as f:
+            self.vocab = pickle.load(f)
+            self.word2index = self.vocab['word2index']
+            self.index2word = {v: k for k, v in self.word2index.items()}
+
+        # image transforms
+        self.transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+            
+    def __getitem__(self, i):
+        imgs = np.zeros((self.n_foils + 1, 3, 224, 224))
+        
+        # use index to determine which category to sample from
+        category = self.categories[i % self.n_categories]
+        label = self.word2index[category]
+
+        # sample a random image from this category
+        target_category_dir = os.path.join(self.val_dir, category)
+        target_img_filename = os.path.join(target_category_dir,
+                                           np.random.choice(os.listdir(target_category_dir)))
+        target_img = np.array(Image.open(target_img_filename).convert('RGB'))
+        target_img = self.transform(target_img)
+        imgs[0] = target_img
+
+        # select a subset of foil categories
+        all_foil_categories = self.categories.copy()
+        all_foil_categories.remove(category)
+        foil_categories = np.random.choice(all_foil_categories, size=self.n_foils, replace=False)
+
+        # sample random images from each foil category
+        for i in range(self.n_foils):
+            foil_category_dir = os.path.join(self.val_dir, foil_categories[i])
+            assert foil_category_dir != target_category_dir
+            
+            foil_img_filename = os.path.join(foil_category_dir,
+                                             np.random.choice(os.listdir(foil_category_dir)))
+            foil_img = np.array(Image.open(foil_img_filename).convert('RGB'))
+            foil_img = self.transform(foil_img)
+            imgs[i+1] = foil_img
+
+        # convert to float tensor
+        # TODO: figure out how to do this within torch transform etc.
+        imgs = torch.FloatTensor(imgs)
+            
+        return imgs, label
+
+
+    def __len__(self):
+        return self.n_evaluations * self.n_categories
+
+
+class SAYCamTestDataset(Dataset):
     # test dataset class
     pass
 
 if __name__ == "__main__":
-    # train_dataset = SAYcamTrainDataset()
-    # for idx, (image, utterance, utterance_length) in enumerate(train_dataset):
-    #     pass
+    n_evaluations = 10
+    n_foils = 3
+    val_dataset = SAYCamValDataset(n_evaluations, n_foils)
+    val_dataset.__getitem__(0)
 
-    plot_image_utterance_pairs()
+

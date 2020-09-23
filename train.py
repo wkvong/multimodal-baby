@@ -1,9 +1,10 @@
 """
-Multimodal cross-situational word learning model for SAYcam
+Multimodal cross-situational word learning model for SAYCam
 """
 import os
 import glob
 import json
+import pickle
 import numpy as np
 from imageio import imread
 import torch
@@ -18,7 +19,7 @@ import pytorch_lightning as pl
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-from dataset import SAYcamTrainDataset
+from dataset import SAYCamTrainDataset, SAYCamValDataset
 from dataset import pad_collate_fn
 
 class ImageModel(nn.Module):
@@ -74,7 +75,7 @@ class ImageUtteranceModel(pl.LightningModule):
         super(ImageUtteranceModel, self).__init__()
         self.hparams = hparams
         self.image_model = ImageModel(embedding_size=self.hparams.embedding_size)
-        self.utterance_model = UtteranceModel(input_size=40000, embedding_size=self.hparams.embedding_size) # TODO: fix input size
+        self.utterance_model = UtteranceModel(input_size=10000, embedding_size=self.hparams.embedding_size) # TODO: fix input size
 
     def forward(self, images, utterances):
         image_embeddings = self.image_model(images)  # (batch_size, embedding_size, height, width)
@@ -137,16 +138,53 @@ class ImageUtteranceModel(pl.LightningModule):
         loss = self.compute_triplet_loss(image_embeddings, utterance_embeddings, utterance_lengths)
         return {'loss': loss}
 
-    # def validation_step(self, batch, batch_idx):
-    #     images, utterances, utterance_lengths = batch
-    #     image_embeddings, utterance_embeddings = self.forward(images, utterances)
-    #     loss = self.compute_triplet_loss(image_embeddings, utterance_embeddings, utterance_lengths)
-    #     return {'val_loss': loss}
+    def validation_step(self, batch, batch_idx):
+        # pass in images and compute matchmap
+        images, label = batch
+        images = images.squeeze()  # (target + foils, channel, height, width)
+        image_embeddings = self.image_model(images)  # (target + foils, embedding_size, height, width)
+        label_embedding = self.utterance_model(label)  # (1, embedding_size)
+        matchmap_sims = []
 
-    # def validation_epoch_end(self, outputs):
-    #     # OPTIONAL
-    #     loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-    #     return {'val_loss': loss}
+        # compute matchmap similarity for each image (target + all foils)
+        for i in range(len(image_embeddings)):
+            image_embedding = image_embeddings[i]
+            matchmap = self.compute_matchmap(image_embedding, label_embedding)
+            matchmap_sim = self.compute_matchmap_sim(matchmap).item()
+            matchmap_sims.append(matchmap_sim)
+
+        # convert to torch tensor
+        matchmap_tensor = torch.FloatTensor(matchmap_sims)
+
+        return {'matchmap': matchmap_tensor, 'category_label': label}
+
+    def validation_epoch_end(self, outputs):
+        # collect matchmap scores
+        matchmap = torch.stack([x['matchmap'] for x in outputs])
+        labels = torch.stack([x['category_label'] for x in outputs]).squeeze()
+        categories = torch.unique(labels)
+        matchmap_max_idx = torch.argmax(matchmap, dim=1)
+
+        # calculate overall accuracy
+        val_accuracy = (matchmap_max_idx == 0).sum().item() / len(matchmap)
+        val_loss = 1 - val_accuracy
+
+        # get vocab
+        with open('data/vocab.pickle', 'rb') as f:
+            vocab = pickle.load(f)
+            word2index = vocab['word2index']
+            index2word = {v: k for k, v in word2index.items()}
+        
+        # calculate accuracy per category
+        print('\n')  # because of pytorch lightning
+        for category in categories:
+            # get max indices for the current category
+            category_label = index2word[category.item()]
+            category_max_idx = matchmap_max_idx[labels == category]
+            category_accuracy = (category_max_idx == 0).sum().item() / len(category_max_idx)
+            print(f'category: {category_label}, accuracy: {category_accuracy}, n_evals: {len(category_max_idx)}')
+        
+        return {'val_loss': val_loss}
 
     def configure_optimizers(self):
         # REQUIRED
@@ -154,13 +192,14 @@ class ImageUtteranceModel(pl.LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
 
     def train_dataloader(self):
-        train_dataset = SAYcamTrainDataset()
+        train_dataset = SAYCamTrainDataset()
         train_dataloader = DataLoader(train_dataset, batch_size=self.hparams.batch_size, shuffle=True, collate_fn=pad_collate_fn, num_workers=4)
         return train_dataloader
 
-    # def val_dataloader(self):
-    #     pass
-        # return val_dataloader
+    def val_dataloader(self):
+        val_dataset = SAYCamValDataset(self.hparams.n_evaluations, self.hparams.n_foils)
+        val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=4)
+        return val_dataloader
 
 #    def test_dataloader(self):
 #        # OPTIONAL
@@ -177,6 +216,8 @@ class ImageUtteranceModel(pl.LightningModule):
         parser.add_argument('--batch_size', default=64, type=int)
         parser.add_argument('--embedding_size', default=512, type=int)
         parser.add_argument('--margin', default=1.0, type=float)
+        parser.add_argument('--n_evaluations', default=20, type=int)
+        parser.add_argument('--n_foils', default=3, type=int)
 
         # training specific (for this model)
         parser.add_argument('--max_epochs', default=100, type=int)
