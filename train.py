@@ -22,6 +22,13 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from dataset import SAYCamTrainDataset, SAYCamValDataset
 from dataset import pad_collate_fn
 
+def set_parameter_requires_grad(model, feature_extracting=True):
+    '''Helper function for setting body to non-trainable'''
+    if feature_extracting:
+        for param in model.parameters():
+            param.requires_grad = False
+
+
 class ImageModel(nn.Module):
     """
     Image model
@@ -30,7 +37,7 @@ class ImageModel(nn.Module):
         super(ImageModel, self).__init__()
         self.embedding_size = embedding_size
 
-        print('using pretrained mobilenetv2 representations')
+        print('using pretrained vision model (resnext)')
         self.image_embed = self.load_pretrained_model()
 
     def forward(self, x):
@@ -38,11 +45,12 @@ class ImageModel(nn.Module):
 
     def load_pretrained_model(self):
         # create mobilenetv2 architecture
-        model = torchvision.models.mobilenet_v2(pretrained=False)
-        model.classifier = torch.nn.Linear(in_features=1280, out_features=2765, bias=True)
+        model = torchvision.models.resnext50_32x4d(pretrained=False)
+        set_parameter_requires_grad(model)  # freeze cnn layers
+        model.fc = torch.nn.Linear(in_features=2048, out_features=2765, bias=True)
 
         # load in checkpoint
-        checkpoint = torch.load('models/TC-S.tar')
+        checkpoint = torch.load('models/resnext50_32x4d_augmentation_True_S_5_288.tar')
 
         # rename checkpoint keys since we are not using DataParallel
         prefix = 'module.'
@@ -53,8 +61,8 @@ class ImageModel(nn.Module):
         model.load_state_dict(renamed_checkpoint)
 
         # remove classifier head and add 1x1 convolution to map embedding to lower dim
-        model = torch.nn.Sequential(*list(model.children())[:1],
-                                    nn.Conv2d(1280, self.embedding_size, 1))
+        model = torch.nn.Sequential(*list(model.children())[:-2],
+                                    nn.Conv2d(2048, self.embedding_size, 1))
         return model
     
 
@@ -75,7 +83,7 @@ class ImageUtteranceModel(pl.LightningModule):
         super(ImageUtteranceModel, self).__init__()
         self.hparams = hparams
         self.image_model = ImageModel(embedding_size=self.hparams.embedding_size)
-        self.utterance_model = UtteranceModel(input_size=10000, embedding_size=self.hparams.embedding_size) # TODO: fix input size
+        self.utterance_model = UtteranceModel(input_size=7500, embedding_size=self.hparams.embedding_size)
 
     def forward(self, images, utterances):
         image_embeddings = self.image_model(images)  # (batch_size, embedding_size, height, width)
@@ -140,7 +148,7 @@ class ImageUtteranceModel(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         # pass in images and compute matchmap
-        images, label = batch
+        images, label, _, _ = batch
         images = images.squeeze()  # (target + foils, channel, height, width)
         image_embeddings = self.image_model(images)  # (target + foils, embedding_size, height, width)
         label_embedding = self.utterance_model(label)  # (1, embedding_size)
@@ -193,12 +201,12 @@ class ImageUtteranceModel(pl.LightningModule):
 
     def train_dataloader(self):
         train_dataset = SAYCamTrainDataset()
-        train_dataloader = DataLoader(train_dataset, batch_size=self.hparams.batch_size, shuffle=True, collate_fn=pad_collate_fn, num_workers=4)
+        train_dataloader = DataLoader(train_dataset, batch_size=self.hparams.batch_size, shuffle=True, collate_fn=pad_collate_fn, num_workers=4, pin_memory=True)
         return train_dataloader
 
     def val_dataloader(self):
         val_dataset = SAYCamValDataset(self.hparams.n_evaluations, self.hparams.n_foils)
-        val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=4)
+        val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=4, pin_memory=True)
         return val_dataloader
 
 #    def test_dataloader(self):
@@ -220,7 +228,7 @@ class ImageUtteranceModel(pl.LightningModule):
         parser.add_argument('--n_foils', default=3, type=int)
 
         # training specific (for this model)
-        parser.add_argument('--max_epochs', default=100, type=int)
+        parser.add_argument('--max_epochs', default=1, type=int)
         parser.add_argument('--seed', default=0, type=int)
 
         return parser
@@ -230,7 +238,7 @@ def main(hparams):
     seed_everything(hparams.seed)
     model = ImageUtteranceModel(hparams)
     checkpoint_callback = ModelCheckpoint(
-        filepath=os.path.join(os.getcwd(), 'models/pretrained-{epoch}'),
+        filepath=os.path.join(os.getcwd(), 'models/multimodal-{epoch}'),
         save_top_k=1,
         verbose=True,
         monitor='val_loss',

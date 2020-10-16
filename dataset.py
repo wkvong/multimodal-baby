@@ -27,7 +27,7 @@ def convert_timestamps_to_seconds(timestamps):
         if isinstance(timestamp, str):
             timestamp_one = msplit(timestamp, '-')[0]
          
-            if timestamp_one is not '':
+            if timestamp_one != '':
                 splits = msplit(timestamp_one, (':', '.', ',', ';'))
          
                 if splits[0] == '':
@@ -38,15 +38,15 @@ def convert_timestamps_to_seconds(timestamps):
                 else:
                     # sometimes only the tens of seconds are reported as single digits
                     # this converts this correctly
-                    if splits[1] is '1':
+                    if splits[1] == '1':
                         splits[1] = '10'
-                    elif splits[1] is '2':
+                    elif splits[1] == '2':
                         splits[1] = '20'
-                    elif splits[1] is '3':
+                    elif splits[1] == '3':
                         splits[1] = '30'
-                    elif splits[1] is '4':
+                    elif splits[1] == '4':
                         splits[1] = '40'
-                    elif splits[1] is '5':
+                    elif splits[1] == '5':
                         splits[1] = '50'
          
                 timestamp_one_secs = int(splits[0]) * 60 + int(splits[1])
@@ -61,6 +61,7 @@ def convert_timestamps_to_seconds(timestamps):
             new_timestamps.append(None)  # handles non-strings like nans
 
     return new_timestamps
+
 
 def extract_frame(frame, frame_height, frame_width):
     # settings for frame extraction
@@ -210,6 +211,7 @@ def generate_train_frames():
     transcript_df = pd.DataFrame(transcript_info, columns=transcript_columns)
     transcript_df.to_csv('data/frame_utterance_pairs.csv', index=False)
 
+    
 def generate_eval_frames():
     # generate evaluation frames by partitioning the existing eval set into val and test splits
     # set random seed
@@ -260,6 +262,92 @@ def generate_eval_frames():
             # copy frame
             shutil.copyfile(original_filename, os.path.join(new_test_dir, eval_category, eval_category_frames[test_idx]))
 
+
+def generate_val_dataset():
+    # generate a fixed validation set from the extracted validation frames
+    n_foils = 3
+    n_evaluations_per_category = 100
+    val_dataset = []
+
+    # get val categories and remove categories not in vocab
+    base_dir = 'data/evaluation'
+    val_dir = os.path.join(base_dir, 'val')
+    categories = sorted(os.listdir(val_dir))
+    categories.remove('plushanimal')
+    categories.remove('greenery')
+    n_categories = len(categories)
+
+    for target_category in categories:
+        for i in range(n_evaluations_per_category):
+            # sample item from target category
+            target_category_dir = os.path.join(val_dir, target_category)
+            target_img_filename = os.path.join(target_category_dir,
+                                               np.random.choice(os.listdir(target_category_dir)))
+
+            all_foil_categories = categories.copy()
+            all_foil_categories.remove(target_category)
+            foil_categories = np.random.choice(all_foil_categories, size=n_foils, replace=False)
+            foil_img_filenames = []
+
+            for j in range(n_foils):
+                foil_category_dir = os.path.join(val_dir, foil_categories[j])
+                foil_img_filename = os.path.join(foil_category_dir,
+                                             np.random.choice(os.listdir(foil_category_dir)))
+                foil_img_filenames.append(foil_img_filename)
+
+            trial = [target_category, *foil_categories, target_img_filename, *foil_img_filenames]
+            val_dataset.append(trial)
+
+    val_columns = ['target_category', 'foil_category_one',
+                   'foil_category_two', 'foil_category_three',
+                   'target_img_filename', 'foil_one_img_filename',
+                   'foil_two_img_filename', 'foil_three_img_filename']
+    val_dataset = pd.DataFrame(val_dataset, columns=val_columns)
+    val_dataset.to_csv('data/validation.csv', index=False)
+
+
+def generate_test_dataset():
+    # generate a fixed test set from the extracted test frames
+    n_foils = 3
+    n_evaluations_per_category = 100
+    test_dataset = []
+
+    # get test categories and remove categories not in vocab
+    base_dir = 'data/evaluation'
+    test_dir = os.path.join(base_dir, 'test')
+    categories = sorted(os.listdir(test_dir))
+    categories.remove('plushanimal')
+    categories.remove('greenery')
+    n_categories = len(categories)
+
+    for target_category in categories:
+        for i in range(n_evaluations_per_category):
+            # sample item from target category
+            target_category_dir = os.path.join(test_dir, target_category)
+            target_img_filename = os.path.join(target_category_dir,
+                                               np.random.choice(os.listdir(target_category_dir)))
+
+            all_foil_categories = categories.copy()
+            all_foil_categories.remove(target_category)
+            foil_categories = np.random.choice(all_foil_categories, size=n_foils, replace=False)
+            foil_img_filenames = []
+
+            for j in range(n_foils):
+                foil_category_dir = os.path.join(test_dir, foil_categories[j])
+                foil_img_filename = os.path.join(foil_category_dir,
+                                             np.random.choice(os.listdir(foil_category_dir)))
+                foil_img_filenames.append(foil_img_filename)
+
+            trial = [target_category, *foil_categories, target_img_filename, *foil_img_filenames]
+            test_dataset.append(trial)
+
+    test_columns = ['target_category', 'foil_category_one',
+                   'foil_category_two', 'foil_category_three',
+                   'target_img_filename', 'foil_one_img_filename',
+                   'foil_two_img_filename', 'foil_three_img_filename']
+    test_dataset = pd.DataFrame(test_dataset, columns=test_columns)
+    test_dataset.to_csv('data/test.csv', index=False)
+    
             
 def pad_collate_fn(batch):
     # extract elements from batch
@@ -274,14 +362,27 @@ def pad_collate_fn(batch):
     return images, utterances, utterance_lengths
 
 
+def preprocess_transcripts():
+    # clean up extracted transcript with a few more things i didn't do in the original extraction step
+    # removes additional unnecessary punctuation and also ignores empty strings
+    
+    transcripts = pd.read_csv('data/frame_utterance_pairs.csv')
+    print(f'number of utterances: {len(transcripts)}')
+    transcripts['utterance'] = transcripts['utterance'].replace('"', '', regex=True)
+    transcripts['utterance'] = transcripts['utterance'].replace('*', '')
+    transcripts['utterance'] = transcripts['utterance'].replace('--', ' ')
+
+    # get indices of non-empty or non-null strings and keep these
+    utterance_idxs = transcripts[(transcripts['utterance'].notnull()) & (transcripts['utterance'] != '')].index
+    transcripts = transcripts.iloc[utterance_idxs]
+    print(f'number of cleaned up utterances: {len(transcripts)}')
+    transcripts.to_csv('data/frame_utterance_pairs_clean.csv', index=False)
+    
+
 class SAYCamTrainDataset(Dataset):
     # train dataset class
     def __init__(self):
-        self.transcripts = pd.read_csv('data/frame_utterance_pairs.csv')
-        print(len(self.transcripts))
-        self._preprocess_transcripts()
-        print(len(self.transcripts))
-        
+        self.transcripts = pd.read_csv('data/frame_utterance_pairs_clean.csv')
         self.base_dir = '/home/wv9/code/WaiKeen/multimodal-baby/data/'
         self.train_dir = os.path.join(self.base_dir, 'train')
 
@@ -298,8 +399,6 @@ class SAYCamTrainDataset(Dataset):
     def __getitem__(self, i):
         # get caption and preprocess
         utterance = self.transcripts['utterance'].iloc[i]
-        # if utterance == '' or utterance == '\"':
-        #     print(f'found empty string! utterance: {utterance}, idx: {i}')
             
         utterance_words = utterance.split(' ')
         utterance_length = len(utterance_words)
@@ -319,16 +418,6 @@ class SAYCamTrainDataset(Dataset):
 
     def __len__(self):
         return len(self.transcripts)
-
-    def _preprocess_transcripts(self):
-        # replace any double quote chars and asterisks with empty strings
-        self.transcripts['utterance'] = self.transcripts['utterance'].replace('"', '', regex=True)
-        self.transcripts['utterance'] = self.transcripts['utterance'].replace('*', '')
-
-        # get indices of non-empty or non-null strings and keep these
-        self.utterance_idxs = self.transcripts[(self.transcripts['utterance'].notnull()) & (self.transcripts['utterance'] != '')].index
-        self.transcripts = self.transcripts.iloc[self.utterance_idxs]
-        
     
     def _build_vocab(self):
         # builds vocabulary from utterances extracted from SAYCam
@@ -367,19 +456,9 @@ class SAYCamTrainDataset(Dataset):
 
 class SAYCamValDataset(Dataset):
     # val dataset class
-    def __init__(self, n_evaluations, n_foils):
-        self.n_evaluations = n_evaluations
-        self.n_foils = n_foils
-
-        self.base_dir = '/home/wv9/code/WaiKeen/multimodal-baby/data/evaluation'
-        self.val_dir = os.path.join(self.base_dir, 'val')
-        self.categories = sorted(os.listdir(self.val_dir))
-
-        # remove categories not in vocab
-        self.categories.remove('plushanimal')
-        self.categories.remove('greenery')
-        self.n_categories = len(self.categories)  # number of remaining categories
-        assert self.n_foils < self.n_categories  # make sure there are enough foil categories
+    def __init__(self):
+        self.validation_file = 'data/validation.csv'
+        self.validation_dataset = pd.read_csv(self.validation_file)
 
         # read in vocab from training
         with open('data/vocab.pickle', 'rb') as f:
@@ -395,11 +474,16 @@ class SAYCamValDataset(Dataset):
         ])
             
     def __getitem__(self, i):
+        # TODO
+        
         imgs = np.zeros((self.n_foils + 1, 3, 224, 224))
+        filenames = []
+        all_labels = []
         
         # use index to determine which category to sample from
         category = self.categories[i % self.n_categories]
         label = self.word2index[category]
+        all_labels.append(label)
 
         # sample a random image from this category
         target_category_dir = os.path.join(self.val_dir, category)
@@ -408,11 +492,14 @@ class SAYCamValDataset(Dataset):
         target_img = np.array(Image.open(target_img_filename).convert('RGB'))
         target_img = self.transform(target_img)
         imgs[0] = target_img
+        filenames.append(target_img_filename)
 
         # select a subset of foil categories
         all_foil_categories = self.categories.copy()
         all_foil_categories.remove(category)
         foil_categories = np.random.choice(all_foil_categories, size=self.n_foils, replace=False)
+        for foil_category in foil_categories:
+            all_labels.append(self.word2index[foil_category])
 
         # sample random images from each foil category
         for i in range(self.n_foils):
@@ -424,12 +511,14 @@ class SAYCamValDataset(Dataset):
             foil_img = np.array(Image.open(foil_img_filename).convert('RGB'))
             foil_img = self.transform(foil_img)
             imgs[i+1] = foil_img
+            filenames.append(foil_img_filename)
 
         # convert to float tensor
         # TODO: figure out how to do this within torch transform etc.
         imgs = torch.FloatTensor(imgs)
-            
-        return imgs, label
+        all_labels = torch.LongTensor(all_labels)
+
+        return imgs, label, filenames, all_labels
 
 
     def __len__(self):
@@ -441,9 +530,4 @@ class SAYCamTestDataset(Dataset):
     pass
 
 if __name__ == "__main__":
-    n_evaluations = 10
-    n_foils = 3
-    val_dataset = SAYCamValDataset(n_evaluations, n_foils)
-    val_dataset.__getitem__(0)
-
-
+    generate_val_dataset()
