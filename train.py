@@ -18,8 +18,9 @@ from argparse import ArgumentParser
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import CSVLogger
 
-from dataset import SAYCamTrainDataset, SAYCamValDataset
+from dataset import SAYCamTrainDataset, SAYCamEvalDataset
 from dataset import pad_collate_fn
 
 def set_parameter_requires_grad(model, feature_extracting=True):
@@ -146,15 +147,26 @@ class ImageUtteranceModel(pl.LightningModule):
         loss = self.compute_triplet_loss(image_embeddings, utterance_embeddings, utterance_lengths)
         return {'loss': loss}
 
+    def training_epoch_end(self, outputs):
+        losses = torch.stack([x['loss'] for x in outputs])
+        self.log('train_loss', losses.mean())
+
     def validation_step(self, batch, batch_idx):
         # pass in images and compute matchmap
-        images, label, _, _ = batch
-        images = images.squeeze()  # (target + foils, channel, height, width)
+        images, labels = batch
+
+        # remove batch dim
+        images = images.squeeze(0)  # (target + foils, channel, height, width)
+        labels = labels.squeeze(0)
+
+        # get image embeddings
         image_embeddings = self.image_model(images)  # (target + foils, embedding_size, height, width)
-        label_embedding = self.utterance_model(label)  # (1, embedding_size)
-        matchmap_sims = []
+
+        # get label embedding for target word only
+        label_embedding = self.utterance_model(labels)  # (1, embedding_size)
 
         # compute matchmap similarity for each image (target + all foils)
+        matchmap_sims = []
         for i in range(len(image_embeddings)):
             image_embedding = image_embeddings[i]
             matchmap = self.compute_matchmap(image_embedding, label_embedding)
@@ -164,7 +176,7 @@ class ImageUtteranceModel(pl.LightningModule):
         # convert to torch tensor
         matchmap_tensor = torch.FloatTensor(matchmap_sims)
 
-        return {'matchmap': matchmap_tensor, 'category_label': label}
+        return {'matchmap': matchmap_tensor, 'category_label': labels}
 
     def validation_epoch_end(self, outputs):
         # collect matchmap scores
@@ -176,6 +188,8 @@ class ImageUtteranceModel(pl.LightningModule):
         # calculate overall accuracy
         val_accuracy = (matchmap_max_idx == 0).sum().item() / len(matchmap)
         val_loss = 1 - val_accuracy
+        self.log('val_loss', val_loss)
+        self.log('epoch', self.trainer.current_epoch)
 
         # get vocab
         with open('data/vocab.pickle', 'rb') as f:
@@ -191,8 +205,6 @@ class ImageUtteranceModel(pl.LightningModule):
             category_max_idx = matchmap_max_idx[labels == category]
             category_accuracy = (category_max_idx == 0).sum().item() / len(category_max_idx)
             print(f'category: {category_label}, accuracy: {category_accuracy}, n_evals: {len(category_max_idx)}')
-        
-        return {'val_loss': val_loss}
 
     def configure_optimizers(self):
         # REQUIRED
@@ -205,13 +217,9 @@ class ImageUtteranceModel(pl.LightningModule):
         return train_dataloader
 
     def val_dataloader(self):
-        val_dataset = SAYCamValDataset(self.hparams.n_evaluations, self.hparams.n_foils)
+        val_dataset = SAYCamEvalDataset(eval_type='val')
         val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=4, pin_memory=True)
         return val_dataloader
-
-#    def test_dataloader(self):
-#        # OPTIONAL
-#        return DataLoader(MNIST(os.getcwd(), train=True, download=True, transform=transforms.ToTensor()), batch_size=self.hparams.batch_size)
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -220,15 +228,14 @@ class ImageUtteranceModel(pl.LightningModule):
         """
         # MODEL specific
         parser = ArgumentParser(parents=[parent_parser])
-        parser.add_argument('--learning_rate', default=3e-4, type=float)
+        parser.add_argument('--learning_rate', default=1e-4, type=float)
         parser.add_argument('--batch_size', default=64, type=int)
         parser.add_argument('--embedding_size', default=512, type=int)
         parser.add_argument('--margin', default=1.0, type=float)
-        parser.add_argument('--n_evaluations', default=20, type=int)
-        parser.add_argument('--n_foils', default=3, type=int)
 
         # training specific (for this model)
-        parser.add_argument('--max_epochs', default=1, type=int)
+        parser.add_argument('--exp_name', type=str, required=True)
+        parser.add_argument('--max_epochs', default=100, type=int)
         parser.add_argument('--seed', default=0, type=int)
 
         return parser
@@ -236,7 +243,11 @@ class ImageUtteranceModel(pl.LightningModule):
 def main(hparams):
     # init module
     seed_everything(hparams.seed)
+
+    # instantiate model with hparams
     model = ImageUtteranceModel(hparams)
+
+    # set-up checkpoint callback
     checkpoint_callback = ModelCheckpoint(
         filepath=os.path.join(os.getcwd(), 'models/multimodal-{epoch}'),
         save_top_k=1,
@@ -246,12 +257,16 @@ def main(hparams):
         prefix=''
     )
 
+    # set-up logger
+    logger = CSVLogger("logs", name=hparams.exp_name)
+    
     # most basic trainer, uses good defaults
     trainer = Trainer(
         max_epochs=hparams.max_epochs,
         gpus=hparams.gpus,
         num_nodes=hparams.nodes,
-        checkpoint_callback=checkpoint_callback
+        checkpoint_callback=checkpoint_callback,
+        logger=logger
     )
     trainer.fit(model)
 

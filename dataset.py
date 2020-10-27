@@ -454,11 +454,18 @@ class SAYCamTrainDataset(Dataset):
             with open('data/vocab.pickle', 'wb') as f:
                 pickle.dump(vocab, f)
 
-class SAYCamValDataset(Dataset):
+class SAYCamEvalDataset(Dataset):
     # val dataset class
-    def __init__(self):
-        self.validation_file = 'data/validation.csv'
-        self.validation_dataset = pd.read_csv(self.validation_file)
+    def __init__(self, eval_type='val'):
+        self.eval_type = eval_type
+
+        # determine whether to eval using the generated validation or test set
+        if self.eval_type == 'val':
+            self.eval_filename = 'data/validation.csv'
+            self.eval_dataset = pd.read_csv(self.eval_filename)
+        elif self.eval_type == 'test':
+            self.eval_filename = 'data/test.csv'
+            self.eval_dataset = pd.read_csv(self.eval_filename)
 
         # read in vocab from training
         with open('data/vocab.pickle', 'rb') as f:
@@ -474,60 +481,62 @@ class SAYCamValDataset(Dataset):
         ])
             
     def __getitem__(self, i):
-        # TODO
-        
-        imgs = np.zeros((self.n_foils + 1, 3, 224, 224))
-        filenames = []
-        all_labels = []
-        
-        # use index to determine which category to sample from
-        category = self.categories[i % self.n_categories]
-        label = self.word2index[category]
-        all_labels.append(label)
+        # read in category labels and map to indices from vocab
+        target_category = self.eval_dataset['target_category'].iloc[i]
+        foil_category_one = self.eval_dataset['foil_category_one'].iloc[i]
+        foil_category_two = self.eval_dataset['foil_category_two'].iloc[i]
+        foil_category_three = self.eval_dataset['foil_category_three'].iloc[i]
 
-        # sample a random image from this category
-        target_category_dir = os.path.join(self.val_dir, category)
-        target_img_filename = os.path.join(target_category_dir,
-                                           np.random.choice(os.listdir(target_category_dir)))
+        target_category_idx = self.word2index[target_category]
+        foil_category_one_idx = self.word2index[foil_category_one]
+        foil_category_two_idx = self.word2index[foil_category_two]
+        foil_category_three_idx = self.word2index[foil_category_three]
+
+        # convert labels as longtensor 
+        labels = torch.LongTensor([target_category_idx])
+
+        # read in target and foil imgs and assign to array
+        imgs = np.zeros((4, 3, 224, 224))
+        target_img_filename = self.eval_dataset['target_img_filename'].iloc[i]
+        foil_one_img_filename = self.eval_dataset['foil_one_img_filename'].iloc[i]
+        foil_two_img_filename = self.eval_dataset['foil_two_img_filename'].iloc[i]
+        foil_three_img_filename = self.eval_dataset['foil_three_img_filename'].iloc[i]
+
         target_img = np.array(Image.open(target_img_filename).convert('RGB'))
         target_img = self.transform(target_img)
         imgs[0] = target_img
-        filenames.append(target_img_filename)
 
-        # select a subset of foil categories
-        all_foil_categories = self.categories.copy()
-        all_foil_categories.remove(category)
-        foil_categories = np.random.choice(all_foil_categories, size=self.n_foils, replace=False)
-        for foil_category in foil_categories:
-            all_labels.append(self.word2index[foil_category])
+        foil_one_img = np.array(Image.open(foil_one_img_filename).convert('RGB'))
+        foil_one_img = self.transform(foil_one_img)
+        imgs[1] = foil_one_img
+        
+        foil_two_img = np.array(Image.open(foil_two_img_filename).convert('RGB'))
+        foil_two_img = self.transform(foil_two_img)
+        imgs[2] = foil_two_img
 
-        # sample random images from each foil category
-        for i in range(self.n_foils):
-            foil_category_dir = os.path.join(self.val_dir, foil_categories[i])
-            assert foil_category_dir != target_category_dir
-            
-            foil_img_filename = os.path.join(foil_category_dir,
-                                             np.random.choice(os.listdir(foil_category_dir)))
-            foil_img = np.array(Image.open(foil_img_filename).convert('RGB'))
-            foil_img = self.transform(foil_img)
-            imgs[i+1] = foil_img
-            filenames.append(foil_img_filename)
+        foil_three_img = np.array(Image.open(foil_three_img_filename).convert('RGB'))
+        foil_three_img = self.transform(foil_three_img)
+        imgs[3] = foil_three_img
 
-        # convert to float tensor
-        # TODO: figure out how to do this within torch transform etc.
+        # convert imgs to float tensor
         imgs = torch.FloatTensor(imgs)
-        all_labels = torch.LongTensor(all_labels)
-
-        return imgs, label, filenames, all_labels
-
+        return imgs, labels
 
     def __len__(self):
-        return self.n_evaluations * self.n_categories
+        return len(self.eval_dataset)
 
-
-class SAYCamTestDataset(Dataset):
-    # test dataset class
-    pass
-
+    
 if __name__ == "__main__":
-    generate_val_dataset()
+    val_dataset = SAYCamEvalDataset(eval_type='val')
+    val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=4)
+    imgs, labels = iter(val_dataloader).next()
+    print(imgs.size())
+    print(labels.size())
+    print(labels)
+    
+    test_dataset = SAYCamEvalDataset(eval_type='test')
+    test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4)
+    imgs, labels = iter(test_dataloader).next()
+    print(imgs.size())
+    print(labels.size())
+    print(labels)
