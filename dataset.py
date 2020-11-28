@@ -218,7 +218,7 @@ def generate_eval_frames():
     np.random.seed(0)
 
     # directories
-    original_eval_dir = '/misc/vlgscratch4/LakeGroup/shared_data/S_labeled_data/S_labeled_data_1fps_4'
+    original_eval_dir = '/misc/vlgscratch4/LakeGroup/shared_data/S_clean_labeled_data_1fps_5'
     new_val_dir = '/home/wv9/code/WaiKeen/multimodal-baby/data/evaluation/val/'
     new_test_dir = '/home/wv9/code/WaiKeen/multimodal-baby/data/evaluation/test/'
     
@@ -275,6 +275,8 @@ def generate_val_dataset():
     categories = sorted(os.listdir(val_dir))
     categories.remove('plushanimal')
     categories.remove('greenery')
+    categories.remove('carseat')
+    categories.remove('couch')
     n_categories = len(categories)
 
     for target_category in categories:
@@ -318,6 +320,8 @@ def generate_test_dataset():
     categories = sorted(os.listdir(test_dir))
     categories.remove('plushanimal')
     categories.remove('greenery')
+    categories.remove('carseat')
+    categories.remove('couch')
     n_categories = len(categories)
 
     for target_category in categories:
@@ -379,6 +383,42 @@ def preprocess_transcripts():
     transcripts.to_csv('data/frame_utterance_pairs_clean.csv', index=False)
     
 
+class WordDictionary(object):
+    def __init__(self):
+        self.path = 'data/frame_utterance_pairs_clean.csv'
+        self.transcripts = pd.read_csv(self.path)
+        self.utterances = self.transcripts['utterance']
+
+        # create vocab
+        self.word2index = {}
+        self.index2word = []
+
+        # add tokens
+        self.add_word('<pad>')
+        self.add_word('<unk>')
+        self.add_word('<sos>')
+        self.add_word('<eos>')
+
+        # build rest of vocab
+        self.build_vocab()
+
+    def build_vocab(self):
+        # add words to the dictionary
+        for utterance in self.utterances:
+            words = utterance.split(' ')
+            for word in words:
+                self.add_word(word)
+        
+    def add_word(self, word):
+        if word not in self.word2index:
+            self.index2word.append(word)
+            self.word2index[word] = len(self.index2word) - 1
+        return self.word2index[word]
+
+    def __len__(self):
+        return len(self.index2word)
+
+    
 class SAYCamTrainDataset(Dataset):
     # train dataset class
     def __init__(self):
@@ -394,7 +434,7 @@ class SAYCamTrainDataset(Dataset):
         ])
         
         # build vocab
-        self._build_vocab()
+        self.vocab = WordDictionary()
 
     def __getitem__(self, i):
         # get caption and preprocess
@@ -405,9 +445,9 @@ class SAYCamTrainDataset(Dataset):
         utterance_idxs = []
         for word in utterance_words:
             try:
-                utterance_idxs.append(self.word2index[word])
+                utterance_idxs.append(self.vocab.word2index[word])
             except KeyError:
-                utterance_idxs.append(self.word2index['<unk>'])
+                utterance_idxs.append(self.vocab.word2index['<unk>'])
 
         # get image and transform
         img_filename = os.path.join(self.train_dir, self.transcripts['frame_filename'].iloc[i])
@@ -419,40 +459,40 @@ class SAYCamTrainDataset(Dataset):
     def __len__(self):
         return len(self.transcripts)
     
-    def _build_vocab(self):
-        # builds vocabulary from utterances extracted from SAYCam
-        if os.path.exists('data/vocab.pickle'):
-            with open('data/vocab.pickle', 'rb') as f:
-                vocab = pickle.load(f)
-                self.word2index = vocab['word2index']
-                self.num_words = vocab['num_words']
-                self.max_len = vocab['max_len']
-        else:
-            self.word2index = {'<pad>': 0, '<unk>': 1}
-            self.num_words = 2
-            self.max_len = 0
+    # def _build_vocab(self):
+    #     # builds vocabulary from utterances extracted from SAYCam
+    #     if os.path.exists('data/vocab.pickle'):
+    #         with open('data/vocab.pickle', 'rb') as f:
+    #             vocab = pickle.load(f)
+    #             self.word2index = vocab['word2index']
+    #             self.num_words = vocab['num_words']
+    #             self.max_len = vocab['max_len']
+    #     else:
+    #         self.word2index = {'<pad>': 0, '<unk>': 1}
+    #         self.num_words = 2
+    #         self.max_len = 0
 
-            utterances = self.transcripts['utterance']
+    #         utterances = self.transcripts['utterance']
      
-            print('building vocab')
-            for utterance in tqdm(utterances):
-                if isinstance(utterance, str):
-                    utterance_words = utterance.split(' ')
+    #         print('building vocab')
+    #         for utterance in tqdm(utterances):
+    #             if isinstance(utterance, str):
+    #                 utterance_words = utterance.split(' ')
           
-                    # check if utterance length is larger than current max
-                    if len(utterance_words) > self.max_len:
-                        self.max_len = len(utterance_words)
+    #                 # check if utterance length is larger than current max
+    #                 if len(utterance_words) > self.max_len:
+    #                     self.max_len = len(utterance_words)
        
-                    # add words to vocab
-                    for word in utterance_words:
-                        if word not in self.word2index:
-                            self.word2index[word] = self.num_words
-                            self.num_words += 1
+    #                 # add words to vocab
+    #                 for word in utterance_words:
+    #                     if word not in self.word2index:
+    #                         self.word2index[word] = self.num_words
+    #                         self.num_words += 1
      
-            # save vocab
-            vocab = {'word2index': self.word2index, 'num_words': self.num_words, 'max_len': self.max_len}
-            with open('data/vocab.pickle', 'wb') as f:
-                pickle.dump(vocab, f)
+    #         # save vocab
+    #         vocab = {'word2index': self.word2index, 'num_words': self.num_words, 'max_len': self.max_len}
+    #         with open('data/vocab.pickle', 'wb') as f:
+    #             pickle.dump(vocab, f)
 
 class SAYCamEvalDataset(Dataset):
     # val dataset class
@@ -468,10 +508,11 @@ class SAYCamEvalDataset(Dataset):
             self.eval_dataset = pd.read_csv(self.eval_filename)
 
         # read in vocab from training
-        with open('data/vocab.pickle', 'rb') as f:
-            self.vocab = pickle.load(f)
-            self.word2index = self.vocab['word2index']
-            self.index2word = {v: k for k, v in self.word2index.items()}
+        self.vocab = WordDictionary()
+        # with open('data/vocab.pickle', 'rb') as f:
+        #     self.vocab = pickle.load(f)
+        #     self.word2index = self.vocab['word2index']
+        #     self.index2word = {v: k for k, v in self.word2index.items()}
 
         # image transforms
         self.transform = transforms.Compose([
@@ -487,10 +528,10 @@ class SAYCamEvalDataset(Dataset):
         foil_category_two = self.eval_dataset['foil_category_two'].iloc[i]
         foil_category_three = self.eval_dataset['foil_category_three'].iloc[i]
 
-        target_category_idx = self.word2index[target_category]
-        foil_category_one_idx = self.word2index[foil_category_one]
-        foil_category_two_idx = self.word2index[foil_category_two]
-        foil_category_three_idx = self.word2index[foil_category_three]
+        target_category_idx = self.vocab.word2index[target_category]
+        foil_category_one_idx = self.vocab.word2index[foil_category_one]
+        foil_category_two_idx = self.vocab.word2index[foil_category_two]
+        foil_category_three_idx = self.vocab.word2index[foil_category_three]
 
         # convert labels as longtensor 
         labels = torch.LongTensor([target_category_idx])
@@ -527,16 +568,5 @@ class SAYCamEvalDataset(Dataset):
 
     
 if __name__ == "__main__":
-    val_dataset = SAYCamEvalDataset(eval_type='val')
-    val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=4)
-    imgs, labels = iter(val_dataloader).next()
-    print(imgs.size())
-    print(labels.size())
-    print(labels)
-    
-    test_dataset = SAYCamEvalDataset(eval_type='test')
-    test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4)
-    imgs, labels = iter(test_dataloader).next()
-    print(imgs.size())
-    print(labels.size())
-    print(labels)
+    generate_val_dataset()
+    generate_test_dataset()
