@@ -108,7 +108,7 @@ class RNNUtteranceModel(nn.Module):
         # unpack and reshape
         output, _ = pad_packed_sequence(output)
         output = output.view(batch_size, -1, self.embedding_size)
-
+        
         return output
     
     def init_hidden(self, batch_size):

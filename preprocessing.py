@@ -13,7 +13,7 @@ from utils import *
 
 def combine_transcripts():
     "combines all the transcripts into a single data frame"
-    transcript_filenames = sorted(glob.glob('data/transcripts/*.csv'))
+    transcript_filenames = sorted(glob.glob('/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/annotations/S/*.csv'))
     transcripts = [pd.read_csv(transcript) for transcript in transcript_filenames]
     combined_transcript = pd.concat(transcripts, sort=False)
     return combined_transcript

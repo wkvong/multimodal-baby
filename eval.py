@@ -15,7 +15,7 @@ import torchvision
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 
-from dataset import SAYCamEvalDataset
+from dataset import SAYCamEvalDataset, WordDictionary
 from train import ImageUtteranceModel
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -26,9 +26,11 @@ def image_classification_task():
     model = model.to(device)
 
     # get image categories
-    categories = os.listdir('/misc/vlgscratch4/LakeGroup/shared_data/S_labeled_data/S_labeled_data_1fps_4')
+    categories = os.listdir('/misc/vlgscratch4/LakeGroup/shared_data/S_clean_labeled_data_1fps_5/')
     categories.remove('greenery')
     categories.remove('plushanimal')
+    categories.remove('carseat')
+    categories.remove('couch')
 
     # read vocab pickle file
     with open('data/vocab.pickle', 'rb') as f:
@@ -87,25 +89,39 @@ def image_classification_task():
     plt.close()
 
         
-def cross_situational_task():
+def cross_situational_task(exp_name, eval_type):
+    print(f'running cross situational evaluation with {exp_name} model')
+    
     # load model from checkpoint
-    model = ImageUtteranceModel.load_from_checkpoint('models/multimodal-epoch=99.ckpt')
+    if exp_name == 'multimodal_word_embed_random_init':
+        model = ImageUtteranceModel.load_from_checkpoint(
+            'models/multimodal_word_embed_random_init_epoch=89.ckpt')
+    elif exp_name == 'multimodal_rnn_random_init':
+        model = ImageUtteranceModel.load_from_checkpoint(
+            'models/multimodal_rnn_random_init_epoch=92.ckpt')
+    elif exp_name == 'multimodal_rnn_pretrained_init':
+        model = ImageUtteranceModel.load_from_checkpoint(
+            'models/multimodal_rnn_pretrained_init_epoch=93.ckpt')
+        
     model = model.to(device)
      
-    # generate examples from validation dataset
-    n_evaluations = 1
-    n_foils = 3
-    val_dataset = SAYCamEvalDataset(eval_type='val')
-    val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1)
-    val_imgs = pd.read_csv('data/validation.csv')
+    # grab validation dataset
+    dataset = SAYCamEvalDataset(eval_type=eval_type)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=8)
+
+    if eval_type == 'val':
+        df = pd.read_csv('data/validation.csv')
+    elif eval_type == 'test':
+        df = pd.read_csv('data/test.csv')
+        
+    results_columns = df.columns.tolist() + ['target_sim', 'foil_one_sim',
+                                             'foil_two_sim', 'foil_three_sim', 'correct']
+    results = []
      
     # read vocab pickle file
-    with open('data/vocab.pickle', 'rb') as f:
-        vocab = pickle.load(f)
-        word2index = vocab['word2index']
-        index2word = {v: k for k, v in word2index.items()}
+    vocab = WordDictionary()
      
-    for idx, (images, label) in enumerate(val_dataloader):
+    for idx, (images, label) in enumerate(dataloader):
         # move to gpu
         images = images.to(device)
         label = label.to(device)
@@ -113,58 +129,91 @@ def cross_situational_task():
         # compute matchmap for all examples
         images = images.squeeze(0)  # (target + foils, channel, height, width)
         label = label.squeeze(0)
+
         image_embeddings = model.image_model(images)  # (target + foils, embedding_size, height, width)
-        label_embedding = model.utterance_model(label)  # (1, embedding_size)
+
+        # modify lang encoder forward pass depending on word embed or rnn
+        if 'word_embed' in exp_name:
+            label_embedding = model.utterance_model(label)  # (1, embedding_size)
+        elif 'rnn' in exp_name:
+            label_embedding = model.utterance_model(label, torch.LongTensor([1]))  # (1, embedding_size)
+            label_embedding = label_embedding.squeeze(0)  # rnn adds batck dim in, so remove it here
+
         matchmaps = []
         matchmap_sims = []
          
         # compute matchmap similarity for each image (target + all foils)
-        fig = plt.figure(figsize=(6, 10))
-        max_sim = 1
+        # fig = plt.figure(figsize=(6, 10))
+        min_sim = None
+        max_sim = None
      
         # calculate matchmap and max sim
         for i in range(len(image_embeddings)):
             image_embedding = image_embeddings[i]
             matchmap = model.compute_matchmap(image_embedding, label_embedding)
             matchmaps.append(matchmap[0])
-     
-            if torch.max(matchmap).item() > max_sim:
+
+            # update min and max for plotting
+            if min_sim is None or torch.max(matchmap).item() < min_sim:
+                min_sim = torch.max(matchmap).item()
+            if max_sim is None or torch.max(matchmap).item() > max_sim:
                 max_sim = torch.max(matchmap).item()
                 
             matchmap_sim = model.compute_matchmap_sim(matchmap).item()
             matchmap_sims.append(matchmap_sim)
-     
+
+        # calculate whether trial is correct
+        if matchmap_sims[0] == max_sim:
+            correct = True
+        else:
+            correct = False
+
+        # create heatmaps
         for i in range(len(image_embeddings)):
-            matchmap = matchmaps[i] 
-            matchmap_sim = matchmap_sims[i]
-            ax = fig.add_subplot(4, 2, 2*i+1)
-     
-            if i == 0:
-                img = io.imread(val_imgs['target_img_filename'].iloc[idx])
-            elif i == 1:
-                img = io.imread(val_imgs['foil_one_img_filename'].iloc[idx])
-            elif i == 2:
-                img = io.imread(val_imgs['foil_two_img_filename'].iloc[idx])
-            elif i == 3:
-                img = io.imread(val_imgs['foil_three_img_filename'].iloc[idx])
-                
-            plt.imshow(img)
-            plt.title(f'sim: {matchmap_sim:4f}')
-            plt.axis('off')
+            matchmap = matchmaps[i]
             
-            # curr_heatmap = resize(matchmap[0].cpu().detach().numpy(), [img.shape[0], img.shape[1]])
+            fig = plt.figure(figsize=(8, 8))
+            ax = plt.axes()
+
+            if i == 0:
+                img = io.imread(df['target_img_filename'].iloc[idx])
+                filename = f'figures/{exp_name}/trial_{idx}_target_heatmap.png'
+            elif i == 1:
+                img = io.imread(df['foil_one_img_filename'].iloc[idx])
+                filename = f'figures/{exp_name}/trial_{idx}_foil_one_heatmap.png'
+            elif i == 2:
+                img = io.imread(df['foil_two_img_filename'].iloc[idx])
+                filename = f'figures/{exp_name}/trial_{idx}_foil_two_heatmap.png'
+            elif i == 3:
+                img = io.imread(df['foil_three_img_filename'].iloc[idx])
+                filename = f'figures/{exp_name}/trial_{idx}_foil_three_heatmap.png'
+
+            plt.imshow(img)
             curr_heatmap = cv2.resize(matchmap.cpu().detach().numpy(), (img.shape[0], img.shape[1]),
                                       interpolation=cv2.INTER_CUBIC)
-            ax = fig.add_subplot(4, 2, 2*i+2)
             plt.imshow(img)
-            plt.imshow(curr_heatmap, alpha=0.75, vmin=np.min(matchmap.cpu().detach().numpy()), vmax=max_sim)
-            plt.axis('off')
-          
-        plt.legend([])
-        plt.savefig(f'viz/eval/eval_{idx}.png')
-        plt.close()
+            plt.imshow(curr_heatmap, alpha=0.75, vmin=torch.min(matchmap).item(), vmax=torch.max(matchmap).item())
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_xticklabels([])
+            ax.set_yticklabels([])
+            ax.set_aspect('equal')
+            plt.tight_layout()
+
+            plt.savefig(filename, bbox_inches='tight', pad_inches=0, transparent=True)
+            plt.close()
+
+        print('finished saving heatmaps for eval trial', idx)
+            
+        # append results
+        curr_results = df.iloc[idx].tolist() + matchmap_sims + [correct]
+        results.append(curr_results)
+
+    print('saving evaluation results to file!')
+    results_df = pd.DataFrame(results, columns=results_columns)
+    results_df.to_csv(f'results/{exp_name}_{eval_type}_results.csv', index=False)
 
 if __name__ == "__main__":
-    # cross_situational_task()
-    image_classification_task()
-    
+    cross_situational_task(exp_name='multimodal_word_embed_random_init', eval_type='val')
+    # cross_situational_task(exp_name='multimodal_rnn_random_init', eval_type='val')
+    cross_situational_task(exp_name='multimodal_rnn_pretrained_init', eval_type='val')
