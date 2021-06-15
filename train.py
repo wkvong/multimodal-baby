@@ -270,8 +270,6 @@ class ImageUtteranceModel(pl.LightningModule):
             print(f'category: {category_label}, accuracy: {category_accuracy}, n_evals: {len(category_max_idx)}')
 
     def configure_optimizers(self):
-        # REQUIRED
-        # can return multiple optimizers and learning_rate schedulers
         return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
 
     def train_dataloader(self):
@@ -305,9 +303,12 @@ class ImageUtteranceModel(pl.LightningModule):
                             help='specify the kind of language encoder to use (word_embed or rnn)')
         parser.add_argument('--use_pretrained_lang', action='store_true',
                             help='specify whether to use pretrained embeddings for language encoder')
-        parser.add_argument('--train_cnn', type=str,
+        parser.add_argument('--finetune_cnn', action='store_true',
                             help='specify whether to freeze or finetune CNN')
-
+        parser.add_argument('--data_augmentation', action='store_true',
+                            help='specify whether to perform data augmentation for images')
+        # TODO: add argument for loss type?
+        
         # training specific (for this model)
         parser.add_argument('--exp_name', type=str, required=True, default='multimodal_test')
         parser.add_argument('--max_epochs', default=100, type=int)
@@ -323,6 +324,7 @@ def main(hparams):
     model = ImageUtteranceModel(hparams)
 
     # set-up checkpoint callback
+    # TODO: add more details to checkpoint name
     checkpoint_callback = ModelCheckpoint(
         filepath=os.path.join(os.getcwd(), f'models/{hparams.exp_name}_' + '{epoch:02d}'),
         save_top_k=1,
