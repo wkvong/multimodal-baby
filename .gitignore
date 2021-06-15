@@ -1,9 +1,12 @@
 __pycache__/
 data/
+eval_viz/
 models/
 figures/
 lightning_logs/
 logs/
+results/
 viz/
 credentials.json
 token.pickle
+*.DS_Store
