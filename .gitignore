@@ -1,12 +1,14 @@
 __pycache__/
-data/
+data_old/
 eval_viz/
 models/
 figures/
 lightning_logs/
 logs/
 results/
+transcripts/
 viz/
 credentials.json
+token.json
 token.pickle
 *.DS_Store
