@@ -21,8 +21,9 @@ def convert_timestamps_to_seconds(timestamps):
     
     new_timestamps = []
     for timestamp in timestamps:
-        if isinstance(timestamp, str):
-            timestamp_one = msplit(timestamp, '-')[0]
+        timestamp = str(timestamp)  # convert to string
+        if timestamp != 'nan':
+            timestamp_one = msplit(timestamp, '-')[0]  # get starting timestamp
          
             if timestamp_one != '':
                 splits = msplit(timestamp_one, (':', '.', ',', ';'))
@@ -34,7 +35,7 @@ def convert_timestamps_to_seconds(timestamps):
                     splits.append('0')
                 else:
                     # sometimes only the tens of seconds are reported as single digits
-                    # this converts this correctly
+                    # this converts these values to seconds
                     if splits[1] == '1':
                         splits[1] = '10'
                     elif splits[1] == '2':
@@ -45,11 +46,19 @@ def convert_timestamps_to_seconds(timestamps):
                         splits[1] = '40'
                     elif splits[1] == '5':
                         splits[1] = '50'
-         
-                timestamp_one_secs = int(splits[0]) * 60 + int(splits[1])
-                if timestamp_one_secs > 2000:
-                    print(f'timestamp out of range: {timestamp_one_secs}')
-                    timestamp_one_secs = np.nan
+
+                # trim whitespace
+                splits[0] = splits[0].strip()
+                splits[1] = splits[1].strip()
+
+                if len(splits[1]) <= 2:
+                    # handle proper timestamps
+                    timestamp_one_secs = int(splits[0]) * 60 + int(splits[1])
+                else:
+                    # handle float-like timestamps
+                    # TODO: figure out what the floats encode, otherwise
+                    # for now just setting them to None
+                    timestamp_one_secs = None
          
                 new_timestamps.append(timestamp_one_secs)
             else:
@@ -58,4 +67,3 @@ def convert_timestamps_to_seconds(timestamps):
             new_timestamps.append(None)  # handles non-strings like nans
 
     return new_timestamps
-
