@@ -27,16 +27,15 @@ from multimodal_saycam.data.util import msplit, convert_timestamps_to_seconds
 BATCH_SIZE = 128
 NUM_WORKERS = 0
 
-GSHEETS_CREDENTIALS_FILENAME = BaseDataModule.data_dirname() / "desktop-credentials.json"
+GSHEETS_CREDENTIALS_FILENAME = BaseDataModule.data_dirname() / "credentials.json"
 TRANSCRIPT_LINKS_FILENAME = BaseDataModule.data_dirname() / "SAYCam_transcript_links_new.csv"
 TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "transcripts"
+PREPROCESSED_TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "preprocessed_transcripts"
 RAW_VIDEO_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/videos/S"
 # RAW_TRANSCRIPT_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/annotations/S/"
 LABELED_S_DIR = ""
-PROCESSED_TRANSCRIPT_DIRNAME = ""
-PROCESSED_TRANSCRIPT_FILENAME = ""
-EXTRACTED_FRAMES_DIRNAME = ""
-VOCAB_FILENAME = ""
+EXTRACTED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train"
+VOCAB_FILENAME = BaseDataModule.data_dirname() / "vocab.json"
 
 MAX_FRAMES_PER_UTTERANCE = 20
     
@@ -141,10 +140,18 @@ def _process_transcripts():
     print("Processing transcripts")
 
     # get all transcripts and allowed speakers
-    transcripts = sorted(Path(TRANSCRIPTS_DIRNAME).glob("*.csv"))[10:20]
+    transcripts = sorted(Path(TRANSCRIPTS_DIRNAME).glob("*.csv"))
     allowed_speakers = ['M', 'Mom', 'mom', 'm', 'mother', 'Mother', 'papa', 'the mom']
 
     for transcript_idx, transcript_filename in enumerate(transcripts):
+        # empty list to store processed transcript information
+        preprocessed_transcript = []
+        preprocessed_transcript_filename = PREPROCESSED_TRANSCRIPTS_DIRNAME / transcript_filename.name
+
+        # create preprocessed transcripts folder
+        if not os.path.exists(PREPROCESSED_TRANSCRIPTS_DIRNAME):
+            os.makedirs(PREPROCESSED_TRANSCRIPTS_DIRNAME)
+        
         # read transcript CSV
         print(f'Preprocessing transcript: {transcript_filename.name} ({transcript_idx+1}/{len(transcripts)})')
         transcript = pd.read_csv(transcript_filename)
@@ -158,7 +165,7 @@ def _process_transcripts():
         transcript['Time (Seconds)'] = new_timestamps
 
         # reset utterance count
-        utterance_count = 1  # TODO: why is this 1 and not 0?
+        utterance_num = 1
 
         # extract unique video filename from transcript
         video_filename = pd.unique(transcript['Video Name'])
@@ -178,37 +185,57 @@ def _process_transcripts():
         # check video and transcript filenames match
         assert video_filename.stem == transcript_filename.stem
 
-        # check if video exists
-        # if not video_filename.exists():
-        #     continue
-        # else:
-        #     video_info = _get_video_info(video_filename)
-        #     frame_length = video_info[4]
-
-        frame_length = 30 * 60  # TODO: current hack to get end of video
-
         for transcript_row_idx, row in transcript.iterrows():
             # get information from current utterance
             utterance = str(row['Utterance'])  # convert to string
             speaker = str(row['Speaker'])
             start_timestamp = row['Time (Seconds)']
 
-            # get end timestamp (either start of next timestamp, or end of video)
+            # get end timestamp
+            # hack: if last timestamp, just set end timestamp to be start time
+            # this means we don't have to read the video file for this to work
             if transcript_row_idx < len(transcript) - 1:
                 end_timestamp = transcript['Time (Seconds)'][transcript_row_idx+1]
             else:
-                end_timestamp = frame_length
+                end_timestamp = start_timestamp  # this will sample a single frame for the last utterance
 
-            # skip processing utterance if start or end timestamps are null, or speaker is not in
-            # list of allowed speakers
+            # skip processing utterance if start or end timestamps are null,
+            # or if speaker is not in the list of allowed speakers
             if pd.isnull(start_timestamp) or pd.isnull(end_timestamp) or speaker not in allowed_speakers:
                 continue
 
-            # utterances, timestamps, num_frames = _preprocess_utterance(utterance, start_timestamp, end_timestamp)
-            _preprocess_utterance(utterance, start_timestamp, end_timestamp)
+            # preprocess utterance to extract sub-utterances and timestamps
+            utterances, timestamps, num_frames = _preprocess_utterance(
+                utterance, start_timestamp, end_timestamp)
+
+            # skip if preprocessed utterance is empty
+            if len(utterances) == 0:
+                continue
+
+            # create dataset based on preprocessed utterances
+            for (curr_utterance, curr_timestamps, curr_num_frames) in zip(utterances, timestamps, num_frames):
+                # loop over all possible frames for the current utterance
+                for frame_num, curr_timestamp in enumerate(curr_timestamps):
+                    frame_filename = f'{video_filename.stem}_{utterance_num:03}_{frame_num:02}.jpg'
+                    preprocessed_transcript.append([transcript_filename.name,
+                        video_filename.name, curr_utterance, curr_timestamp,
+                        utterance_num, frame_num, frame_filename])
+
+                utterance_num += 1
+
+        # save preprocessed transcript as CSV
+        preprocessed_transcript_columns = ['transcript_filename', 'video_filename',
+            'utterance', 'timestamp', 'utterance_num', 'frame_num', 'frame_filename']
+        preprocessed_transcript_df = pd.DataFrame(preprocessed_transcript,
+                                                  columns=preprocessed_transcript_columns)
+        preprocessed_transcript_df.to_csv(preprocessed_transcript_filename, index=False)
+
 
 def _preprocess_utterance(utterance, start_timestamp, end_timestamp):
     """Preprocesses a single utterance, splitting it into multiple clean utterances with separate timestamps"""
+
+    # check start timestamp is before end timestamp
+    assert start_timestamp <= end_timestamp
 
     # remove special characters, anything in asterisks or parentheses etc.
     utterance = re.sub(r'\*[^)]*\*', '', utterance)
@@ -232,19 +259,31 @@ def _preprocess_utterance(utterance, start_timestamp, end_timestamp):
         # get interpolated timestamps, including end timestamp (which we remove later)
         timestamps = np.linspace(start_timestamp, end_timestamp, len(utterances)+1, endpoint=True)
         timestamps = [int(timestamp) for timestamp in timestamps]
+        all_timestamps = []
         num_frames = []
 
         # calculate number of frames to extract per utterance (max: 20 frames)
         for i in range(len(timestamps)-1):
-            curr_num_frames = min(timestamps[i+1] - timestamps[i], MAX_FRAMES_PER_UTTERANCE)
+            curr_num_frames = max(min(timestamps[i+1] - timestamps[i], MAX_FRAMES_PER_UTTERANCE), 1)
+            curr_timestamps = list(range(timestamps[i],timestamps[i]+curr_num_frames))
+
+            # check same length
+            assert len(curr_timestamps) == curr_num_frames
+
+            # append information
             num_frames.append(curr_num_frames)
+            all_timestamps.append(curr_timestamps)
 
         timestamps = timestamps[:-1]  # remove end timestamp
-
-        # created nested timestamps??
     else:
-        pass
-    
+        all_timestamps = []
+        num_frames = []
+
+    # check everything is the same length
+    assert len(utterances) == len(all_timestamps)
+    assert len(all_timestamps) == len(num_frames)
+
+    return utterances, all_timestamps, num_frames
             
 def _extract_frames():
     """Extract aligned frames from SAYCam videos"""
