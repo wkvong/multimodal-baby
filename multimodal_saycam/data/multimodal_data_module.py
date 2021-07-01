@@ -8,6 +8,7 @@ import time
 import argparse
 import cv2 as cv
 
+import imageio
 import numpy as np
 import pandas as pd
 from gsheets import Sheets
@@ -36,6 +37,8 @@ RAW_VIDEO_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotation
 # RAW_TRANSCRIPT_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/annotations/S/"
 LABELED_S_DIR = ""
 EXTRACTED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train"
+ANIMATED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train_animated"
+TRAIN_METADATA_FILENAME = BaseDataModule.data_dirname() / "train.json"
 VOCAB_FILENAME = BaseDataModule.data_dirname() / "vocab.json"
 
 MAX_FRAMES_PER_UTTERANCE = 20
@@ -56,7 +59,8 @@ class MultiModalDataModule(BaseDataModule):
         _rename_transcripts()
         _preprocess_transcripts()
         _extract_frames()
-        _process_dataset()
+        _create_train_metadata()
+        _create_animations()
         _create_vocab()
     
     def setup(self) -> None:
@@ -296,11 +300,10 @@ def _preprocess_utterance(utterance, start_timestamp, end_timestamp):
 def _extract_frames():
     """Extract aligned frames from SAYCam videos"""
 
-    if True:
-    # if os.path.exists(EXTRACTED_FRAMES_DIRNAME):
-    #     print("Frames have already been extracted. Skipping this step.")
-    # else:
-    #     print("Extracting frames")
+    if os.path.exists(EXTRACTED_FRAMES_DIRNAME):
+        print("Frames have already been extracted. Skipping this step.")
+    else:
+        print("Extracting frames")
 
         # create directory to store extracted frames
         if not os.path.exists(EXTRACTED_FRAMES_DIRNAME):
@@ -382,12 +385,89 @@ def _extract_frame(frame, frame_height, frame_width):
     return cropped_frame
 
     
-def _process_dataset():
-    print("Processing dataset!")
+def _create_train_metadata():
+    """Creates a JSON file with image-utterance information"""
+    
+    if os.path.exists(TRAIN_METADATA_FILENAME):
+        print("Training metadata file already been created . Skipping this step.")
+    else:
+        print("Creating training metadata file")
 
+        # get all preprocessed transcripts
+        transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))
+
+        utterances = []
+
+        for idx, transcript in enumerate(transcripts):            
+            # read in preprocessed transcript
+            transcript_df = pd.read_csv(transcript)
+            
+            # group by utterances
+            utterance_groups = transcript_df.groupby('utterance_num')
+            for utterance, utterance_group in utterance_groups:
+                # extract relevant information
+                curr_utterance = {}
+                curr_utterance['transcript_filename'] = pd.unique(utterance_group['transcript_filename']).item()
+                curr_utterance['video_filename'] = pd.unique(utterance_group['video_filename']).item()
+                curr_utterance['utterance_num'] = pd.unique(utterance_group['utterance_num']).item()
+                curr_utterance['num_frames'] = len(utterance_group)
+                curr_utterance['frame_filenames'] = list(utterance_group['frame_filename'])
+                curr_utterance['timestamps'] = list(utterance_group['timestamp'])
+                utterances.append(curr_utterance)
+
+        # put utterances into a dictionary
+        train_dict = {'images': utterances}
+
+        # save as JSON file
+        with open(TRAIN_METADATA_FILENAME, 'w') as f:
+            json.dump(train_dict, f)
+
+def _create_animations():
+    """Create animated GIFs of extracted frames paired with each utterance"""
+    
+    # create directory to store extracted frames
+    if not os.path.exists(ANIMATED_FRAMES_DIRNAME):
+        os.makedirs(ANIMATED_FRAMES_DIRNAME)
+
+    # get list of preprocessed transcripts
+    transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))
+
+    for idx, transcript in enumerate(transcripts):
+        print(f'Creating animated gifs: {transcript} ({idx+1}/{len(transcripts)})')
+        
+        # read in preprocessed transcript
+        transcript_df = pd.read_csv(transcript)
+        
+        # group by utterances
+        utterance_groups = transcript_df.groupby('utterance_num')
+
+        # create gif
+        for utterance, utterance_group in utterance_groups:
+            utterance_num = pd.unique(utterance_group['utterance_num']).item()
+            gif_filename = f"{pd.unique(utterance_group['transcript_filename']).item()[:-4]}_{utterance_num:03}.gif"
+            gif_filepath = Path(ANIMATED_FRAMES_DIRNAME, gif_filename)
+            frame_filenames = utterance_group['frame_filename']
+
+            frames = []
+            for frame_filename in frame_filenames:
+                frame_filepath = EXTRACTED_FRAMES_DIRNAME / frame_filename
+
+                try:
+                    img = imageio.imread(frame_filepath)
+                except FileNotFoundError:
+                    continue
+                    
+                frames.append(img)
+
+            if len(frames) > 0:
+                imageio.mimsave(gif_filepath, frames, fps=5)
+
+            
 def _create_vocab():
     """Create vocabulary object and save to file"""
     print("Creating vocabulary!")
+
+    # TODO: create JSON object for vocab
 
 if __name__ == "__main__":
     load_and_print_info(MultiModalDataModule)
