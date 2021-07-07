@@ -18,7 +18,7 @@ def load_and_print_info(data_module_class) -> None:
     print(dataset)
 
 
-BATCH_SIZE = 128
+BATCH_SIZE = 4
 NUM_WORKERS = 0
 
 
@@ -40,9 +40,9 @@ class BaseDataModule(pl.LightningDataModule):
         self.dims: Tuple[int, ...]
         self.output_dims: Tuple[int, ...]
         self.mapping: Collection
-        self.data_train: Dataset
-        self.data_val: Dataset
-        self.data_test: Dataset
+        self.train_dataset: Dataset
+        self.val_dataset: Dataset
+        self.test_dataset: Dataset
 
     @classmethod
     def data_dirname(cls):
@@ -76,27 +76,27 @@ class BaseDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         return DataLoader(
-            self.data_train,
+            self.train_dataset,
             shuffle=True,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            pin_memory=self.on_gpu,
+            # pin_memory=self.on_gpu,
         )
 
     def val_dataloader(self):
         return DataLoader(
-            self.data_val,
+            self.val_dataset,
             shuffle=False,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            pin_memory=self.on_gpu,
+            # pin_memory=self.on_gpu,
         )
 
     def test_dataloader(self):
         return DataLoader(
-            self.data_test,
+            self.test_dataset,
             shuffle=False,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            pin_memory=self.on_gpu,
+            # pin_memory=self.on_gpu,
         )

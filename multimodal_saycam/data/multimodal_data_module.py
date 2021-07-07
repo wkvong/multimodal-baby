@@ -1,19 +1,21 @@
 from pathlib import Path
-from typing import Collection, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Collection, Dict, Optional, Tuple, Union
 import os
 import glob
 import json
+import random
 import re
 import time
 import argparse
 import cv2 as cv
 
 import imageio
+from PIL import Image
 import numpy as np
 import pandas as pd
 from gsheets import Sheets
 from torchvision import transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 import pytorch_lightning as pl
 
 import os.path
@@ -23,27 +25,78 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
 from multimodal_saycam.data.base_data_module import BaseDataModule, load_and_print_info
-from multimodal_saycam.data.util import msplit, convert_timestamps_to_seconds
+from multimodal_saycam.data.util import *
 
 
-BATCH_SIZE = 128
+BATCH_SIZE = 4
 NUM_WORKERS = 0
+TRAIN_FRAC = 0.95
 
 GSHEETS_CREDENTIALS_FILENAME = BaseDataModule.data_dirname() / "credentials.json"
 TRANSCRIPT_LINKS_FILENAME = BaseDataModule.data_dirname() / "SAYCam_transcript_links_new.csv"
 TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "transcripts"
-PREPROCESSED_TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "preprocessed_transcripts"
+PREPROCESSED_TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "preprocessed_transcripts_1fps"
 RAW_VIDEO_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/S_videos/"
-# RAW_TRANSCRIPT_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/annotations/S/"
 LABELED_S_DIR = ""
 EXTRACTED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train"
 ANIMATED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train_animated"
 TRAIN_METADATA_FILENAME = BaseDataModule.data_dirname() / "train.json"
 VOCAB_FILENAME = BaseDataModule.data_dirname() / "vocab.json"
 
-MAX_FRAMES_PER_UTTERANCE = 20
+MAX_FRAMES_PER_UTTERANCE = 32
+MAX_LEN_UTTERANCE = 16
+
+class MultiModalSAYCamDataset(Dataset):
+    """
+    Dataset that returns paired image-utterances from baby S of the SAYCam Dataset
+    """
     
-class MultiModalDataModule(BaseDataModule):
+    def __init__(self, data: Dict, vocab: Dict, transform: Callable = None):
+        super().__init__()
+        self.data = data
+        self.vocab = vocab
+        self.transform = transform
+
+    def __len__(self) -> int:
+        """Return length of the dataset."""
+        return len(self.data)
+    
+    def __getitem__(self, i: int) -> Tuple[Any, Any, Any]:
+        """
+        Returns an image-utterance pair
+        """
+
+        # get utterance and convert to indices
+        utterance = self.data[i]['utterance']
+        print(utterance)
+        utterance_words = utterance.split(' ')
+        utterance_length = len(utterance_words)
+        utterance_idxs = np.zeros(MAX_LEN_UTTERANCE)  # initialize padded array
+        for i, word in enumerate(utterance_words):
+            if i >= MAX_LEN_UTTERANCE:
+                break
+            
+            try:
+                utterance_idxs[i] = self.vocab[word]
+            except KeyError:
+                utterance_idxs[i] = self.vocab['<unk>']
+
+        # convert to torch tensor
+        utterance_idxs = torch.LongTensor(utterance_idxs)
+
+        # sample a random image associated with this utterance
+        img_filenames = self.data[i]['frame_filenames']
+        img_filename = Path(EXTRACTED_FRAMES_DIRNAME, random.choice(img_filenames))
+        img = Image.open(img_filename).convert('RGB')
+
+        # apply transforms
+        if self.transform is not None:
+            img = self.transform(img)
+
+        return img, utterance_idxs, utterance_length
+
+    
+class MultiModalSAYCamDataModule(BaseDataModule):
     """
     The MultiModal SAYCam Dataset is a dataset created from baby S of the SAYCam Dataset consisting of
     image frames and the associated child-directed utterances.
@@ -53,6 +106,17 @@ class MultiModalDataModule(BaseDataModule):
         super().__init__(args)
         
         # set other variables for our dataset here
+        # TODO: add command line flag to augment or not
+        self.transform = transforms.Compose([
+            transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
+            transforms.RandomApply([transforms.ColorJitter(0.9, 0.9, 0.9, 0.5)], p=0.9),
+            transforms.RandomGrayscale(p=0.2),
+            transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
+            transforms.RandomHorizontalFlip(),            
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+        
 
     def prepare_data(self, *args, **kwargs) -> None:
         _download_transcripts()
@@ -63,17 +127,19 @@ class MultiModalDataModule(BaseDataModule):
         _create_animations()
         _create_vocab()
     
-    def setup(self) -> None:
-        pass
+    def setup(self, *args, **kwargs) -> None:
+        # read data
+        with open(TRAIN_METADATA_FILENAME) as f:
+            data = json.load(f)
+            data = data['images']
 
-    def train_dataloader(self):
-        pass
+        # read vocab
+        with open(VOCAB_FILENAME) as f:
+            vocab = json.load(f)
 
-    def val_dataloader(self):
-        pass
-
-    def test_dataloader(self):
-        pass
+        # create dataset
+        trainval_dataset = MultiModalSAYCamDataset(data, vocab, transform=self.transform)
+        self.train_dataset, self.val_dataset = split_dataset(trainval_dataset, fraction=TRAIN_FRAC, seed=0)
         
 
 def _download_transcripts():
@@ -276,9 +342,12 @@ def _preprocess_utterance(utterance, start_timestamp, end_timestamp):
 
         # calculate number of frames to extract per utterance (max: 20 frames)
         for i in range(len(timestamps)-1):
-            curr_num_frames = max(min(timestamps[i+1] - timestamps[i], MAX_FRAMES_PER_UTTERANCE), 1)
-            curr_timestamps = list(range(timestamps[i],timestamps[i]+curr_num_frames))
+            # curr_num_frames = max(min(timestamps[i+1] - timestamps[i], MAX_FRAMES_PER_UTTERANCE), 1)
+            # curr_timestamps = list(range(timestamps[i],timestamps[i]+curr_num_frames))
 
+            curr_num_frames = MAX_FRAMES_PER_UTTERANCE
+            curr_timestamps = np.linspace(timestamps[i], timestamps[i] + MAX_FRAMES_PER_UTTERANCE / 10,
+                                          MAX_FRAMES_PER_UTTERANCE, endpoint=False)
             # check same length
             assert len(curr_timestamps) == curr_num_frames
 
@@ -413,6 +482,7 @@ def _create_train_metadata():
                 curr_utterance['num_frames'] = len(utterance_group)
                 curr_utterance['frame_filenames'] = list(utterance_group['frame_filename'])
                 curr_utterance['timestamps'] = list(utterance_group['timestamp'])
+                curr_utterance['utterance'] = pd.unique(utterance_group['utterance']).item()
                 utterances.append(curr_utterance)
 
         # put utterances into a dictionary
@@ -424,50 +494,80 @@ def _create_train_metadata():
 
 def _create_animations():
     """Create animated GIFs of extracted frames paired with each utterance"""
+
+    if os.path.exists(ANIMATED_FRAMES_DIRNAME):
+        print("Animated gifs have already been created. Skipping this step.")
+    else:
+        print("Creating animated gifs")
     
-    # create directory to store extracted frames
-    if not os.path.exists(ANIMATED_FRAMES_DIRNAME):
-        os.makedirs(ANIMATED_FRAMES_DIRNAME)
-
-    # get list of preprocessed transcripts
-    transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))
-
-    for idx, transcript in enumerate(transcripts):
-        print(f'Creating animated gifs: {transcript} ({idx+1}/{len(transcripts)})')
-        
-        # read in preprocessed transcript
-        transcript_df = pd.read_csv(transcript)
-        
-        # group by utterances
-        utterance_groups = transcript_df.groupby('utterance_num')
-
-        # create gif
-        for utterance, utterance_group in utterance_groups:
-            utterance_num = pd.unique(utterance_group['utterance_num']).item()
-            gif_filename = f"{pd.unique(utterance_group['transcript_filename']).item()[:-4]}_{utterance_num:03}.gif"
-            gif_filepath = Path(ANIMATED_FRAMES_DIRNAME, gif_filename)
-            frame_filenames = utterance_group['frame_filename']
-
-            frames = []
-            for frame_filename in frame_filenames:
-                frame_filepath = EXTRACTED_FRAMES_DIRNAME / frame_filename
-
-                try:
-                    img = imageio.imread(frame_filepath)
-                except FileNotFoundError:
-                    continue
-                    
-                frames.append(img)
-
-            if len(frames) > 0:
-                imageio.mimsave(gif_filepath, frames, fps=5)
+        # create directory to store extracted frames
+        if not os.path.exists(ANIMATED_FRAMES_DIRNAME):
+            os.makedirs(ANIMATED_FRAMES_DIRNAME)
+     
+        # get list of preprocessed transcripts
+        transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))
+     
+        for idx, transcript in enumerate(transcripts):
+            print(f'Creating animated gifs: {transcript} ({idx+1}/{len(transcripts)})')
+            
+            # read in preprocessed transcript
+            transcript_df = pd.read_csv(transcript)
+            
+            # group by utterances
+            utterance_groups = transcript_df.groupby('utterance_num')
+     
+            # create gif
+            for utterance, utterance_group in utterance_groups:
+                utterance_num = pd.unique(utterance_group['utterance_num']).item()
+                gif_filename = f"{pd.unique(utterance_group['transcript_filename']).item()[:-4]}_{utterance_num:03}.gif"
+                gif_filepath = Path(ANIMATED_FRAMES_DIRNAME, gif_filename)
+                frame_filenames = utterance_group['frame_filename']
+     
+                frames = []
+                for frame_filename in frame_filenames:
+                    frame_filepath = EXTRACTED_FRAMES_DIRNAME / frame_filename
+     
+                    try:
+                        img = imageio.imread(frame_filepath)
+                    except FileNotFoundError:
+                        continue
+                        
+                    frames.append(img)
+     
+                if len(frames) > 0:
+                    imageio.mimsave(gif_filepath, frames, fps=5)
 
             
 def _create_vocab():
     """Create vocabulary object and save to file"""
-    print("Creating vocabulary!")
 
-    # TODO: create JSON object for vocab
+    if VOCAB_FILENAME.exists():
+        print("Vocabulary file already exists. Skipping this step.")
+    else:
+        print("Creating vocab.json file!")
+
+        # create vocab dictionary
+        vocab_dict = {'<pad>': 0, '<unk>': 1, '<sos>': 2, '<eos>': 4}
+        num_words = 4
+
+        # load utterances
+        with open(TRAIN_METADATA_FILENAME) as f:
+            train_dict = json.load(f)
+
+        # fill vocab with all words from utterances
+        train = train_dict['images']
+        for i in range(len(train)):
+            curr_utterance = str(train[i]['utterance'])
+            words = curr_utterance.split(' ')
+            for word in words:
+                if word not in vocab_dict:
+                    vocab_dict[word] = num_words
+                    num_words += 1
+
+        # save as JSON file
+        with open(VOCAB_FILENAME, 'w') as f:
+            json.dump(vocab_dict, f)
+        
 
 if __name__ == "__main__":
-    load_and_print_info(MultiModalDataModule)
+    load_and_print_info(MultiModalSAYCamDataModule)

@@ -1,4 +1,5 @@
 __pycache__/
+*.pyc
 data/
 data_old/
 eval_viz/
@@ -13,3 +14,4 @@ credentials.json
 token.json
 token.pickle
 *.DS_Store
+viz_new

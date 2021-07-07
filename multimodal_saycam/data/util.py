@@ -1,5 +1,7 @@
+from PIL import ImageFilter
+import random
 import numpy as np
-
+import torch
 
 def msplit(string, delimiters):
     """Split with multiple delimiters."""
@@ -67,3 +69,31 @@ def convert_timestamps_to_seconds(timestamps):
             new_timestamps.append(None)  # handles non-strings like nans
 
     return new_timestamps
+
+
+def split_dataset(base_dataset, fraction, seed):
+    """
+    Split input base_dataset into 2 base datasets, the first of size fraction * size of the base_dataset and the
+    other of size (1 - fraction) * size of the base_dataset.
+    """
+    split_a_size = int(fraction * len(base_dataset))
+    split_b_size = len(base_dataset) - split_a_size
+    return torch.utils.data.random_split(  # type: ignore
+        base_dataset, [split_a_size, split_b_size]
+    )
+    
+    # return torch.utils.data.random_split(  # type: ignore
+    #     base_dataset, [split_a_size, split_b_size], generator=torch.Generator().manual_seed(seed)
+    # )
+
+
+class GaussianBlur(object):
+    """Gaussian blur augmentation in SimCLR https://arxiv.org/abs/2002.05709"""
+
+    def __init__(self, sigma=[.1, 2.]):
+        self.sigma = sigma
+
+    def __call__(self, x):
+        sigma = random.uniform(self.sigma[0], self.sigma[1])
+        x = x.filter(ImageFilter.GaussianBlur(radius=sigma))
+        return x    
