@@ -9,22 +9,22 @@ from multimodal_saycam.data.multimodal_data_module import MultiModalSAYCamDataMo
 from multimodal_saycam.models.multimodal_cnn_embedding import MultiModalCNNEmbedding
 
 mm = MultiModalSAYCamDataModule()
-# load_and_print_info(MultiModalSAYCamDataModule)
+load_and_print_info(MultiModalSAYCamDataModule)
 
-mm.prepare_data()
-mm.setup()
-batch = iter(mm.train_dataloader()).next()
-x, y, z = batch
+# mm.prepare_data()
+# mm.setup()
+# batch = iter(mm.train_dataloader()).next()
+# x, y, z = batch
 
-parser = argparse.ArgumentParser()
-args = parser.parse_args()
-model = MultiModalCNNEmbedding(args)
+# parser = argparse.ArgumentParser()
+# args = parser.parse_args()
+# model = MultiModalCNNEmbedding(args)
 
-logits_per_image, logits_per_text = model(x, y, z)
+# logits_per_image, logits_per_text = model(x, y, z)
 
-batch_size = x.size(0)
-ground_truth = torch.LongTensor(np.arange(batch_size))
+# batch_size = x.size(0)
+# ground_truth = torch.LongTensor(np.arange(batch_size))
 
-# calculate infonce loss
-loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
-print(loss)
+# # calculate infonce loss
+# loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
+# print(loss)

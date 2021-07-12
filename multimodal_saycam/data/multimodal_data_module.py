@@ -35,13 +35,13 @@ TRAIN_FRAC = 0.95
 GSHEETS_CREDENTIALS_FILENAME = BaseDataModule.data_dirname() / "credentials.json"
 TRANSCRIPT_LINKS_FILENAME = BaseDataModule.data_dirname() / "SAYCam_transcript_links_new.csv"
 TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "transcripts"
-PREPROCESSED_TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "preprocessed_transcripts_1fps"
+PREPROCESSED_TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "preprocessed_transcripts_5fps"
 RAW_VIDEO_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/S_videos/"
 LABELED_S_DIR = ""
-EXTRACTED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train"
-ANIMATED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train_animated"
-TRAIN_METADATA_FILENAME = BaseDataModule.data_dirname() / "train.json"
-VOCAB_FILENAME = BaseDataModule.data_dirname() / "vocab.json"
+EXTRACTED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train_5fps"
+ANIMATED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train_animated_5fps"
+TRAIN_METADATA_FILENAME = BaseDataModule.data_dirname() / "train_5fps.json"
+VOCAB_FILENAME = BaseDataModule.data_dirname() / "vocab_5fps.json"
 
 MAX_FRAMES_PER_UTTERANCE = 32
 MAX_LEN_UTTERANCE = 16
@@ -68,7 +68,7 @@ class MultiModalSAYCamDataset(Dataset):
 
         # get utterance and convert to indices
         utterance = self.data[i]['utterance']
-        print(utterance)
+        # print(utterance)
         utterance_words = utterance.split(' ')
         utterance_length = len(utterance_words)
         utterance_idxs = np.zeros(MAX_LEN_UTTERANCE)  # initialize padded array
@@ -86,7 +86,9 @@ class MultiModalSAYCamDataset(Dataset):
 
         # sample a random image associated with this utterance
         img_filenames = self.data[i]['frame_filenames']
-        img_filename = Path(EXTRACTED_FRAMES_DIRNAME, random.choice(img_filenames))
+        # img_filename = Path(EXTRACTED_FRAMES_DIRNAME, random.choice(img_filenames))
+        img_filename = Path(EXTRACTED_FRAMES_DIRNAME, img_filenames[0])
+        # print(i, ':', img_filenames[0], ',', utterance)
         img = Image.open(img_filename).convert('RGB')
 
         # apply transforms
@@ -107,31 +109,37 @@ class MultiModalSAYCamDataModule(BaseDataModule):
         
         # set other variables for our dataset here
         # TODO: add command line flag to augment or not
+        # self.transform = transforms.Compose([
+        #     transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
+        #     transforms.RandomApply([transforms.ColorJitter(0.9, 0.9, 0.9, 0.5)], p=0.9),
+        #     transforms.RandomGrayscale(p=0.2),
+        #     transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
+        #     transforms.RandomHorizontalFlip(),            
+        #     transforms.ToTensor(),
+        #     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        # ])
+
         self.transform = transforms.Compose([
-            transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
-            transforms.RandomApply([transforms.ColorJitter(0.9, 0.9, 0.9, 0.5)], p=0.9),
-            transforms.RandomGrayscale(p=0.2),
-            transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
-            transforms.RandomHorizontalFlip(),            
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
         
 
     def prepare_data(self, *args, **kwargs) -> None:
-        _download_transcripts()
-        _rename_transcripts()
-        _preprocess_transcripts()
+        # _download_transcripts()
+        # _rename_transcripts()
+        # _preprocess_transcripts()
         _extract_frames()
-        _create_train_metadata()
-        _create_animations()
-        _create_vocab()
+        # _create_train_metadata()
+        # _create_animations()
+        # _create_vocab()
     
     def setup(self, *args, **kwargs) -> None:
         # read data
         with open(TRAIN_METADATA_FILENAME) as f:
             data = json.load(f)
             data = data['images']
+            random.shuffle(data)  # TODO: remove later!! just for double checking something right now
 
         # read vocab
         with open(VOCAB_FILENAME) as f:
@@ -340,14 +348,11 @@ def _preprocess_utterance(utterance, start_timestamp, end_timestamp):
         all_timestamps = []
         num_frames = []
 
-        # calculate number of frames to extract per utterance (max: 20 frames)
+        # calculate number of frames to extract per utterance (max: 32 frames at 5fps)
         for i in range(len(timestamps)-1):
-            # curr_num_frames = max(min(timestamps[i+1] - timestamps[i], MAX_FRAMES_PER_UTTERANCE), 1)
-            # curr_timestamps = list(range(timestamps[i],timestamps[i]+curr_num_frames))
-
-            curr_num_frames = MAX_FRAMES_PER_UTTERANCE
-            curr_timestamps = np.linspace(timestamps[i], timestamps[i] + MAX_FRAMES_PER_UTTERANCE / 10,
-                                          MAX_FRAMES_PER_UTTERANCE, endpoint=False)
+            curr_num_frames = max(min(int((timestamps[i+1] - timestamps[i]) / 0.2), MAX_FRAMES_PER_UTTERANCE), 1)
+            curr_timestamps = np.linspace(timestamps[i], timestamps[i] + (curr_num_frames / 5),
+                                          curr_num_frames, endpoint=False)
             # check same length
             assert len(curr_timestamps) == curr_num_frames
 
@@ -402,10 +407,11 @@ def _extract_frames():
             for transcript_row_idx, row in transcript_df.iterrows():
                 # get information for frame extraction
                 frame_filename = Path(EXTRACTED_FRAMES_DIRNAME, str(row['frame_filename']))
-                timestamp = int(row['timestamp'])
+                timestamp = float(row['timestamp'])  # keep as float
+                framestamp = int(timestamp * frame_rate)
 
                 # extract frame based on timestamp
-                cap.set(1, int(timestamp * frame_rate))  # set frame to extract from 
+                cap.set(1, framestamp)  # set frame to extract from 
                 ret, frame = cap.read()  # read frame
                 frame = _extract_frame(frame, frame_height, frame_width)
 
@@ -476,13 +482,30 @@ def _create_train_metadata():
             for utterance, utterance_group in utterance_groups:
                 # extract relevant information
                 curr_utterance = {}
+                curr_utterance['utterance'] = pd.unique(utterance_group['utterance']).item()
                 curr_utterance['transcript_filename'] = pd.unique(utterance_group['transcript_filename']).item()
                 curr_utterance['video_filename'] = pd.unique(utterance_group['video_filename']).item()
                 curr_utterance['utterance_num'] = pd.unique(utterance_group['utterance_num']).item()
                 curr_utterance['num_frames'] = len(utterance_group)
                 curr_utterance['frame_filenames'] = list(utterance_group['frame_filename'])
                 curr_utterance['timestamps'] = list(utterance_group['timestamp'])
-                curr_utterance['utterance'] = pd.unique(utterance_group['utterance']).item()
+
+                # skip over any nan utterances
+                if not isinstance(curr_utterance['utterance'], str):
+                    continue
+
+                # check frame filenames and remove any frames that were not extracted
+                for frame_filename in curr_utterance['frame_filenames']:
+                    if not (EXTRACTED_FRAMES_DIRNAME / frame_filename).exists():
+                        print(f'{frame_filename} does not exist, removing it from this list')
+                        curr_utterance['frame_filenames'].remove(frame_filename)
+
+                # skip utterance completely if no frames were extracted
+                if len(curr_utterance['frame_filenames']) == 0:
+                    print('No corresponding frames found, skipping this utterance')
+                    continue
+                
+                # append details of remaining utterances to metadata list
                 utterances.append(curr_utterance)
 
         # put utterances into a dictionary
@@ -505,7 +528,7 @@ def _create_animations():
             os.makedirs(ANIMATED_FRAMES_DIRNAME)
      
         # get list of preprocessed transcripts
-        transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))
+        transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))[:1]
      
         for idx, transcript in enumerate(transcripts):
             print(f'Creating animated gifs: {transcript} ({idx+1}/{len(transcripts)})')
@@ -535,7 +558,8 @@ def _create_animations():
                     frames.append(img)
      
                 if len(frames) > 0:
-                    imageio.mimsave(gif_filepath, frames, fps=5)
+                    print(f'Saving {gif_filepath}, with {len(frames)} frames')
+                    imageio.mimsave(gif_filepath, frames, fps=20)
 
             
 def _create_vocab():

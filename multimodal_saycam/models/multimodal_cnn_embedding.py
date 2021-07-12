@@ -39,9 +39,9 @@ class MultiModalCNNEmbedding(nn.Module):
     def forward(self, image, text, text_length):
         # encode image and text
         image_features = self.encode_image(image)  # (B, E, H, W,)
-        image_features = F.normalize(image_features, p=2, dim=1)
+        # image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
         text_features = self.encode_text(text)  # (B, L, E)
-        text_features = F.normalize(text_features, p=2, dim=2)
+        # text_features = F.normalize(text_features, p=2, dim=2)  # normalize text features
 
         # calculate batched similarity 
         match_sum = torch.einsum('iehw,tle->it', [image_features, text_features])  # calculate matchmap
@@ -52,8 +52,8 @@ class MultiModalCNNEmbedding(nn.Module):
         logits_per_image = match_avg * logit_scale
         logits_per_text = match_avg.t() * logit_scale
 
-        print(logits_per_image)
-        print(f'temp: {self.logit_scale}')
+        # print(f'temp: {self.logit_scale}')
+        # print(logits_per_image)
         
         return logits_per_image, logits_per_text
 

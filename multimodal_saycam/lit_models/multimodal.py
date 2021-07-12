@@ -28,7 +28,7 @@ class MultiModalLitModel(pl.LightningModule):
         return parser
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
         return optimizer        
 
     def forward(self, x, y, y_len):
@@ -40,11 +40,10 @@ class MultiModalLitModel(pl.LightningModule):
 
         # create ground truth labels
         batch_size = x.size(0)
-        ground_truth = torch.LongTensor(np.arange(batch_size))
+        ground_truth = torch.tensor(np.arange(batch_size), dtype=torch.long, device=self.device)
 
         # calculate infonce loss
-        # loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
-        loss = F.cross_entropy(logits_per_image, ground_truth)
+        loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
         
         self.log("train_loss", loss)
         return loss
@@ -55,7 +54,7 @@ class MultiModalLitModel(pl.LightningModule):
 
         # create ground truth labels
         batch_size = x.size(0)
-        ground_truth = torch.LongTensor(np.arange(batch_size))
+        ground_truth = torch.tensor(np.arange(batch_size), dtype=torch.long, device=self.device)
 
         # calculate infonce loss
         loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)

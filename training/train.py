@@ -32,7 +32,7 @@ def _setup_parser():
 
 def main():
     # set random seed
-    pl.seed_everything(0)
+    pl.seed_everything(42)
 
     # 
     parser = _setup_parser()
