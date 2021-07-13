@@ -126,13 +126,13 @@ class MultiModalSAYCamDataModule(BaseDataModule):
         
 
     def prepare_data(self, *args, **kwargs) -> None:
-        # _download_transcripts()
-        # _rename_transcripts()
-        # _preprocess_transcripts()
+        _download_transcripts()
+        _rename_transcripts()
+        _preprocess_transcripts()
         _extract_frames()
-        # _create_train_metadata()
+        _create_train_metadata()
         # _create_animations()
-        # _create_vocab()
+        _create_vocab()
     
     def setup(self, *args, **kwargs) -> None:
         # read data
@@ -528,7 +528,7 @@ def _create_animations():
             os.makedirs(ANIMATED_FRAMES_DIRNAME)
      
         # get list of preprocessed transcripts
-        transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))[:1]
+        transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))[:5]
      
         for idx, transcript in enumerate(transcripts):
             print(f'Creating animated gifs: {transcript} ({idx+1}/{len(transcripts)})')
@@ -559,7 +559,7 @@ def _create_animations():
      
                 if len(frames) > 0:
                     print(f'Saving {gif_filepath}, with {len(frames)} frames')
-                    imageio.mimsave(gif_filepath, frames, fps=20)
+                    imageio.mimsave(gif_filepath, frames, fps=10)
 
             
 def _create_vocab():
