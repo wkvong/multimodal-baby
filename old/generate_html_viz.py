@@ -4,10 +4,10 @@ import pandas as pd
 from multimodal_saycam.data.base_data_module import BaseDataModule
 
 PREPROCESSED_TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "preprocessed_transcripts"
-ANIMATED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train_animated"
+ANIMATED_FRAMES_DIRNAME = "img"
 
 # get list of preprocessed transcripts
-transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))
+transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))[:5]
 
 for idx, transcript in enumerate(transcripts):
     print(f'Creating visualization: {transcript} ({idx+1}/{len(transcripts)})')
@@ -17,6 +17,8 @@ for idx, transcript in enumerate(transcripts):
         
     # group by utterances
     utterance_groups = transcript_df.groupby('utterance_num')
+
+    print(f'number of utterances in {transcript.stem}: {len(utterance_groups)}')
 
     html_string = ""
 
@@ -37,10 +39,7 @@ for idx, transcript in enumerate(transcripts):
       </head>
       <body>
         <div class="container">
-          <h2>Video: {transcript.name}</h2>
-          <div class="d-flex justify-content-between">
-              <div>Index: <a href="index.html">SAYCam Videos</a></div>
-          </div>
+          <h2>Video: {transcript.stem}</h2>
 
           <br />
           <div class="row">
@@ -81,5 +80,5 @@ for idx, transcript in enumerate(transcripts):
 
     # save html to file
     viz_filename = transcript.stem + '.html'
-    with open(f'viz_new/{viz_filename}', 'w') as f:
+    with open(f'viz/{viz_filename}', 'w') as f:
         f.write(html_string)
