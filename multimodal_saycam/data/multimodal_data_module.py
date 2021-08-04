@@ -46,15 +46,19 @@ VOCAB_FILENAME = BaseDataModule.data_dirname() / "vocab_5fps.json"
 MAX_FRAMES_PER_UTTERANCE = 32
 MAX_LEN_UTTERANCE = 16
 
+AUGMENT_FRAMES = False
+USE_MULTIPLE_FRAMES = False
+
 class MultiModalSAYCamDataset(Dataset):
     """
     Dataset that returns paired image-utterances from baby S of the SAYCam Dataset
     """
     
-    def __init__(self, data: Dict, vocab: Dict, transform: Callable = None):
+    def __init__(self, data: Dict, vocab: Dict, use_multiple_frames, transform: Callable = None):
         super().__init__()
         self.data = data
         self.vocab = vocab
+        self.use_multiple_frames = use_multiple_frames
         self.transform = transform
 
     def __len__(self) -> int:
@@ -84,11 +88,16 @@ class MultiModalSAYCamDataset(Dataset):
         # convert to torch tensor
         utterance_idxs = torch.LongTensor(utterance_idxs)
 
-        # sample a random image associated with this utterance
+        # get image
         img_filenames = self.data[i]['frame_filenames']
-        # img_filename = Path(EXTRACTED_FRAMES_DIRNAME, random.choice(img_filenames))
-        img_filename = Path(EXTRACTED_FRAMES_DIRNAME, img_filenames[0])
-        # print(i, ':', img_filenames[0], ',', utterance)
+        
+        if self.use_multiple_frames:
+            # sample a random image associated with this utterance
+            img_filename = Path(EXTRACTED_FRAMES_DIRNAME, random.choice(img_filenames))
+        else:
+            # otherwise, sample the first frame
+            img_filename = Path(EXTRACTED_FRAMES_DIRNAME, img_filenames[0])
+
         img = Image.open(img_filename).convert('RGB')
 
         # apply transforms
@@ -106,24 +115,26 @@ class MultiModalSAYCamDataModule(BaseDataModule):
 
     def __init__(self, args=None) -> None:
         super().__init__(args)
-        
-        # set other variables for our dataset here
-        # TODO: add command line flag to augment or not
-        # self.transform = transforms.Compose([
-        #     transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
-        #     transforms.RandomApply([transforms.ColorJitter(0.9, 0.9, 0.9, 0.5)], p=0.9),
-        #     transforms.RandomGrayscale(p=0.2),
-        #     transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
-        #     transforms.RandomHorizontalFlip(),            
-        #     transforms.ToTensor(),
-        #     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        # ])
 
-        self.transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ])
-        
+        self.args = vars(args) if args is not None else {}
+        self.use_multiple_frames = self.args.get("use_multiple_frames", USE_MULTIPLE_FRAMES)
+        self.augment_frames = self.args.get("augment_frames", AUGMENT_FRAMES)
+
+        if self.augment_frames:
+            self.transform = transforms.Compose([
+                transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
+                transforms.RandomApply([transforms.ColorJitter(0.9, 0.9, 0.9, 0.5)], p=0.9),
+                transforms.RandomGrayscale(p=0.2),
+                transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
+                transforms.RandomHorizontalFlip(),            
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
+        else:
+            self.transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
 
     def prepare_data(self, *args, **kwargs) -> None:
         _download_transcripts()
@@ -146,7 +157,7 @@ class MultiModalSAYCamDataModule(BaseDataModule):
             vocab = json.load(f)
 
         # create dataset
-        trainval_dataset = MultiModalSAYCamDataset(data, vocab, transform=self.transform)
+        trainval_dataset = MultiModalSAYCamDataset(data, vocab, use_multiple_frames, transform=self.transform)
         self.train_dataset, self.val_dataset = split_dataset(trainval_dataset, fraction=TRAIN_FRAC, seed=0)
         
 
