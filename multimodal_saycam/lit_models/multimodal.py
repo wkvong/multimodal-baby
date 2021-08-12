@@ -28,7 +28,7 @@ class MultiModalLitModel(pl.LightningModule):
         return parser
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         return optimizer        
 
     def forward(self, x, y, y_len):

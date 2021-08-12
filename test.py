@@ -7,24 +7,21 @@ import torch.nn.functional as F
 from multimodal_saycam.data.base_data_module import BaseDataModule, load_and_print_info
 from multimodal_saycam.data.multimodal_data_module import MultiModalSAYCamDataModule
 from multimodal_saycam.models.multimodal_cnn_embedding import MultiModalCNNEmbedding
+from training.train import _setup_parser
 
-mm = MultiModalSAYCamDataModule()
-load_and_print_info(MultiModalSAYCamDataModule)
+parser = _setup_parser()
+args = parser.parse_args()
+print(args)
 
-# mm.prepare_data()
-# mm.setup()
-# batch = iter(mm.train_dataloader()).next()
-# x, y, z = batch
+dm = MultiModalSAYCamDataModule(args)
+dm.prepare_data()
+dm.setup()
+train_dataloader = dm.train_dataloader()
 
-# parser = argparse.ArgumentParser()
-# args = parser.parse_args()
-# model = MultiModalCNNEmbedding(args)
+print(f'size of dataloader: {len(train_dataloader)}')
 
-# logits_per_image, logits_per_text = model(x, y, z)
+batch = next(iter(train_dataloader))
+w, x, y, z = batch
 
-# batch_size = x.size(0)
-# ground_truth = torch.LongTensor(np.arange(batch_size))
 
-# # calculate infonce loss
-# loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
-# print(loss)
+

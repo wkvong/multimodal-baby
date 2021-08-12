@@ -16,11 +16,12 @@ class Embedding(nn.Module):
         self.embedding_dim = self.args.get("embedding_dim", EMBEDDING_DIM)
         self.embedding = nn.Embedding(self.input_dim, self.embedding_dim,
                                       padding_idx=0)
-        # self.fc1 = nn.Linear(self.embedding_dim, self.embedding_dim)
+        self.fc1 = nn.Linear(self.embedding_dim, self.embedding_dim)
         # self.fc2 = nn.Linear(self.embedding_dim, self.embedding_dim)
 
     def forward(self, x):
-        x = self.embedding(x)
+        x = F.relu(self.embedding(x))
+        x = self.fc1(x)
         # x = F.relu(self.fc1(x))
         # x = torch.max(x, dim=1, keepdim=True)[0]
         # x = self.fc2(x)

@@ -35,6 +35,7 @@ class CNN(nn.Module):
         # load in checkpoint
         if self.pretrained_cnn:
             # rename checkpoint keys since we are not using DataParallel
+            print('Loading pretrained CNN!')
 
             checkpoint = torch.load('models/TC-S-resnext.tar',
                                     map_location=torch.device("cpu"))
@@ -47,7 +48,10 @@ class CNN(nn.Module):
             model.load_state_dict(renamed_checkpoint)
 
         if not self.finetune_cnn:
+            print('Freezing CNN layers!')
             set_parameter_requires_grad(model)  # freeze cnn layers
+        else:
+            print('Fine-tuning CNN layers!')
 
         # remove classifier head and add 1x1 convolution to map embedding to lower dim
         model = torch.nn.Sequential(*list(model.children())[:-2],

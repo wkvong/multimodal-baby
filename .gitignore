@@ -1,11 +1,13 @@
 __pycache__/
 *.pyc
+.ipynb_checkpoints/
 data/
 data_old/
 eval_viz/
 figures/
 lightning_logs/
 logs/
+models/
 results/
 transcripts/
 viz/
