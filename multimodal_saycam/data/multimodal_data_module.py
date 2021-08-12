@@ -148,6 +148,12 @@ class MultiModalSAYCamDataModule(BaseDataModule):
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
             ])
 
+        # keep base transform for val and test
+        self.base_transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
+
     @staticmethod
     def add_to_argparse(parser):
         parser.add_argument(
@@ -198,16 +204,16 @@ class MultiModalSAYCamDataModule(BaseDataModule):
         with open(VOCAB_FILENAME) as f:
             vocab = json.load(f)
 
-        # create dataset
+        # create datasets
         self.train_dataset = MultiModalSAYCamDataset(train_data, vocab,
                                                      use_multiple_frames=self.use_multiple_frames,
                                                      transform=self.transform)
         self.val_dataset = MultiModalSAYCamDataset(val_data, vocab,
                                                    use_multiple_frames=False,
-                                                   transform=self.transform)
+                                                   transform=self.base_transform)
         self.test_dataset = MultiModalSAYCamDataset(test_data, vocab,
                                                     use_multiple_frames=False,
-                                                    transform=self.transform)
+                                                    transform=self.base_transform)
         
 
 def _download_transcripts():
