@@ -29,21 +29,24 @@ from multimodal_saycam.data.util import *
 
 
 GSHEETS_CREDENTIALS_FILENAME = BaseDataModule.data_dirname() / "credentials.json"
-TRANSCRIPT_LINKS_FILENAME = BaseDataModule.data_dirname() / "SAYCam_transcript_links_new.csv"  # TODO: rename file
+TRANSCRIPT_LINKS_FILENAME = BaseDataModule.data_dirname() / "SAYCam_transcript_links.csv"
 TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "transcripts"
 PREPROCESSED_TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "preprocessed_transcripts_5fps"
 RAW_VIDEO_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/S_videos/"
 LABELED_S_DIR = ""  # TODO: add path to labeled S dir
 EXTRACTED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train_5fps"
 ANIMATED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train_animated_5fps"
-TRAIN_METADATA_FILENAME = BaseDataModule.data_dirname() / "train_5fps.json"
-VOCAB_FILENAME = BaseDataModule.data_dirname() / "vocab_5fps.json"
+TRAIN_METADATA_FILENAME = BaseDataModule.data_dirname() / "train.json"
+VAL_METADATA_FILENAME = BaseDataModule.data_dirname() / "val.json"
+TEST_METADATA_FILENAME = BaseDataModule.data_dirname() / "test.json"
+VOCAB_FILENAME = BaseDataModule.data_dirname() / "vocab.json"
 
 # default arguments
 # dataloader arguments
 BATCH_SIZE = 4
 NUM_WORKERS = 0
-TRAIN_FRAC = 0.95  
+TRAIN_FRAC = 0.9
+VAL_FRAC = 0.05
 
 # sampling arguments
 MAX_FRAMES_PER_UTTERANCE = 32
@@ -172,26 +175,39 @@ class MultiModalSAYCamDataModule(BaseDataModule):
         _rename_transcripts()
         _preprocess_transcripts()
         _extract_frames()
-        _create_train_metadata()
+        _create_metadata()
         _create_vocab()
         # _create_animations()  # TODO: add extra argument to generate this?
     
     def setup(self, *args, **kwargs) -> None:
         print('setup!')
-        # read data
+        # read data splits
         with open(TRAIN_METADATA_FILENAME) as f:
-            data = json.load(f)
-            data = data['images']
+            train_data = json.load(f)
+            train_data = train_data['data']
 
+        with open(VAL_METADATA_FILENAME) as f:
+            val_data = json.load(f)
+            val_data = val_data['data']
+
+        with open(TEST_METADATA_FILENAME) as f:
+            test_data = json.load(f)
+            test_data = test_data['data']
+            
         # read vocab
         with open(VOCAB_FILENAME) as f:
             vocab = json.load(f)
 
         # create dataset
-        trainval_dataset = MultiModalSAYCamDataset(data, vocab,
-                                                   use_multiple_frames=self.use_multiple_frames,
+        self.train_dataset = MultiModalSAYCamDataset(train_data, vocab,
+                                                     use_multiple_frames=self.use_multiple_frames,
+                                                     transform=self.transform)
+        self.val_dataset = MultiModalSAYCamDataset(val_data, vocab,
+                                                   use_multiple_frames=False,
                                                    transform=self.transform)
-        self.train_dataset, self.val_dataset = split_dataset(trainval_dataset, fraction=TRAIN_FRAC, seed=0)
+        self.test_dataset = MultiModalSAYCamDataset(test_data, vocab,
+                                                    use_multiple_frames=False,
+                                                    transform=self.transform)
         
 
 def _download_transcripts():
@@ -504,13 +520,13 @@ def _extract_frame(frame, frame_height, frame_width):
     return cropped_frame
 
     
-def _create_train_metadata():
-    """Creates a JSON file with image-utterance information"""
+def _create_metadata():
+    """Creates JSON files with image-utterance information"""
     
-    if os.path.exists(TRAIN_METADATA_FILENAME):
-        print("Training metadata file already been created . Skipping this step.")
+    if os.path.exists(TRAIN_METADATA_FILENAME) and os.path.exists(VAL_METADATA_FILENAME) and os.path.exists(TEST_METADATA_FILENAME):
+        print("Training metadata files have already been created . Skipping this step.")
     else:
-        print("Creating training metadata file")
+        print("Creating metadata files for train, validation and test.")
 
         # get all preprocessed transcripts
         transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))
@@ -552,12 +568,67 @@ def _create_train_metadata():
                 # append details of remaining utterances to metadata list
                 utterances.append(curr_utterance)
 
+        # shuffle utterances
+        random.shuffle(utterances)
+                
+        # split utterances into train/val/test
+        train_n = int(len(utterances) * TRAIN_FRAC)
+        val_n = int(len(utterances) * VAL_FRAC)
+        test_n = int(len(utterances) - train_n - val_n)
+        idxs = np.arange(len(utterances))
+        train_idxs = idxs[:train_n]
+        val_idxs = idxs[train_n:train_n+val_n]
+        test_idxs = idxs[train_n+val_n:]
+        train_utterances = [utterances[i] for i in train_idxs]
+        val_utterances = [utterances[i] for i in val_idxs]
+        test_utterances = [utterances[i] for i in test_idxs]
+                
         # put utterances into a dictionary
-        train_dict = {'images': utterances}
+        train_dict = {'data': train_utterances}
+        val_dict = {'data': val_utterances}
+        test_dict = {'data': test_utterances}
 
-        # save as JSON file
+        # save as JSON files
         with open(TRAIN_METADATA_FILENAME, 'w') as f:
             json.dump(train_dict, f)
+
+        with open(VAL_METADATA_FILENAME, 'w') as f:
+            json.dump(val_dict, f)
+
+        with open(TEST_METADATA_FILENAME, 'w') as f:
+            json.dump(test_dict, f)
+            
+            
+def _create_vocab():
+    """Create vocabulary object and save to file"""
+
+    if VOCAB_FILENAME.exists():
+        print("Vocabulary file already exists. Skipping this step.")
+    else:
+        print("Creating vocab.json file!")
+
+        # create vocab dictionary
+        vocab_dict = {'<pad>': 0, '<unk>': 1, '<sos>': 2, '<eos>': 4}
+        num_words = 4
+
+        # load utterances from training set
+        with open(TRAIN_METADATA_FILENAME) as f:
+            train_dict = json.load(f)
+
+        # fill vocab with all words from utterances
+        train = train_dict['data']
+        for i in range(len(train)):
+            curr_utterance = str(train[i]['utterance'])
+            words = curr_utterance.split(' ')
+            for word in words:
+                if word not in vocab_dict:
+                    vocab_dict[word] = num_words
+                    num_words += 1
+
+        # save as JSON file
+        with open(VOCAB_FILENAME, 'w') as f:
+            json.dump(vocab_dict, f)
+        
 
 def _create_animations():
     """Create animated GIFs of extracted frames paired with each utterance"""
@@ -606,36 +677,5 @@ def _create_animations():
                     imageio.mimsave(gif_filepath, frames, fps=10)
 
             
-def _create_vocab():
-    """Create vocabulary object and save to file"""
-
-    if VOCAB_FILENAME.exists():
-        print("Vocabulary file already exists. Skipping this step.")
-    else:
-        print("Creating vocab.json file!")
-
-        # create vocab dictionary
-        vocab_dict = {'<pad>': 0, '<unk>': 1, '<sos>': 2, '<eos>': 4}
-        num_words = 4
-
-        # load utterances
-        with open(TRAIN_METADATA_FILENAME) as f:
-            train_dict = json.load(f)
-
-        # fill vocab with all words from utterances
-        train = train_dict['images']
-        for i in range(len(train)):
-            curr_utterance = str(train[i]['utterance'])
-            words = curr_utterance.split(' ')
-            for word in words:
-                if word not in vocab_dict:
-                    vocab_dict[word] = num_words
-                    num_words += 1
-
-        # save as JSON file
-        with open(VOCAB_FILENAME, 'w') as f:
-            json.dump(vocab_dict, f)
-        
-
 if __name__ == "__main__":
     load_and_print_info(MultiModalSAYCamDataModule)
