@@ -32,9 +32,9 @@ def _setup_parser():
 
 def main():
     # set random seed
-    pl.seed_everything(42)
+    pl.seed_everything(0)  # TODO: change seed to be a command line argument
 
-    # 
+    # parse args, set up data module and models
     parser = _setup_parser()
     args = parser.parse_args()
     data = MultiModalSAYCamDataModule(args)
@@ -45,6 +45,8 @@ def main():
 
     # create trainer
     trainer = pl.Trainer.from_argparse_args(args)
+
+    print(args)
 
     # fit model
     trainer.fit(lit_model, data)
