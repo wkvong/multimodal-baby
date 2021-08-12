@@ -28,24 +28,28 @@ from multimodal_saycam.data.base_data_module import BaseDataModule, load_and_pri
 from multimodal_saycam.data.util import *
 
 
-BATCH_SIZE = 4
-NUM_WORKERS = 0
-TRAIN_FRAC = 0.95
-
 GSHEETS_CREDENTIALS_FILENAME = BaseDataModule.data_dirname() / "credentials.json"
-TRANSCRIPT_LINKS_FILENAME = BaseDataModule.data_dirname() / "SAYCam_transcript_links_new.csv"
+TRANSCRIPT_LINKS_FILENAME = BaseDataModule.data_dirname() / "SAYCam_transcript_links_new.csv"  # TODO: rename file
 TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "transcripts"
 PREPROCESSED_TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "preprocessed_transcripts_5fps"
 RAW_VIDEO_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/S_videos/"
-LABELED_S_DIR = ""
+LABELED_S_DIR = ""  # TODO: add path to labeled S dir
 EXTRACTED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train_5fps"
 ANIMATED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train_animated_5fps"
 TRAIN_METADATA_FILENAME = BaseDataModule.data_dirname() / "train_5fps.json"
 VOCAB_FILENAME = BaseDataModule.data_dirname() / "vocab_5fps.json"
 
+# default arguments
+# dataloader arguments
+BATCH_SIZE = 4
+NUM_WORKERS = 0
+TRAIN_FRAC = 0.95  
+
+# sampling arguments
 MAX_FRAMES_PER_UTTERANCE = 32
 MAX_LEN_UTTERANCE = 16
 
+# training arguments
 AUGMENT_FRAMES = False
 USE_MULTIPLE_FRAMES = False
 
@@ -54,7 +58,7 @@ class MultiModalSAYCamDataset(Dataset):
     Dataset that returns paired image-utterances from baby S of the SAYCam Dataset
     """
     
-    def __init__(self, data: Dict, vocab: Dict, use_multiple_frames, transform: Callable = None):
+    def __init__(self, data, vocab, use_multiple_frames, transform):
         super().__init__()
         self.data = data
         self.vocab = vocab
@@ -65,13 +69,13 @@ class MultiModalSAYCamDataset(Dataset):
         """Return length of the dataset."""
         return len(self.data)
     
-    def __getitem__(self, i: int) -> Tuple[Any, Any, Any]:
+    def __getitem__(self, idx: int) -> Tuple[Any, Any, Any]:
         """
         Returns an image-utterance pair
         """
 
         # get utterance and convert to indices
-        utterance = self.data[i]['utterance']
+        utterance = self.data[idx]['utterance']
         # print(utterance)
         utterance_words = utterance.split(' ')
         utterance_length = len(utterance_words)
@@ -89,7 +93,7 @@ class MultiModalSAYCamDataset(Dataset):
         utterance_idxs = torch.LongTensor(utterance_idxs)
 
         # get image
-        img_filenames = self.data[i]['frame_filenames']
+        img_filenames = self.data[idx]['frame_filenames']
         
         if self.use_multiple_frames:
             # sample a random image associated with this utterance
@@ -98,8 +102,10 @@ class MultiModalSAYCamDataset(Dataset):
             # otherwise, sample the first frame
             img_filename = Path(EXTRACTED_FRAMES_DIRNAME, img_filenames[0])
 
+        # print(f'img_filename {idx}: {img_filename}')  # TODO: remove after i finish debugging
+ 
         img = Image.open(img_filename).convert('RGB')
-
+            
         # apply transforms
         if self.transform is not None:
             img = self.transform(img)
@@ -116,11 +122,13 @@ class MultiModalSAYCamDataModule(BaseDataModule):
     def __init__(self, args=None) -> None:
         super().__init__(args)
 
-        self.args = vars(args) if args is not None else {}
+        self.batch_size = self.args.get("batch_size", BATCH_SIZE)
+        self.num_workers = self.args.get("num_workers", NUM_WORKERS)
         self.use_multiple_frames = self.args.get("use_multiple_frames", USE_MULTIPLE_FRAMES)
         self.augment_frames = self.args.get("augment_frames", AUGMENT_FRAMES)
 
         if self.augment_frames:
+            # add same augmentations as emin used
             self.transform = transforms.Compose([
                 transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
                 transforms.RandomApply([transforms.ColorJitter(0.9, 0.9, 0.9, 0.5)], p=0.9),
@@ -131,33 +139,58 @@ class MultiModalSAYCamDataModule(BaseDataModule):
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
             ])
         else:
+            # just convert to tensor and normalize
             self.transform = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
             ])
 
+    @staticmethod
+    def add_to_argparse(parser):
+        parser.add_argument(
+            "--batch_size", type=int, default=BATCH_SIZE, help="Number of examples to operate on per forward step."
+        )
+        parser.add_argument(
+            "--num_workers", type=int, default=NUM_WORKERS, help="Number of additional processes to load data."
+        )
+        parser.add_argument(
+            "--use_multiple_frames", action='store_true', help="Randomly sample frames per utterance."
+        )
+        parser.add_argument(
+            "--augment_frames", action='store_true', help="Apply data augmentation to images."
+        )
+        return parser
+
+    # TODO: add relevant config details
+    # def config(self):
+    #     """Return important settings of the dataset, which will be passed to instantiate models."""
+    #     return {"input_dims": self.dims, "output_dims": self.output_dims, "mapping": self.mapping}
+            
     def prepare_data(self, *args, **kwargs) -> None:
+        print('prepare_data!')
         _download_transcripts()
         _rename_transcripts()
         _preprocess_transcripts()
         _extract_frames()
         _create_train_metadata()
-        # _create_animations()
         _create_vocab()
+        # _create_animations()  # TODO: add extra argument to generate this?
     
     def setup(self, *args, **kwargs) -> None:
+        print('setup!')
         # read data
         with open(TRAIN_METADATA_FILENAME) as f:
             data = json.load(f)
             data = data['images']
-            random.shuffle(data)  # TODO: remove later!! just for double checking something right now
 
         # read vocab
         with open(VOCAB_FILENAME) as f:
             vocab = json.load(f)
 
         # create dataset
-        trainval_dataset = MultiModalSAYCamDataset(data, vocab, use_multiple_frames, transform=self.transform)
+        trainval_dataset = MultiModalSAYCamDataset(data, vocab,
+                                                   use_multiple_frames=self.use_multiple_frames,
+                                                   transform=self.transform)
         self.train_dataset, self.val_dataset = split_dataset(trainval_dataset, fraction=TRAIN_FRAC, seed=0)
         
 
