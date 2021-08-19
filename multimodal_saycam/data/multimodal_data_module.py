@@ -5,6 +5,7 @@ import glob
 import json
 import random
 import re
+import shutil
 import time
 import argparse
 import cv2 as cv
@@ -27,18 +28,21 @@ from google.oauth2.credentials import Credentials
 from multimodal_saycam.data.base_data_module import BaseDataModule, load_and_print_info
 from multimodal_saycam.data.util import *
 
-
+# directories and filenames
 GSHEETS_CREDENTIALS_FILENAME = BaseDataModule.data_dirname() / "credentials.json"
 TRANSCRIPT_LINKS_FILENAME = BaseDataModule.data_dirname() / "SAYCam_transcript_links.csv"
 TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "transcripts"
 PREPROCESSED_TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "preprocessed_transcripts_5fps"
 RAW_VIDEO_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/S_videos/"
-LABELED_S_DIR = ""  # TODO: add path to labeled S dir
+LABELED_S_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_clean_labeled_data_1fps_5"
 EXTRACTED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train_5fps"
+EVAL_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "eval"
 ANIMATED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train_animated_5fps"
 TRAIN_METADATA_FILENAME = BaseDataModule.data_dirname() / "train.json"
 VAL_METADATA_FILENAME = BaseDataModule.data_dirname() / "val.json"
 TEST_METADATA_FILENAME = BaseDataModule.data_dirname() / "test.json"
+EVAL_DEV_METADATA_FILENAME = BaseDataModule.data_dirname() / "eval_dev.json"
+EVAL_TEST_METADATA_FILENAME = BaseDataModule.data_dirname() / "eval_test.json"
 VOCAB_FILENAME = BaseDataModule.data_dirname() / "vocab.json"
 
 # default arguments
@@ -105,8 +109,7 @@ class MultiModalSAYCamDataset(Dataset):
             # otherwise, sample the first frame
             img_filename = Path(EXTRACTED_FRAMES_DIRNAME, img_filenames[0])
 
-        # print(f'img_filename {idx}: {img_filename}')  # TODO: remove after i finish debugging
- 
+        print(f'img_filename {idx}: {img_filename}')  # TODO: remove after i finish debugging 
         img = Image.open(img_filename).convert('RGB')
             
         # apply transforms
@@ -114,6 +117,37 @@ class MultiModalSAYCamDataset(Dataset):
             img = self.transform(img)
 
         return img, utterance_idxs, utterance_length
+
+    
+class LabeledSEvalDataset(Dataset):
+    """
+    Dataset that returns a set of referents and a target word for evaluation
+    """
+    
+    def __init__(self, data, vocab, eval_type):
+        # TODO: load vocab
+
+        self.data = data
+        self.vocab = vocab
+        self.eval_type = eval_type
+        self.transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
+
+        if self.eval_type == 'dev':
+            pass
+        elif self.eval_type == 'test':
+            pass
+        else:
+            pass  # TODO: some kind of warning that wrong eval type was specified
+
+    def __getitem__(self, i):
+        pass
+
+    def __len__(self):
+        # TODO
+        pass
 
     
 class MultiModalSAYCamDataModule(BaseDataModule):
@@ -180,14 +214,16 @@ class MultiModalSAYCamDataModule(BaseDataModule):
         _download_transcripts()
         _rename_transcripts()
         _preprocess_transcripts()
-        _extract_frames()
-        _create_metadata()
+        _extract_train_frames()
+        _create_train_metadata()
+        _extract_eval_frames()
+        _create_eval_metadata()
         _create_vocab()
         # _create_animations()  # TODO: add extra argument to generate this?
     
     def setup(self, *args, **kwargs) -> None:
         print('setup!')
-        # read data splits
+        # read image-text data splits
         with open(TRAIN_METADATA_FILENAME) as f:
             train_data = json.load(f)
             train_data = train_data['data']
@@ -199,12 +235,14 @@ class MultiModalSAYCamDataModule(BaseDataModule):
         with open(TEST_METADATA_FILENAME) as f:
             test_data = json.load(f)
             test_data = test_data['data']
+
+        # read eval data splits
             
         # read vocab
         with open(VOCAB_FILENAME) as f:
             vocab = json.load(f)
 
-        # create datasets
+        # create image-text datasets
         self.train_dataset = MultiModalSAYCamDataset(train_data, vocab,
                                                      use_multiple_frames=self.use_multiple_frames,
                                                      transform=self.transform)
@@ -214,6 +252,9 @@ class MultiModalSAYCamDataModule(BaseDataModule):
         self.test_dataset = MultiModalSAYCamDataset(test_data, vocab,
                                                     use_multiple_frames=False,
                                                     transform=self.base_transform)
+
+        # create eval datasets
+        # TODO
         
 
 def _download_transcripts():
@@ -437,13 +478,13 @@ def _preprocess_utterance(utterance, start_timestamp, end_timestamp):
 
     return utterances, all_timestamps, num_frames
             
-def _extract_frames():
+def _extract_train_frames():
     """Extract aligned frames from SAYCam videos"""
 
     if os.path.exists(EXTRACTED_FRAMES_DIRNAME):
-        print("Frames have already been extracted. Skipping this step.")
+        print("Training frames have already been extracted. Skipping this step.")
     else:
-        print("Extracting frames")
+        print("Extracting training frames")
 
         # create directory to store extracted frames
         if not os.path.exists(EXTRACTED_FRAMES_DIRNAME):
@@ -525,8 +566,66 @@ def _extract_frame(frame, frame_height, frame_width):
     # cropped_frame = cv2.cvtColor(cropped_frame, cv2.COLOR_BGR2RGB)
     return cropped_frame
 
+
+def _extract_eval_frames():
+    """Extract evaluation frames from labeled S dataset, splitting evenly for dev and test"""
+
+    if os.path.exists(EVAL_FRAMES_DIRNAME):
+        print("Evaluation frames have already been extracted. Skipping this step.")
+    else:
+        print("Extracting evaluation frames")
+
+        # create directory to store evaluation frames
+        if not os.path.exists(EVAL_FRAMES_DIRNAME):
+            os.makedirs(EVAL_FRAMES_DIRNAME)
+            os.makedirs(EVAL_FRAMES_DIRNAME / "dev")
+            os.makedirs(EVAL_FRAMES_DIRNAME / "test")
+     
+        # get original set of evaluation categories
+        eval_categories = os.listdir(LABELED_S_DIRNAME)
+        for eval_category in eval_categories:
+            eval_category_dirname = os.path.join(LABELED_S_DIRNAME, eval_category)
+            eval_category_frames = sorted(os.listdir(eval_category_dirname))
+     
+            # get indices to split original labeled s dataset into dev and test
+            split_idxs = np.arange(len(eval_category_frames))
+            np.random.shuffle(split_idxs)
+            dev_idxs = split_idxs[:int(len(eval_category_frames) * 0.5)]
+            test_idxs = split_idxs[int(len(eval_category_frames) * 0.5):]
+            
+            # check dataset has been split correct
+            assert len(dev_idxs) + len(test_idxs) == len(split_idxs)
+     
+            # copy over dev frames into a new directory
+            print(f'copying {eval_category} frames for dev set')
+     
+            # check if directory exists, and if not, create it
+            if not os.path.exists(os.path.join(EVAL_FRAMES_DIRNAME, "dev", eval_category)):
+                os.makedirs(os.path.join(EVAL_FRAMES_DIRNAME, "dev", eval_category))
+     
+            for dev_idx in dev_idxs:
+                # get path to original frame
+                original_filename = os.path.join(LABELED_S_DIRNAME, eval_category, eval_category_frames[dev_idx])
+     
+                # copy frame
+                shutil.copyfile(original_filename, os.path.join(EVAL_FRAMES_DIRNAME, "dev", eval_category, eval_category_frames[dev_idx]))
+     
+            # copy over test frames into a new directory
+            print(f'copying {eval_category} frames for test set')
+     
+            # check if directory exists, and if not, create it
+            if not os.path.exists(os.path.join(EVAL_FRAMES_DIRNAME, "test", eval_category)):
+                os.makedirs(os.path.join(EVAL_FRAMES_DIRNAME, "test", eval_category))
+     
+            for test_idx in test_idxs:
+                # get path to original frame
+                original_filename = os.path.join(LABELED_S_DIRNAME, eval_category, eval_category_frames[test_idx])
+     
+                # copy frame
+                shutil.copyfile(original_filename, os.path.join(EVAL_FRAMES_DIRNAME, "test", eval_category, eval_category_frames[test_idx]))
     
-def _create_metadata():
+    
+def _create_train_metadata():
     """Creates JSON files with image-utterance information"""
     
     if os.path.exists(TRAIN_METADATA_FILENAME) and os.path.exists(VAL_METADATA_FILENAME) and os.path.exists(TEST_METADATA_FILENAME):
@@ -603,7 +702,21 @@ def _create_metadata():
 
         with open(TEST_METADATA_FILENAME, 'w') as f:
             json.dump(test_dict, f)
-            
+
+def _create_eval_metadata():
+    """Creates files for evaluating multimodal SAYCam model"""
+
+    if os.path.exists(EVAL_DEV_METADATA_FILENAME) and os.path.exists(EVAL_TEST_METADATA_FILENAME):
+        print("Evaluation metadata files have already been created . Skipping this step.")
+    else:
+        print("Creating metadata files for evaluation.")
+
+        N_FOILS = 3  # number of foil referents
+        N_EVALUATIONS = 100  # number of evaluations per category
+
+        eval_categories = os.listdir(EVAL_FRAMES_DIRNAME / "dev")
+        print(eval_categories)
+    
             
 def _create_vocab():
     """Create vocabulary object and save to file"""
