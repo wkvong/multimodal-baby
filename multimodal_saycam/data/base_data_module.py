@@ -84,19 +84,21 @@ class BaseDataModule(pl.LightningDataModule):
         )
 
     def val_dataloader(self):
-        return DataLoader(
-            self.val_dataset,
-            shuffle=False,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=False,
-        )
+        pass
+        # return DataLoader(
+        #     self.val_dataset,
+        #     shuffle=False,
+        #     batch_size=self.batch_size,
+        #     num_workers=self.num_workers,
+        #     pin_memory=False,
+        # )
 
     def test_dataloader(self):
-        return DataLoader(
-            self.test_dataset,
-            shuffle=False,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=False,
-        )
+        pass
+        # return DataLoader(
+        #     self.test_dataset,
+        #     shuffle=False,
+        #     batch_size=self.batch_size,
+        #     num_workers=self.num_workers,
+        #     pin_memory=False,
+        # )

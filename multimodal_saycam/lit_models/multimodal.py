@@ -48,16 +48,27 @@ class MultiModalLitModel(pl.LightningModule):
         self.log("train_loss", loss)
         return loss
 
-    def validation_step(self, batch, batch_idx):
-        x, y, y_len = batch
-        logits_per_image, logits_per_text = self(x, y, y_len)
-
-        # create ground truth labels
-        batch_size = x.size(0)
-        ground_truth = torch.tensor(np.arange(batch_size), dtype=torch.long, device=self.device)
-
-        # calculate infonce loss
-        loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
-        
-        self.log("val_loss", loss)
-        return loss
+    def validation_step(self, batch, batch_idx, dataloader_idx):
+        print(f'dataloader_idx: {dataloader_idx}\n')
+        if dataloader_idx == 0:
+            print('dataloader_idx == 0')
+            x, y, y_len = batch
+            print(x.size())
+            print(y.size())
+            print(y_len.size())
+            logits_per_image, logits_per_text = self(x, y, y_len)
+     
+            # create ground truth labels
+            batch_size = x.size(0)
+            ground_truth = torch.tensor(np.arange(batch_size), dtype=torch.long, device=self.device)
+     
+            # calculate infonce loss
+            loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
+            
+            # self.log("val_loss", loss)
+            return loss
+        elif dataloader_idx == 1:
+            print('dataloader_idx == 1')
+            x, y = batch
+            print(x.size())
+            print(y.size())
