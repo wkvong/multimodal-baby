@@ -279,7 +279,7 @@ class MultiModalSAYCamDataModule(BaseDataModule):
         eval_dev_dataloader = DataLoader(
             self.eval_dev_dataset,
             shuffle=False,
-            batch_size=1,
+            batch_size=self.batch_size // 4,  # divide by 4 here since eval trials have 4 images
             num_workers=self.num_workers,
             pin_memory=False
         )
