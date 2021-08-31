@@ -144,10 +144,12 @@ class LabeledSEvalDataset(Dataset):
         for i, foil_img_filename in enumerate(trial["foil_img_filenames"]):
             imgs[i+1] = self.transform(Image.open(foil_img_filename).convert("RGB"))
 
-        # get target category index from vocab
+        # get target category index from vocab as a single utterance
         label = self.vocab[trial["target_category"]]
+        label = torch.LongTensor([label])
+        label_len = len(label)
             
-        return imgs, label
+        return imgs, label, label_len
 
     def __len__(self):
         return len(self.data)
@@ -279,7 +281,8 @@ class MultiModalSAYCamDataModule(BaseDataModule):
         eval_dev_dataloader = DataLoader(
             self.eval_dev_dataset,
             shuffle=False,
-            batch_size=self.batch_size // 4,  # divide by 4 here since eval trials have 4 images
+            # batch_size=self.batch_size // 4,  # divide by 4 here since eval trials have 4 images
+            batch_size=1,
             num_workers=self.num_workers,
             pin_memory=False
         )

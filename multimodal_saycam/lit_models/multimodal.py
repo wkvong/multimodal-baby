@@ -10,7 +10,7 @@ LR = 3e-4
 
 class MultiModalLitModel(pl.LightningModule):
     """
-    PyTorch Ligtning class for multimodal SAYCam model
+    PyTorch Lightning class for MultiModal SAYCam model
     """
 
     def __init__(self, model, args):
@@ -43,19 +43,16 @@ class MultiModalLitModel(pl.LightningModule):
         ground_truth = torch.tensor(np.arange(batch_size), dtype=torch.long, device=self.device)
 
         # calculate infonce loss
-        loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
+        train_loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
         
-        self.log("train_loss", loss)
-        return loss
+        self.log("train_loss", train_loss)
+        return train_loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
-        print(f'dataloader_idx: {dataloader_idx}\n')
         if dataloader_idx == 0:
-            print('dataloader_idx == 0')
+            # batch of image-text pairs (same as training)
             x, y, y_len = batch
-            print(x.size())
-            print(y.size())
-            print(y_len.size())
+
             logits_per_image, logits_per_text = self(x, y, y_len)
      
             # create ground truth labels
@@ -63,12 +60,40 @@ class MultiModalLitModel(pl.LightningModule):
             ground_truth = torch.tensor(np.arange(batch_size), dtype=torch.long, device=self.device)
      
             # calculate infonce loss
-            loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
+            val_loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
             
-            # self.log("val_loss", loss)
-            return loss
+            # self.log("val_loss", val_loss, on_step=False, on_epoch=True)
+            return val_loss
         elif dataloader_idx == 1:
-            print('dataloader_idx == 1')
-            x, y = batch
-            print(x.size())
-            print(y.size())
+            # batch of evaluation trials
+            x, y, y_len = batch
+
+            # resize x so images from the same trial are in the batch dim
+            # [B, N, C, H, W] -> [B*N, C, H, W]  (with B = 1)
+            x = x.view(-1, 3, 224, 224)  
+
+            logits_per_image, logits_per_text = self.model(x, y, y_len)
+            logits = logits_per_text[0]  # get logits per trial
+            pred = torch.argmax(logits).item()
+
+            label = 0  # correct answer is always the first item 
+
+            if pred == label:
+                val_accuracy = 1
+            else:
+                val_accuracy = 0
+
+            # TODO: figure out how to log per-category accuracies separately
+                
+            # self.log("val_accuracy", val_accuracy, on_step=False, on_epoch=True) 
+            return val_accuracy
+
+    # def validation_epoch_end(self, validation_step_outputs):
+    #     # collate validation results and log
+    #     assert len(validation_step_outputs) == 2  # check we have results from both val dataloaders
+        
+    #     val_losses = validation_step_outputs[0]
+    #     val_accuracies = validation_step_outputs[1]
+
+    #     print(val_losses)
+    #     print(val_accuracies)
