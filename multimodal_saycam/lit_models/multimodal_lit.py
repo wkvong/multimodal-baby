@@ -20,6 +20,9 @@ class MultiModalLitModel(pl.LightningModule):
 
         self.lr = self.args.get("lr", LR)
 
+        # save hyperparameters to logger
+        self.save_hyperparameters()
+
     @staticmethod
     def add_to_argparse(parser):
         parser.add_argument("--lr", type=float, default=LR)
@@ -62,7 +65,7 @@ class MultiModalLitModel(pl.LightningModule):
             # calculate infonce loss
             val_loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
             
-            # self.log("val_loss", val_loss, on_step=False, on_epoch=True)
+            self.log("val_loss", val_loss, on_step=False, on_epoch=True)
             return val_loss
         elif dataloader_idx == 1:
             # batch of evaluation trials
@@ -85,7 +88,7 @@ class MultiModalLitModel(pl.LightningModule):
 
             # TODO: figure out how to log per-category accuracies separately
                 
-            # self.log("val_accuracy", val_accuracy, on_step=False, on_epoch=True) 
+            self.log("val_accuracy", val_accuracy, on_step=False, on_epoch=True) 
             return val_accuracy
 
     # def validation_epoch_end(self, validation_step_outputs):

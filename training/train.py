@@ -3,10 +3,11 @@ import argparse
 import numpy as np
 import torch
 import pytorch_lightning as pl
+from pytorch_lightning.loggers import WandbLogger
 
 from multimodal_saycam.data.multimodal_data_module import MultiModalSAYCamDataModule
-from multimodal_saycam.models.multimodal_cnn_embedding import MultiModalCNNEmbedding
-from multimodal_saycam.lit_models.multimodal import MultiModalLitModel
+from multimodal_saycam.models.multimodal import MultiModalModel
+from multimodal_saycam.lit_models.multimodal_lit import MultiModalLitModel
 
 
 def _setup_parser():
@@ -23,7 +24,7 @@ def _setup_parser():
     MultiModalSAYCamDataModule.add_to_argparse(data_group)
 
     model_group = parser.add_argument_group("Model Args")
-    MultiModalCNNEmbedding.add_to_argparse(model_group)
+    MultiModalModel.add_to_argparse(model_group)
 
     lit_model_group = parser.add_argument_group("LitModel Args")
     MultiModalLitModel.add_to_argparse(lit_model_group)
@@ -38,13 +39,17 @@ def main():
     parser = _setup_parser()
     args = parser.parse_args()
     data = MultiModalSAYCamDataModule(args)
-    model = MultiModalCNNEmbedding(args)
+    model = MultiModalModel(args)
     lit_model = MultiModalLitModel(model, args)
 
-    # TOOD: add logging
-
-    # create trainer
-    trainer = pl.Trainer.from_argparse_args(args)
+    # create trainer (with logger if specified)
+    if args.logger:
+        # add wandb logging
+        # TODO: modify log_model param later
+        wandb_logger = WandbLogger(project='multimodal-saycam', log_model=False)
+        trainer = pl.Trainer.from_argparse_args(args, logger=wandb_logger)
+    else:
+        trainer = pl.Trainer.from_argparse_args(args)
 
     print(args)
 
