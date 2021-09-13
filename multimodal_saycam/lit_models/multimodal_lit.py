@@ -31,7 +31,7 @@ class MultiModalLitModel(pl.LightningModule):
         return parser
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=1e-5)
         return optimizer        
 
     def forward(self, x, y, y_len):
@@ -47,8 +47,11 @@ class MultiModalLitModel(pl.LightningModule):
 
         # calculate infonce loss
         train_loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
-        
+
+        # log train loss and temperature
         self.log("train_loss", train_loss)
+        self.log("temperature", self.model.logit_scale.item())
+        
         return train_loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
