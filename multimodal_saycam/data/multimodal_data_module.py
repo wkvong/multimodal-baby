@@ -58,18 +58,18 @@ MAX_LEN_UTTERANCE = 16
 
 # training arguments
 AUGMENT_FRAMES = False
-USE_MULTIPLE_FRAMES = False
+MULTIPLE_FRAMES = False
 
 class MultiModalSAYCamDataset(Dataset):
     """
     Dataset that returns paired image-utterances from baby S of the SAYCam Dataset
     """
     
-    def __init__(self, data, vocab, use_multiple_frames, transform):
+    def __init__(self, data, vocab, multiple_frames, transform):
         super().__init__()
         self.data = data
         self.vocab = vocab
-        self.use_multiple_frames = use_multiple_frames
+        self.multiple_frames = multiple_frames
         self.transform = transform
 
     def __len__(self) -> int:
@@ -102,7 +102,7 @@ class MultiModalSAYCamDataset(Dataset):
         # get image
         img_filenames = self.data[idx]["frame_filenames"]
         
-        if self.use_multiple_frames:
+        if self.multiple_frames:
             # sample a random image associated with this utterance
             img_filename = Path(EXTRACTED_FRAMES_DIRNAME, random.choice(img_filenames))
         else:
@@ -166,15 +166,15 @@ class MultiModalSAYCamDataModule(BaseDataModule):
 
         self.batch_size = self.args.get("batch_size", BATCH_SIZE)
         self.num_workers = self.args.get("num_workers", NUM_WORKERS)
-        self.use_multiple_frames = self.args.get("use_multiple_frames", USE_MULTIPLE_FRAMES)
+        self.multiple_frames = self.args.get("multiple_frames", MULTIPLE_FRAMES)
         self.augment_frames = self.args.get("augment_frames", AUGMENT_FRAMES)
 
         if self.augment_frames:
             # add same augmentations as emin used
             self.transform = transforms.Compose([
                 transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
-                transforms.RandomApply([transforms.ColorJitter(0.9, 0.9, 0.9, 0.5)], p=0.9),
-                transforms.RandomGrayscale(p=0.2),
+                # transforms.RandomApply([transforms.ColorJitter(0.9, 0.9, 0.9, 0.5)], p=0.9),
+                # transforms.RandomGrayscale(p=0.2),
                 transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
                 transforms.RandomHorizontalFlip(),            
                 transforms.ToTensor(),
@@ -202,7 +202,7 @@ class MultiModalSAYCamDataModule(BaseDataModule):
             "--num_workers", type=int, default=NUM_WORKERS, help="Number of additional processes to load data."
         )
         parser.add_argument(
-            "--use_multiple_frames", action="store_true", help="Randomly sample frames per utterance."
+            "--multiple_frames", action="store_true", help="Randomly sample frames per utterance."
         )
         parser.add_argument(
             "--augment_frames", action="store_true", help="Apply data augmentation to images."
@@ -256,13 +256,13 @@ class MultiModalSAYCamDataModule(BaseDataModule):
 
         # create image-text datasets
         self.train_dataset = MultiModalSAYCamDataset(train_data, vocab,
-                                                     use_multiple_frames=self.use_multiple_frames,
+                                                     multiple_frames=self.multiple_frames,
                                                      transform=self.transform)
         self.val_dataset = MultiModalSAYCamDataset(val_data, vocab,
-                                                   use_multiple_frames=False,
+                                                   multiple_frames=False,
                                                    transform=self.base_transform)
         self.test_dataset = MultiModalSAYCamDataset(test_data, vocab,
-                                                    use_multiple_frames=False,
+                                                    multiple_frames=False,
                                                     transform=self.base_transform)
 
         # create eval datasets
