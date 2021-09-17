@@ -48,8 +48,16 @@ class MultiModalLitModel(pl.LightningModule):
         # calculate infonce loss
         train_loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
 
+        # calculate accuracy (image and text separately)
+        train_image_pred = torch.argmax(logits_per_image, dim=-1)
+        train_text_pred = torch.argmax(logits_per_text, dim=-1)
+        train_image_accuracy = (train_image_pred == ground_truth).sum() / batch_size
+        train_text_accuracy = (train_text_pred == ground_truth).sum() / batch_size
+
         # log train loss and temperature
         self.log("train_loss", train_loss)
+        self.log("train_image_accuracy", train_image_accuracy)
+        self.log("train_text_accuracy", train_text_accuracy)
         self.log("temperature", self.model.logit_scale.item())
         
         return train_loss
@@ -67,8 +75,17 @@ class MultiModalLitModel(pl.LightningModule):
      
             # calculate infonce loss
             val_loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
-            
+
+            # calculate accuracy (image and text separately)
+            val_image_pred = torch.argmax(logits_per_image, dim=-1)
+            val_text_pred = torch.argmax(logits_per_text, dim=-1)
+            val_image_accuracy = (val_image_pred == ground_truth).sum() / batch_size
+            val_text_accuracy = (val_text_pred == ground_truth).sum() / batch_size
+
             self.log("val_loss", val_loss, on_step=False, on_epoch=True)
+            self.log("val_image_accuracy", val_image_accuracy, on_step=False, on_epoch=True)
+            self.log("val_text_accuracy", val_text_accuracy, on_step=False, on_epoch=True)
+            
             return val_loss
         elif dataloader_idx == 1:
             # batch of evaluation trials
@@ -91,15 +108,6 @@ class MultiModalLitModel(pl.LightningModule):
 
             # TODO: figure out how to log per-category accuracies separately
                 
-            self.log("val_accuracy", val_accuracy, on_step=False, on_epoch=True) 
+            self.log("val_accuracy", val_accuracy, on_step=False, on_epoch=True)
+
             return val_accuracy
-
-    # def validation_epoch_end(self, validation_step_outputs):
-    #     # collate validation results and log
-    #     assert len(validation_step_outputs) == 2  # check we have results from both val dataloaders
-        
-    #     val_losses = validation_step_outputs[0]
-    #     val_accuracies = validation_step_outputs[1]
-
-    #     print(val_losses)
-    #     print(val_accuracies)
