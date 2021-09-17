@@ -273,7 +273,8 @@ class MultiModalSAYCamDataModule(BaseDataModule):
         contrastive_val_dataloader = DataLoader(
             self.val_dataset,
             shuffle=False,
-            batch_size=self.batch_size,
+            # batch_size=self.batch_size,
+            batch_size=64,  # fixing this so that validation sets are equal across runs
             num_workers=self.num_workers,
             pin_memory=False,
         )
