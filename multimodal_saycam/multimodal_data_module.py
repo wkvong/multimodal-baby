@@ -25,25 +25,26 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
-from multimodal_saycam.data.base_data_module import BaseDataModule, load_and_print_info
-from multimodal_saycam.data.util import *
+# from multimodal_saycam.base_data_module import BaseDataModule, load_and_print_info
+from multimodal_saycam.utils import *
 
 # directories and filenames
-GSHEETS_CREDENTIALS_FILENAME = BaseDataModule.data_dirname() / "credentials.json"
-TRANSCRIPT_LINKS_FILENAME = BaseDataModule.data_dirname() / "SAYCam_transcript_links.csv"
-TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "transcripts"
-PREPROCESSED_TRANSCRIPTS_DIRNAME = BaseDataModule.data_dirname() / "preprocessed_transcripts_5fps"
+DATA_DIR = Path("/home/wv9/code/WaiKeen/multimodal-baby/data")
+GSHEETS_CREDENTIALS_FILENAME = DATA_DIR / "credentials.json"
+TRANSCRIPT_LINKS_FILENAME = DATA_DIR / "SAYCam_transcript_links.csv"
+TRANSCRIPTS_DIRNAME = DATA_DIR / "transcripts"
+PREPROCESSED_TRANSCRIPTS_DIRNAME = DATA_DIR / "preprocessed_transcripts_5fps"
 RAW_VIDEO_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/S_videos/"
 LABELED_S_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_clean_labeled_data_1fps_5"
-EXTRACTED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train_5fps"
-EVAL_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "eval"
-ANIMATED_FRAMES_DIRNAME = BaseDataModule.data_dirname() / "train_animated_5fps"
-TRAIN_METADATA_FILENAME = BaseDataModule.data_dirname() / "train.json"
-VAL_METADATA_FILENAME = BaseDataModule.data_dirname() / "val.json"
-TEST_METADATA_FILENAME = BaseDataModule.data_dirname() / "test.json"
-EVAL_DEV_METADATA_FILENAME = BaseDataModule.data_dirname() / "eval_dev.json"
-EVAL_TEST_METADATA_FILENAME = BaseDataModule.data_dirname() / "eval_test.json"
-VOCAB_FILENAME = BaseDataModule.data_dirname() / "vocab.json"
+EXTRACTED_FRAMES_DIRNAME = DATA_DIR / "train_5fps"
+EVAL_FRAMES_DIRNAME = DATA_DIR / "eval"
+ANIMATED_FRAMES_DIRNAME = DATA_DIR / "train_animated_5fps"
+TRAIN_METADATA_FILENAME = DATA_DIR / "train.json"
+VAL_METADATA_FILENAME = DATA_DIR / "val.json"
+TEST_METADATA_FILENAME = DATA_DIR / "test.json"
+EVAL_DEV_METADATA_FILENAME = DATA_DIR / "eval_dev.json"
+EVAL_TEST_METADATA_FILENAME = DATA_DIR / "eval_test.json"
+VOCAB_FILENAME = DATA_DIR / "vocab.json"
 
 # default arguments
 # dataloader arguments
@@ -155,7 +156,7 @@ class LabeledSEvalDataset(Dataset):
         return len(self.data)
 
     
-class MultiModalSAYCamDataModule(BaseDataModule):
+class MultiModalSAYCamDataModule(pl.LightningDataModule):
     """
     The MultiModal SAYCam Dataset is a dataset created from baby S of the SAYCam Dataset consisting of
     image frames and the associated child-directed utterances.
@@ -164,10 +165,12 @@ class MultiModalSAYCamDataModule(BaseDataModule):
     def __init__(self, args=None) -> None:
         super().__init__(args)
 
+        self.args = vars(args) if args is not None else {}
         self.batch_size = self.args.get("batch_size", BATCH_SIZE)
         self.num_workers = self.args.get("num_workers", NUM_WORKERS)
         self.multiple_frames = self.args.get("multiple_frames", MULTIPLE_FRAMES)
         self.augment_frames = self.args.get("augment_frames", AUGMENT_FRAMES)
+        self.on_gpu = isinstance(self.args.get("gpus", None), (str, int))        
 
         if self.augment_frames:
             # add same augmentations as emin used
@@ -268,6 +271,15 @@ class MultiModalSAYCamDataModule(BaseDataModule):
         # create eval datasets
         self.eval_dev_dataset = LabeledSEvalDataset(eval_dev_data, vocab)
         self.eval_test_dataset = LabeledSEvalDataset(eval_test_data, vocab)
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_dataset,
+            shuffle=True,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=False,
+        )
         
     def val_dataloader(self):
         contrastive_val_dataloader = DataLoader(

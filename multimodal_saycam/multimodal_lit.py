@@ -1,14 +1,15 @@
 import argparse
+from pathlib import Path
 import json
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from multimodal_saycam.data.base_data_module import BaseDataModule, load_and_print_info
 
 LR = 3e-4
-VOCAB_FILENAME = BaseDataModule.data_dirname() / "vocab.json"
+DATA_DIR = Path("/home/wv9/code/WaiKeen/multimodal-baby/data")
+VOCAB_FILENAME = DATA_DIR / "vocab.json"
 
 class MultiModalLitModel(pl.LightningModule):
     """
