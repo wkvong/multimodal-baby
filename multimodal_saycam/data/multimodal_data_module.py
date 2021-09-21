@@ -840,7 +840,7 @@ def _create_vocab():
         print("Creating vocab.json file!")
 
         # create vocab dictionary
-        vocab_dict = {"<pad>": 0, "<unk>": 1, "<sos>": 2, "<eos>": 4}
+        vocab_dict = {"<pad>": 0, "<unk>": 1, "<sos>": 2, "<eos>": 3}
         num_words = 4
 
         # load utterances from training set

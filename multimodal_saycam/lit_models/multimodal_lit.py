@@ -1,12 +1,14 @@
 import argparse
+import json
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 import pytorch_lightning as pl
+from multimodal_saycam.data.base_data_module import BaseDataModule, load_and_print_info
 
 LR = 3e-4
+VOCAB_FILENAME = BaseDataModule.data_dirname() / "vocab.json"
 
 class MultiModalLitModel(pl.LightningModule):
     """
@@ -19,6 +21,12 @@ class MultiModalLitModel(pl.LightningModule):
         self.args = vars(args) if args is not None else {}
 
         self.lr = self.args.get("lr", LR)
+
+        # load vocab and create dict to map indices back to words
+        with open(VOCAB_FILENAME) as f:
+            self.vocab = json.load(f)
+            self.word2idx = self.vocab
+            self.idx2word = dict((v,k) for k,v in self.vocab.items())
 
         # save hyperparameters to logger
         self.save_hyperparameters()
@@ -88,17 +96,17 @@ class MultiModalLitModel(pl.LightningModule):
             
             return val_loss
         elif dataloader_idx == 1:
-            # batch of evaluation trials
+            # batch of evaluation trials (only one trial at a time)
             x, y, y_len = batch
 
             # resize x so images from the same trial are in the batch dim
             # [B, N, C, H, W] -> [B*N, C, H, W]  (with B = 1)
             x = x.view(-1, 3, 224, 224)  
 
+            # calculate accuracy
             logits_per_image, logits_per_text = self.model(x, y, y_len)
             logits = logits_per_text[0]  # get logits per trial
             pred = torch.argmax(logits).item()
-
             label = 0  # correct answer is always the first item 
 
             if pred == label:
@@ -106,8 +114,11 @@ class MultiModalLitModel(pl.LightningModule):
             else:
                 val_accuracy = 0
 
-            # TODO: figure out how to log per-category accuracies separately
-                
+            # log evaluation accuracy
             self.log("val_accuracy", val_accuracy, on_step=False, on_epoch=True)
+
+            # log category-level evaluation accuracies as a separate metric
+            category_label = self.idx2word[y.item()]
+            self.log(f"val_accuracy_{category_label}", val_accuracy, on_step=False, on_epoch=True)
 
             return val_accuracy
