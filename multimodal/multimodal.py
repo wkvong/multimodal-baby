@@ -16,6 +16,14 @@ SIM = "max"
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
+
+def set_parameter_requires_grad(model, feature_extracting=True):
+    '''Helper function for setting body to non-trainable'''
+    if feature_extracting:
+        for param in model.parameters():
+            param.requires_grad = False
+
+
 class VisionEncoder(nn.Module):
     """
     Visual encoder (pre-trained self-supervised ResNeXt CNN from Orhan et al. (2020))
@@ -55,7 +63,7 @@ class VisionEncoder(nn.Module):
 
         if not self.finetune_cnn:
             print('Freezing CNN layers!')
-            self._set_parameter_requires_grad(model)  # freeze cnn layers
+            set_parameter_requires_grad(model)  # freeze cnn layers
         else:
             print('Fine-tuning CNN layers!')  # fine-tune cnn
 
@@ -63,12 +71,6 @@ class VisionEncoder(nn.Module):
         model = torch.nn.Sequential(*list(model.children())[:-2],
                                     nn.Conv2d(2048, self.embedding_dim, 1))
         return model
-
-    def _set_parameter_requires_grad(model, feature_extracting=True):
-        '''Helper function for setting body to non-trainable'''
-        if feature_extracting:
-            for param in model.parameters():
-                param.requires_grad = False
 
 
 class TextEncoder(nn.Module):
