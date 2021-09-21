@@ -29,7 +29,7 @@ from google.oauth2.credentials import Credentials
 from multimodal.utils import *
 
 # directories and filenames
-DATA_DIR = Path("/home/wv9/code/WaiKeen/multimodal-baby/data")
+DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
 GSHEETS_CREDENTIALS_FILENAME = DATA_DIR / "credentials.json"
 TRANSCRIPT_LINKS_FILENAME = DATA_DIR / "SAYCam_transcript_links.csv"
 TRANSCRIPTS_DIRNAME = DATA_DIR / "transcripts"

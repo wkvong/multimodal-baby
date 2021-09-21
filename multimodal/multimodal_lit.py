@@ -8,7 +8,7 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 
 LR = 3e-4
-DATA_DIR = Path("/home/wv9/code/WaiKeen/multimodal-baby/data")
+DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
 VOCAB_FILENAME = DATA_DIR / "vocab.json"
 
 class MultiModalLitModel(pl.LightningModule):
