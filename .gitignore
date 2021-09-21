@@ -7,10 +7,10 @@ eval_viz/
 figures/
 lightning_logs/
 logs/
-models/
 results/
 transcripts/
 viz/
+wandb/
 credentials.json
 token.json
 token.pickle

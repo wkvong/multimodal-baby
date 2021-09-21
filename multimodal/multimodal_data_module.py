@@ -26,7 +26,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
 # from multimodal_saycam.base_data_module import BaseDataModule, load_and_print_info
-from multimodal_saycam.utils import *
+from multimodal.utils import *
 
 # directories and filenames
 DATA_DIR = Path("/home/wv9/code/WaiKeen/multimodal-baby/data")

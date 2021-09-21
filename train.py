@@ -5,9 +5,9 @@ import torch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 
-from multimodal_saycam.data.multimodal_data_module import MultiModalSAYCamDataModule
-from multimodal_saycam.models.multimodal import MultiModalModel
-from multimodal_saycam.lit_models.multimodal_lit import MultiModalLitModel
+from multimodal.multimodal_data_module import MultiModalSAYCamDataModule
+from multimodal.multimodal import MultiModalModel
+from multimodal.multimodal_lit import MultiModalLitModel
 
 
 def _setup_parser():
@@ -33,7 +33,7 @@ def _setup_parser():
 
 def main():
     # set random seed
-    pl.seed_everything(0)  # TODO: change seed to be a command line argument
+    pl.seed_everything(0)  # TODO: change seed to be a command line argument?
 
     # parse args, set up data module and models
     parser = _setup_parser()
@@ -45,7 +45,7 @@ def main():
     # create trainer (with logger if specified)
     if args.logger:
         # add wandb logging
-        # TODO: modify log_model param later
+        # TODO: modify log_model param later once we're ready to actually save models
         wandb_logger = WandbLogger(project='multimodal-saycam', log_model=False)
         trainer = pl.Trainer.from_argparse_args(args, logger=wandb_logger)
     else:
