@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
+from torchinfo import summary
 
 from multimodal.multimodal_data_module import MultiModalSAYCamDataModule
 from multimodal.multimodal import MultiModalModel
@@ -29,6 +30,9 @@ def _setup_parser():
     lit_model_group = parser.add_argument_group("LitModel Args")
     MultiModalLitModel.add_to_argparse(lit_model_group)
 
+    parser.add_argument("--exp_name", type=str, default="multimodal_test",
+                        help="experiment name for logging")
+
     return parser
 
 def main():
@@ -45,8 +49,8 @@ def main():
     # create trainer (with logger if specified)
     if args.logger:
         # add wandb logging
-        # TODO: modify log_model param later once we're ready to actually save models
-        wandb_logger = WandbLogger(project='multimodal-saycam', log_model=False)
+        wandb_logger = WandbLogger(project='multimodal-saycam', name=args.exp_name,
+                                   log_model=True)
         trainer = pl.Trainer.from_argparse_args(args, logger=wandb_logger)
     else:
         trainer = pl.Trainer.from_argparse_args(args)

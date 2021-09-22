@@ -84,9 +84,8 @@ class MultiModalSAYCamDataset(Dataset):
 
         # get utterance and convert to indices
         utterance = self.data[idx]["utterance"]
-        # print(utterance)
         utterance_words = utterance.split(" ")
-        utterance_length = len(utterance_words)
+        utterance_length = min(len(utterance_words), MAX_LEN_UTTERANCE)
         utterance_idxs = np.zeros(MAX_LEN_UTTERANCE)  # initialize padded array
         for i, word in enumerate(utterance_words):
             if i >= MAX_LEN_UTTERANCE:
