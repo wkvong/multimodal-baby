@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+import copy
 import json
 import numpy as np
 import torch
@@ -8,6 +9,8 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 
 LR = 3e-4
+SELF_DISTILLATION = False
+ALPHA = 1
 DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
 VOCAB_FILENAME = DATA_DIR / "vocab.json"
 
@@ -18,11 +21,21 @@ class MultiModalLitModel(pl.LightningModule):
 
     def __init__(self, model, args):
         super().__init__()
-        self.model = model
         self.args = vars(args) if args is not None else {}
 
         self.lr = self.args.get("lr", LR)
 
+        self.model = model
+
+        # self-distillation
+        self.self_distillation = self.args.get("self_distillation", SELF_DISTILLATION)
+        self.teacher = copy.deepcopy(self.model)
+        self.alpha = self.args.get("alpha", ALPHA)
+
+        # set teacher to be non-trainable
+        for param in self.teacher.parameters():
+            param.requires_grad = False
+        
         # load vocab and create dict to map indices back to words
         with open(VOCAB_FILENAME) as f:
             self.vocab = json.load(f)
@@ -34,13 +47,16 @@ class MultiModalLitModel(pl.LightningModule):
 
     @staticmethod
     def add_to_argparse(parser):
-        parser.add_argument("--lr", type=float, default=LR)
-        # TODO: add argument for loss function type?
+        parser.add_argument("--lr", type=float, default=LR, help="learning rate")
+        parser.add_argument("--self_distillation", action='store_true',
+                            help="include self-distillation loss during training")
+        parser.add_argument("--alpha", type=float, default=1.0,
+                            help="coefficient for KLdiv loss in self-distillation")
         
         return parser
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=1e-5)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
         return optimizer        
 
     def forward(self, x, y, y_len):
@@ -55,7 +71,7 @@ class MultiModalLitModel(pl.LightningModule):
         ground_truth = torch.tensor(np.arange(batch_size), dtype=torch.long, device=self.device)
 
         # calculate infonce loss
-        train_loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
+        infonce_loss = (F.cross_entropy(logits_per_image, ground_truth) + F.cross_entropy(logits_per_text, ground_truth)).div(2)
 
         # calculate accuracy (image and text separately)
         train_image_pred = torch.argmax(logits_per_image, dim=-1)
@@ -63,11 +79,32 @@ class MultiModalLitModel(pl.LightningModule):
         train_image_accuracy = (train_image_pred == ground_truth).sum() / batch_size
         train_text_accuracy = (train_text_pred == ground_truth).sum() / batch_size
 
+        # calculate self-distillation loss
+        kl_loss = 0
+        if self.self_distillation:
+            # get teacher targets and student predictions
+            teacher_logits_per_image, teacher_logits_per_text = self.teacher(
+                x, y, y_len, self_distillation=True, teacher=True)
+            student_logits_per_image, student_logits_per_text = self.model(
+                x, y, y_len, self_distillation=True, teacher=False)
+
+            # calculate kl div loss 
+            kl_loss = (F.kl_div(F.log_softmax(student_logits_per_image, dim=-1), teacher_logits_per_image, reduction='batchmean') + F.kl_div(F.log_softmax(student_logits_per_text, dim=-1), teacher_logits_per_text, reduction='batchmean')).div(2) * self.alpha
+
+            # update teacher model via ema
+            self.update_teacher()
+
+        # calculate joint train loss
+        train_loss = infonce_loss + kl_loss
+        
         # log train loss and temperature
         self.log("train_loss", train_loss)
+        self.log("train_infonce_loss", infonce_loss)
+        self.log("train_kl_loss", kl_loss)
         self.log("train_image_accuracy", train_image_accuracy)
         self.log("train_text_accuracy", train_text_accuracy)
         self.log("temperature", self.model.logit_scale.item())
+        self.log("kl_temperature", self.model.kl_logit_scale.item())
         
         return train_loss
 
@@ -123,3 +160,10 @@ class MultiModalLitModel(pl.LightningModule):
             self.log(f"val_accuracy_{category_label}", val_accuracy, on_step=False, on_epoch=True)
 
             return val_accuracy
+
+    def update_teacher(self):
+        for teacher, student in zip(self.teacher.parameters(), self.model.parameters()):
+            teacher.data.copy_(self.ema(teacher.data, student.data))
+
+    def ema(self, s, t):
+        return s * (1 - 0.999) + t * 0.999

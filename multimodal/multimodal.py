@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 EMBEDDING_DIM = 128
 PRETRAINED_CNN = True
@@ -13,9 +14,6 @@ INPUT_DIM = 10000
 TEXT_ENCODER = "embedding"
 HIDDEN_DIM = 128
 SIM = "max"
-
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-
 
 def set_parameter_requires_grad(model, feature_extracting=True):
     '''Helper function for setting body to non-trainable'''
@@ -88,8 +86,8 @@ class TextEncoder(nn.Module):
         
         self.embedding = nn.Embedding(self.input_dim, self.embedding_dim,
                                       padding_idx=0)
-        self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim)
-
+        self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, bidirectional=True)
+        
     def forward(self, x, x_len):
         if self.text_encoder == "embedding":
             output = self.embedding(x)  # (B, L, E)
@@ -106,16 +104,19 @@ class TextEncoder(nn.Module):
             embedding = pack_padded_sequence(embedding, x_len.cpu(), enforce_sorted=False)
 
             # pass through lstm
-            output, _ = self.lstm(embedding, hidden)  # output: (L, B, E)
+            output, _ = self.lstm(embedding, hidden)
 
             # unpack and reshape
-            output, _  = pad_packed_sequence(output)  # (L, B, E)
+            output, _  = pad_packed_sequence(output)  # (L, B, 2*E)
+            output_fwd = output[:, :, :self.embedding_dim]  # get hidden states from forward pass
+            output_bwd = output[:, :, self.embedding_dim:]  # get hidden states from backward pass
+            output_avg = torch.mean(torch.stack([output_fwd, output_bwd]), dim=0)  # take average
             output = output.view(batch_size, -1, self.embedding_dim)  # (B, L, E)
             return output
 
     def init_hidden(self, batch_size):
-        return (torch.zeros(1, batch_size, self.hidden_dim, device="cuda"),
-                torch.zeros(1, batch_size, self.hidden_dim, device="cuda"))
+        return (torch.zeros(2, batch_size, self.hidden_dim, device="cuda"),
+                torch.zeros(2, batch_size, self.hidden_dim, device="cuda"))
 
 
 class MultiModalModel(nn.Module):
@@ -132,8 +133,12 @@ class MultiModalModel(nn.Module):
         self.image_embed = VisionEncoder(args=args)
         self.text_embed = TextEncoder(args=args)
 
-        # learnable temperature parameter
+        # contrastive temperature parameter
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+
+        # self-distillation temperature parameter
+        self.kl_logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        
 
     def encode_image(self, image):
         return self.image_embed(image)
@@ -141,12 +146,12 @@ class MultiModalModel(nn.Module):
     def encode_text(self, text, text_length):
         return self.text_embed(text, text_length)
         
-    def forward(self, image, text, text_length):
+    def forward(self, image, text, text_length, self_distillation=False, teacher=False):
         # encode image and text
         image_features = self.encode_image(image)  # (B, E, H, W,)
-        # image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
+        image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
         text_features = self.encode_text(text, text_length)  # (B, L, E)
-        # text_features = F.normalize(text_features, p=2, dim=2)  # normalize text features
+        text_features = F.normalize(text_features, p=2, dim=2)  # normalize text features
 
         # calculate batched similarity
         if self.sim == "mean":
@@ -161,8 +166,15 @@ class MultiModalModel(nn.Module):
             match_max = torch.amax(match_max, dim=(3, 4))  # amax to apply over multiple dims
             match_avg = torch.sum(match_max, dim=2) / text_length  # divide by h, w, l
 
-        # transform to logits and scale with temperature param
-        logit_scale = self.logit_scale.exp()
+        # transform to logits and scale with temperature param (either infonce or kl temp)
+        if self_distillation:
+            if teacher:
+                logit_scale = 1  # don't scale logits for teacher model
+            else:
+                logit_scale = self.kl_logit_scale.exp()
+        else:
+            logit_scale = self.logit_scale.exp()
+            
         logits_per_image = match_avg * logit_scale
         logits_per_text = match_avg.t() * logit_scale
 
