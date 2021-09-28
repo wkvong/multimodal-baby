@@ -6,13 +6,14 @@ import torch.nn.functional as F
 import torchvision
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
+TEXT_ENCODER = "embedding"
+EMBEDDING_TYPE = "spatial"
+INPUT_DIM = 10000  # TODO: fix to size of vocab
 EMBEDDING_DIM = 128
+HIDDEN_DIM = 128
 PRETRAINED_CNN = True
 FINETUNE_CNN = False
-CNN_OUTPUT = "spatial"
-INPUT_DIM = 10000
-TEXT_ENCODER = "embedding"
-HIDDEN_DIM = 128
+NORMALIZE_FEATURES = False
 SIM = "max"
 
 def set_parameter_requires_grad(model, feature_extracting=True):
@@ -38,6 +39,16 @@ class VisionEncoder(nn.Module):
 
     def forward(self, x):
         return self.model(x)
+
+    def _forward_unbatched(self, x):
+        outputs = []
+        for i in x:
+            i = i.unsqueeze(0)  # add fake batch dim
+            output = self.model(i)  # pass through model
+            output = output.squeeze()  # remove batch dim
+            outputs.append(output)
+        outputs = torch.stack(outputs)
+        return outputs
 
     def _load_pretrained_cnn(self):
         # initialize resnext model and replace fc layer to match pretrained model
@@ -86,7 +97,9 @@ class TextEncoder(nn.Module):
         
         self.embedding = nn.Embedding(self.input_dim, self.embedding_dim,
                                       padding_idx=0)
-        self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, bidirectional=True)
+
+        if self.text_encoder == "lstm":
+            self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, bidirectional=True)
         
     def forward(self, x, x_len):
         if self.text_encoder == "embedding":
@@ -114,6 +127,15 @@ class TextEncoder(nn.Module):
             output = output.view(batch_size, -1, self.embedding_dim)  # (B, L, E)
             return output
 
+    def _forward_unbatched(self, x, x_len):
+        if self.text_encoder == "embedding":
+            outputs = []
+            for i in x:
+                output = self.embedding(i)
+                outputs.append(output)
+            outputs = torch.stack(outputs)
+            return outputs
+        
     def init_hidden(self, batch_size):
         return (torch.zeros(2, batch_size, self.hidden_dim, device="cuda"),
                 torch.zeros(2, batch_size, self.hidden_dim, device="cuda"))
@@ -129,6 +151,7 @@ class MultiModalModel(nn.Module):
 
         self.text_encoder = self.args.get("text_encoder", TEXT_ENCODER)
         self.sim = self.args.get("sim", SIM)
+        self.normalize_features = self.args.get("normalize_features", NORMALIZE_FEATURES)
 
         self.image_embed = VisionEncoder(args=args)
         self.text_embed = TextEncoder(args=args)
@@ -149,9 +172,11 @@ class MultiModalModel(nn.Module):
     def forward(self, image, text, text_length, self_distillation=False, teacher=False):
         # encode image and text
         image_features = self.encode_image(image)  # (B, E, H, W,)
-        image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
         text_features = self.encode_text(text, text_length)  # (B, L, E)
-        text_features = F.normalize(text_features, p=2, dim=2)  # normalize text features
+
+        if self.normalize_features:
+            image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
+            text_features = F.normalize(text_features, p=2, dim=2)  # normalize text features
 
         # calculate batched similarity
         if self.sim == "mean":
@@ -184,8 +209,10 @@ class MultiModalModel(nn.Module):
     def add_to_argparse(parser):
         parser.add_argument("--text_encoder", type=str, default=TEXT_ENCODER, choices=["embedding", "lstm"],
                             help="type of text encoder to use (embedding only or LSTM)")
+        parser.add_argument("--embedding_type", type=str, default=EMBEDDING_TYPE, choices=["spatial", "flat"],
+                            help="type of embeddings to use (spatial or flat embedding)")
         parser.add_argument("--input_dim", type=int, default=INPUT_DIM,
-                            help="size of input embedding")
+                            help="size of input embedding")        
         parser.add_argument("--embedding_dim", type=int, default=EMBEDDING_DIM,
                             help="size of embedding representations")
         parser.add_argument("--hidden_dim", type=int, default=HIDDEN_DIM,
@@ -194,9 +221,7 @@ class MultiModalModel(nn.Module):
                             help="use pretrained CNN")
         parser.add_argument("--finetune_cnn", action="store_true",
                             help="finetune CNN (frozen by default)")
-        parser.add_argument("--cnn_output", type=str, default=CNN_OUTPUT, choices=["spatial", "flat"],
-                            help="type of output from CNN (spatial or flat embedding)")
+        parser.add_argument("--normalize_features", action="store_true",
+                            help="normalize feature embeddings after encoding")
         parser.add_argument("--sim", type=str, default=SIM, choices=["mean", "max"],
                             help="type of similarity to use (mean or max over image patches per word)")
-
-    
