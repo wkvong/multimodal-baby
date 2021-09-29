@@ -10,7 +10,6 @@ TEXT_ENCODER = "embedding"
 EMBEDDING_TYPE = "spatial"
 INPUT_DIM = 10000  # TODO: fix to size of vocab
 EMBEDDING_DIM = 128
-HIDDEN_DIM = 128
 PRETRAINED_CNN = True
 FINETUNE_CNN = False
 NORMALIZE_FEATURES = False
@@ -100,7 +99,7 @@ class TextEncoder(nn.Module):
         self.embedding_type = self.args.get("embedding_type")
         self.input_dim = self.args.get("input_dim")
         self.embedding_dim = self.args.get("embedding_dim")
-        self.hidden_dim = self.args.get("hidden_dim")
+        self.hidden_dim = self.embedding_dim  # always match embedding and hidden dim for consistency
         
         self.embedding = nn.Embedding(self.input_dim, self.embedding_dim,
                                       padding_idx=0)
@@ -269,8 +268,6 @@ class MultiModalModel(nn.Module):
                             help="size of input embedding")        
         parser.add_argument("--embedding_dim", type=int, default=EMBEDDING_DIM,
                             help="size of embedding representations")
-        parser.add_argument("--hidden_dim", type=int, default=HIDDEN_DIM,
-                            help="size of lstm hidden layer")        
         parser.add_argument("--pretrained_cnn", action="store_true",
                             help="use pretrained CNN")
         parser.add_argument("--finetune_cnn", action="store_true",
