@@ -32,17 +32,22 @@ def _setup_parser():
 
     parser.add_argument("--exp_name", type=str, default="multimodal_test",
                         help="experiment name for logging")
+    parser.add_argument("--seed", type=int, default=0,
+                        help="random seed for everything")
 
     return parser
 
 def main():
-    # set random seed
-    pl.seed_everything(0)  # TODO: change seed to be a command line argument?
-
-    # parse args, set up data module and models
+    # parse args
     parser = _setup_parser()
     args = parser.parse_args()
+
+    # set random seed
+    pl.seed_everything(args.seed)
+
+    # set up data module and models
     data = MultiModalSAYCamDataModule(args)
+    args.input_dim = len(data.vocab)
     model = MultiModalModel(args)
     lit_model = MultiModalLitModel(model, args)
 

@@ -255,6 +255,7 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
         # read vocab
         with open(VOCAB_FILENAME) as f:
             vocab = json.load(f)
+        self.vocab = vocab
 
         # create image-text datasets
         self.train_dataset = MultiModalSAYCamDataset(train_data, vocab,
