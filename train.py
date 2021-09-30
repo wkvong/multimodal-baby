@@ -6,7 +6,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 from torchinfo import summary
 
-from multimodal.multimodal_data_module import MultiModalSAYCamDataModule
+from multimodal.multimodal_data_module import MultiModalSAYCamDataModule, read_vocab
 from multimodal.multimodal import MultiModalModel
 from multimodal.multimodal_lit import MultiModalLitModel
 
@@ -47,7 +47,7 @@ def main():
 
     # set up data module and models
     data = MultiModalSAYCamDataModule(args)
-    args.input_dim = len(data.vocab)
+    args.input_dim = len(read_vocab())
     model = MultiModalModel(args)
     lit_model = MultiModalLitModel(model, args)
 

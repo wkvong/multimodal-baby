@@ -61,6 +61,10 @@ MAX_LEN_UTTERANCE = 16
 AUGMENT_FRAMES = False
 MULTIPLE_FRAMES = False
 
+def read_vocab(vocab_filename=VOCAB_FILENAME):
+    with open(vocab_filename) as f:
+        return json.load(f)
+
 class MultiModalSAYCamDataset(Dataset):
     """
     Dataset that returns paired image-utterances from baby S of the SAYCam Dataset
@@ -253,9 +257,7 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
             eval_test_data = eval_test_data["data"]
             
         # read vocab
-        with open(VOCAB_FILENAME) as f:
-            vocab = json.load(f)
-        self.vocab = vocab
+        vocab = read_vocab()
 
         # create image-text datasets
         self.train_dataset = MultiModalSAYCamDataset(train_data, vocab,
