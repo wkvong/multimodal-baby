@@ -8,7 +8,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 TEXT_ENCODER = "embedding"
 EMBEDDING_TYPE = "spatial"
-INPUT_DIM = 10000  # TODO: fix to size of vocab
+INPUT_DIM = 10000  # unused
 EMBEDDING_DIM = 128
 PRETRAINED_CNN = True
 FINETUNE_CNN = False
@@ -105,7 +105,7 @@ class TextEncoder(nn.Module):
                                       padding_idx=0)
 
         if self.text_encoder == "lstm":
-            self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, bidirectional=True)
+            self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, bidirectional=not args.text_encoder_unidir)
         
     def forward(self, x, x_len):
         if self.text_encoder == "embedding":
@@ -123,47 +123,31 @@ class TextEncoder(nn.Module):
                 output = self.embedding(x)  # (B, L, E)
                 return output
         elif self.text_encoder == "lstm":
+            # initialize hidden state
+            batch_size = x.size(0)
+            hidden = self.init_hidden(batch_size)
+
+            # embed padded sequence and pack
+            embedding = self.embedding(x)  # (B, L, E)
+            embedding = embedding.transpose(0, 1)  # (L, B, E)
+            # need to move x_len to cpu for this line to work
+            embedding = pack_padded_sequence(embedding, x_len.cpu(), enforce_sorted=False)
+
+            # pass through lstm
+            output, (hidden, cell) = self.lstm(embedding, hidden)
+
             if self.embedding_type == "flat":
                 # flat embedding for biLSTM using final hidden states
-                # initialize hidden state
-                batch_size = x.size(0)
-                hidden = self.init_hidden(batch_size)
-     
-                # embed padded sequence and pack
-                embedding = self.embedding(x)  # (B, L, E)
-                embedding = embedding.view(-1, batch_size, self.embedding_dim)  # (L, B, E)
-                # need to move x_len to cpu for this line to work
-                embedding = pack_padded_sequence(embedding, x_len.cpu(), enforce_sorted=False)
-     
-                # pass through lstm
-                output, (hidden, cell) = self.lstm(embedding, hidden)
-
                 # get final hidden state by averaging forward and backward passes
-                hidden_fwd = hidden[0, :, :]  # (B, E)
-                hidden_bwd = hidden[1, :, :]  # (B, E)
-                hidden = torch.mean(torch.stack([hidden_fwd, hidden_bwd]), dim=0)  # (B, E)
+                hidden = hidden.mean(dim=0) # (B, E)
                 return hidden
             elif self.embedding_type == "spatial":
                 # spatial embedding for biLSTM using all hidden states
-                # initialize hidden state
-                batch_size = x.size(0)
-                hidden = self.init_hidden(batch_size)
-     
-                # embed padded sequence and pack
-                embedding = self.embedding(x)  # (B, L, E)
-                embedding = embedding.view(-1, batch_size, self.embedding_dim)  # (L, B, E)
-                # need to move x_len to cpu for this line to work
-                embedding = pack_padded_sequence(embedding, x_len.cpu(), enforce_sorted=False)
-     
-                # pass through lstm
-                output, _ = self.lstm(embedding, hidden)
-     
                 # unpack and reshape
-                output, _  = pad_packed_sequence(output)  # (L, B, 2*E)
-                output_fwd = output[:, :, :self.embedding_dim]  # get hidden states from forward pass
-                output_bwd = output[:, :, self.embedding_dim:]  # get hidden states from backward pass
-                output_avg = torch.mean(torch.stack([output_fwd, output_bwd]), dim=0)  # take average
-                output = output.view(batch_size, -1, self.embedding_dim)  # (B, L, E)
+                output, _ = pad_packed_sequence(output)  # (L, B, 2*E)
+                if self.lstm.bidirectional:
+                    output = output.view(*(output.shape[:-1] + [2, output.shape[-1] / 2])).mean(-2)  # (L, B, E)
+                output = output.transpose(0, 1)  # (B, L, E)
                 return output
 
     def _forward_unbatched(self, x, x_len):
@@ -174,10 +158,11 @@ class TextEncoder(nn.Module):
                 outputs.append(output)
             outputs = torch.stack(outputs)
             return outputs
-        
+
     def init_hidden(self, batch_size):
-        return (torch.zeros(2, batch_size, self.hidden_dim, device="cuda"),
-                torch.zeros(2, batch_size, self.hidden_dim, device="cuda"))
+        d = 2 if self.lstm.bidirectional else 1
+        return (torch.zeros(d * self.lstm.num_layers, batch_size, self.hidden_dim, device="cuda"),
+                torch.zeros(d * self.lstm.num_layers, batch_size, self.hidden_dim, device="cuda"))
 
 
 class MultiModalModel(nn.Module):
@@ -262,6 +247,8 @@ class MultiModalModel(nn.Module):
     def add_to_argparse(parser):
         parser.add_argument("--text_encoder", type=str, default=TEXT_ENCODER, choices=["embedding", "lstm"],
                             help="type of text encoder to use (embedding only or LSTM)")
+        parser.add_argument("--text_encoder_unidir", action="store_true",
+                            help="set LSTM text encoder to unidirectional")
         parser.add_argument("--embedding_type", type=str, default=EMBEDDING_TYPE, choices=["spatial", "flat"],
                             help="type of embeddings to use (spatial or flat embedding)")
         parser.add_argument("--input_dim", type=int, default=INPUT_DIM,

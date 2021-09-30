@@ -1,0 +1,10 @@
+torch
+torchvision
+imageio
+Pillow
+opencv-python
+pandas
+pytorch-lightning
+torchinfo
+gsheets
+wandb
