@@ -23,21 +23,21 @@ grids = [
         "main_file": ['train'],
         "embedding_type": ["spatial", "flat"],
         "text_encoder": ["embedding", "lstm"],
-        "embedding_dim": [64, 128],
+        "embedding_dim": [128],
         "sim": ["mean"],
         "pretrained_cnn": [True],
         "multiple_frames": [True],
         "augment_frames": [True],
-        # normalize features?
+        # "normalize_features": [True, False],
         # self distillation?
         "gpus": [1],
-        "num_workers": [8],
-        "batch_size": [16, 64, 256],
-        "max_epochs": [50],
+        "num_workers": [4],
+        "batch_size": [16, 64, 128],
+        "max_epochs": [100],
         # learning rate?
         # weight decay?
         # seed?
-        "checkpoint_callback": ["False"],
+        "checkpoint_callback": ["True"],
         "logger": ["True"]
     },
 ]
@@ -85,26 +85,20 @@ for job in jobs:
             jobname = jobname + "_" + flag + "_" + str(job[flag])
     flagstring = flagstring + " --exp_name " + jobname
 
+    # create slurm script, slurm log and checkpoint dirs
     slurm_script_path = 'slurm_scripts/' + jobname + '.slurm'
     slurm_script_dir = os.path.dirname(slurm_script_path)
     os.makedirs(slurm_script_dir, exist_ok=True)
 
-    slurm_log_dir = 'slurm_logs/' + jobname 
+    slurm_log_dir = os.path.join('slurm_logs/', jobname)
     os.makedirs(os.path.dirname(slurm_log_dir), exist_ok=True)
 
+    checkpoint_dir = os.path.join('checkpoints/', jobname)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    
     job_source_dir = code_dir
 
-    # don't need to copy code over
-    # try:
-    #     os.makedirs(job_source_dir)
-    #     os.system('cp -R ./* ' + job_source_dir)
-    # except FileExistsError:
-    #     # with the 'clear' flag, we're starting fresh
-    #     # overwrite the code that's already here
-    #     if clear:
-    #         print("Overwriting existing files.")
-    #         os.system('cp -R ./* ' + job_source_dir)
-
+    # specify job command and create slurm file
     jobcommand = "python {}.py{}".format(job['main_file'], flagstring)
 
     job_start_command = "sbatch " + slurm_script_path
@@ -114,24 +108,23 @@ for job in jobs:
         slurmfile.write("#!/bin/bash\n")
         slurmfile.write("#SBATCH --job-name" + "=" + jobname + "\n")
         slurmfile.write("#SBATCH --open-mode=append\n")
-        slurmfile.write("#SBATCH --output=slurm_logs/" +
+        slurmfile.write("#SBATCH --output=/home/wv9/code/WaiKeen/multimodal-baby/slurm_logs/" +
                         jobname + ".out\n")
-        slurmfile.write("#SBATCH --error=slurm_logs/" + jobname + ".err\n")
+        slurmfile.write("#SBATCH --error=/home/wv9/code/WaiKeen/multimodal-baby/slurm_logs/" + jobname + ".err\n")
         slurmfile.write("#SBATCH --export=ALL\n")
-        slurmfile.write("#SBATCH --signal=USR1@600\n")
-        slurmfile.write("#SBATCH --time=1-00\n")
-        slurmfile.write("#SBATCH -N 1\n")
+        slurmfile.write("#SBATCH --time=6:00:00\n")
         slurmfile.write("#SBATCH --mem=32GB\n")
-
-        slurmfile.write("#SBATCH -c 4\n")
+        slurmfile.write("#SBATCH --cpus-per-task=4\n")
         slurmfile.write("#SBATCH --gres=gpu:1\n")
-
+        slurmfile.write("#SBATCH --constraint=pascal|turing|volta\n")
         slurmfile.write("#SBATCH --mail-type=BEGIN,END,FAIL\n")
-        slurmfile.write("#SBATCH --mail-user=waikeenvong@gmail.com\n")
+        slurmfile.write("#SBATCH --mail-user=waikeenvong@gmail.com\n\n")
 
+        slurmfile.write('source /home/wv9/code/WaiKeen/miniconda3/etc/profile.d/conda.sh\n')
+        slurmfile.write('conda activate pytorch\n')
         slurmfile.write("cd " + job_source_dir + '\n')
         slurmfile.write("srun " + jobcommand)
         slurmfile.write("\n")
 
-    # if not dry_run:
-    #     os.system(job_start_command + " &")
+    if not dry_run:
+        os.system(job_start_command + " &")

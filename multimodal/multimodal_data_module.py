@@ -49,7 +49,7 @@ VOCAB_FILENAME = DATA_DIR / "vocab.json"
 # default arguments
 # dataloader arguments
 BATCH_SIZE = 4
-NUM_WORKERS = 0
+NUM_WORKERS = 4
 TRAIN_FRAC = 0.9
 VAL_FRAC = 0.05
 

@@ -1,8 +1,10 @@
 import argparse
+import os
 
 import numpy as np
 import torch
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from torchinfo import summary
 
@@ -51,12 +53,23 @@ def main():
     model = MultiModalModel(args)
     lit_model = MultiModalLitModel(model, args)
 
-    # create trainer (with logger if specified)
+    # setup checkpoint callback
+    checkpoint_callback = ModelCheckpoint(
+        monitor='val_loss/dataloader_idx_0',
+        save_last=True,
+        save_top_k=1,
+        dirpath=os.path.join(os.getcwd(), f'checkpoints/{args.exp_name}/'),
+        filename='{epoch}')
+    
+    # create trainer (with checkpoint and logger if specified)
     if args.logger:
-        # add wandb logging
+        # add checkpoint callback and wandb logging
         wandb_logger = WandbLogger(project='multimodal-saycam', name=args.exp_name,
                                    log_model=True)
-        trainer = pl.Trainer.from_argparse_args(args, logger=wandb_logger)
+        trainer = pl.Trainer.from_argparse_args(args,
+                                                checkpoint_callback=args.checkpoint_callback,
+                                                callbacks=[checkpoint_callback],
+                                                logger=wandb_logger)
     else:
         trainer = pl.Trainer.from_argparse_args(args)
 
