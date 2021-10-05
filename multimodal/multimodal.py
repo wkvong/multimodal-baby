@@ -7,7 +7,6 @@ import torchvision
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 TEXT_ENCODER = "embedding"
-BIDIRECTIONAL = "true"
 EMBEDDING_TYPE = "spatial"
 INPUT_DIM = 10000  # unused
 EMBEDDING_DIM = 128
@@ -302,7 +301,7 @@ class MultiModalModel(nn.Module):
     def add_to_argparse(parser):
         parser.add_argument("--text_encoder", type=str, default=TEXT_ENCODER, choices=["embedding", "lstm"],
                             help="type of text encoder to use (embedding only or LSTM)")
-        parser.add_argument("--bidirectional", type=bool, default=BIDIRECTIONAL,
+        parser.add_argument("--bidirectional", action="store_true",
                             help="set LSTM text encoder to bidirectional")
         parser.add_argument("--embedding_type", type=str, default=EMBEDDING_TYPE, choices=["spatial", "flat"],
                             help="type of embeddings to use (spatial or flat embedding)")
