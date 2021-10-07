@@ -61,6 +61,12 @@ MAX_LEN_UTTERANCE = 16
 AUGMENT_FRAMES = False
 MULTIPLE_FRAMES = False
 
+# special tokens
+PAD_TOKEN = "<pad>"
+UNK_TOKEN = "<unk>"
+SOS_TOKEN = "<sos>"
+EOS_TOKEN = "<eos>"
+
 def read_vocab(vocab_filename=VOCAB_FILENAME):
     with open(vocab_filename) as f:
         return json.load(f)
@@ -89,6 +95,7 @@ class MultiModalSAYCamDataset(Dataset):
         # get utterance and convert to indices
         utterance = self.data[idx]["utterance"]
         utterance_words = utterance.split(" ")
+        #utterance_words = utterance_words + [EOS_TOKEN]
         utterance_length = min(len(utterance_words), MAX_LEN_UTTERANCE)
         utterance_idxs = np.zeros(MAX_LEN_UTTERANCE)  # initialize padded array
         for i, word in enumerate(utterance_words):
@@ -98,7 +105,7 @@ class MultiModalSAYCamDataset(Dataset):
             try:
                 utterance_idxs[i] = self.vocab[word]
             except KeyError:
-                utterance_idxs[i] = self.vocab["<unk>"]
+                utterance_idxs[i] = self.vocab[UNK_TOKEN]
 
         # convert to torch tensor
         utterance_idxs = torch.LongTensor(utterance_idxs)
@@ -854,7 +861,7 @@ def _create_vocab():
         print("Creating vocab.json file!")
 
         # create vocab dictionary
-        vocab_dict = {"<pad>": 0, "<unk>": 1, "<sos>": 2, "<eos>": 3}
+        vocab_dict = {PAD_TOKEN: 0, UNK_TOKEN: 1, SOS_TOKEN: 2, EOS_TOKEN: 3}
         num_words = 4
 
         # load utterances from training set
