@@ -4,17 +4,32 @@
 import os
 import sys
 import itertools
+import argparse
+from pathlib import Path
 
-dry_run = '--dry-run' in sys.argv 
+argparser = argparse.ArgumentParser()
+argparser.add_argument("--logs", type=Path, default=Path("slurm_logs"))
+argparser.add_argument("--scripts", type=Path, default=Path("slurm_scripts"))
+argparser.add_argument("--code-dir", type=Path, default=Path())
+argparser.add_argument("--checkpoints", type=Path, default=Path("checkpoints"))
+argparser.add_argument("--mail-type", default="BEGIN,END,FAIL")
+argparser.add_argument("--mail-user", default="waikeenvong@gmail.com")
+argparser.add_argument("--python", default="python")
+argparser.add_argument("--conda", type=Path, default=Path("/home/wv9/code/WaiKeen/miniconda3/etc/profile.d/conda.sh"))
+argparser.add_argument("--dry-run", action="store_true")
+args = argparser.parse_args()
 
 # create slurm directories
-if not os.path.exists("slurm_logs"):
-    os.makedirs("slurm_logs")
-if not os.path.exists("slurm_scripts"):
-    os.makedirs("slurm_scripts")
+args.logs.mkdir(parents=True, exist_ok=True)
+args.scripts.mkdir(parents=True, exist_ok=True)
 
-# set code dir
-code_dir = "/home/wv9/code/WaiKeen/multimodal-baby"
+# try conda
+try:
+    conda_avail = args.conda.exists()
+except:
+    conda_avail = False
+if not conda_avail:
+    args.conda = None
 
 # config
 basename = "multimodal"
@@ -50,7 +65,7 @@ for grid in grids:
     jobs += [{k: v for d in option_set for k, v in d.items()}
              for option_set in product_options]
 
-if dry_run:
+if args.dry_run:
     print("NOT starting {} jobs:".format(len(jobs)))
 else:
     print("Starting {} jobs:".format(len(jobs)))
@@ -86,45 +101,45 @@ for job in jobs:
     flagstring = flagstring + " --exp_name " + jobname
 
     # create slurm script, slurm log and checkpoint dirs
-    slurm_script_path = 'slurm_scripts/' + jobname + '.slurm'
-    slurm_script_dir = os.path.dirname(slurm_script_path)
-    os.makedirs(slurm_script_dir, exist_ok=True)
+    slurm_script_path = args.scripts / (jobname + '.slurm')
+    slurm_script_path.parent.mkdir(parents=True, exist_ok=True)
 
-    slurm_log_dir = os.path.join('slurm_logs/', jobname)
-    os.makedirs(os.path.dirname(slurm_log_dir), exist_ok=True)
+    slurm_log_dir = args.logs / jobname
+    slurm_log_dir.parent.mkdir(parents=True, exist_ok=True)
 
-    checkpoint_dir = os.path.join('checkpoints/', jobname)
-    os.makedirs(checkpoint_dir, exist_ok=True)
+    checkpoint_dir = args.checkpoints / jobname
+    checkpoint_dir.parent.mkdir(parents=True, exist_ok=True)
     
-    job_source_dir = code_dir
+    job_source_dir = args.code_dir
 
     # specify job command and create slurm file
-    jobcommand = "python {}.py{}".format(job['main_file'], flagstring)
+    jobcommand = f"{args.python} {job['main_file']}.py{flagstring}"
 
-    job_start_command = "sbatch " + slurm_script_path
+    job_start_command = f"sbatch {slurm_script_path}"
 
     print(jobcommand)
-    with open(slurm_script_path, 'w') as slurmfile:
+    with slurm_script_path.open('w') as slurmfile:
         slurmfile.write("#!/bin/bash\n")
-        slurmfile.write("#SBATCH --job-name" + "=" + jobname + "\n")
+        slurmfile.write(f"#SBATCH --job-name={jobname}\n")
         slurmfile.write("#SBATCH --open-mode=append\n")
-        slurmfile.write("#SBATCH --output=/home/wv9/code/WaiKeen/multimodal-baby/slurm_logs/" +
-                        jobname + ".out\n")
-        slurmfile.write("#SBATCH --error=/home/wv9/code/WaiKeen/multimodal-baby/slurm_logs/" + jobname + ".err\n")
+        slurmfile.write(f"#SBATCH --output={(args.logs / (jobname + '.out')).absolute()}\n")
+        slurmfile.write(f"#SBATCH --error={(args.logs / (jobname + '.err')).absolute()}\n")
         slurmfile.write("#SBATCH --export=ALL\n")
         slurmfile.write("#SBATCH --time=6:00:00\n")
         slurmfile.write("#SBATCH --mem=32GB\n")
         slurmfile.write("#SBATCH --cpus-per-task=4\n")
         slurmfile.write("#SBATCH --gres=gpu:1\n")
         slurmfile.write("#SBATCH --constraint=pascal|turing|volta\n")
-        slurmfile.write("#SBATCH --mail-type=BEGIN,END,FAIL\n")
-        slurmfile.write("#SBATCH --mail-user=waikeenvong@gmail.com\n\n")
+        slurmfile.write(f"#SBATCH --mail-type={args.mail_type}\n")
+        slurmfile.write(f"#SBATCH --mail-user={args.mail_user}\n\n")
 
-        slurmfile.write('source /home/wv9/code/WaiKeen/miniconda3/etc/profile.d/conda.sh\n')
-        slurmfile.write('conda activate pytorch\n')
-        slurmfile.write("cd " + job_source_dir + '\n')
+        if args.conda:
+            slurmfile.write('source \n')
+            slurmfile.write('conda activate pytorch\n')
+        if job_source_dir != Path():
+            slurmfile.write(f"cd {job_source_dir}\n")
         slurmfile.write("srun " + jobcommand)
         slurmfile.write("\n")
 
-    if not dry_run:
+    if not args.dry_run:
         os.system(job_start_command + " &")
