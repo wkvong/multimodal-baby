@@ -7,12 +7,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
+from multimodal.multimodal_data_module import read_vocab
 
 LR = 3e-4
 SELF_DISTILLATION = False
 ALPHA = 1
-DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
-VOCAB_FILENAME = DATA_DIR / "vocab.json"
 
 class MultiModalLitModel(pl.LightningModule):
     """
@@ -37,10 +36,9 @@ class MultiModalLitModel(pl.LightningModule):
             param.requires_grad = False
         
         # load vocab and create dict to map indices back to words
-        with open(VOCAB_FILENAME) as f:
-            self.vocab = json.load(f)
-            self.word2idx = self.vocab
-            self.idx2word = dict((v,k) for k,v in self.vocab.items())
+        self.vocab = read_vocab()
+        self.word2idx = self.vocab
+        self.idx2word = dict((v,k) for k,v in self.vocab.items())
 
         # save hyperparameters to logger
         self.save_hyperparameters()
