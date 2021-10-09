@@ -67,6 +67,11 @@ UNK_TOKEN = "<unk>"
 SOS_TOKEN = "<sos>"
 EOS_TOKEN = "<eos>"
 
+PAD_TOKEN_ID = 0
+UNK_TOKEN_ID = 1
+SOS_TOKEN_ID = 2
+EOS_TOKEN_ID = 3
+
 def read_vocab(vocab_filename=VOCAB_FILENAME):
     with open(vocab_filename) as f:
         return json.load(f)
@@ -95,7 +100,7 @@ class MultiModalSAYCamDataset(Dataset):
         # get utterance and convert to indices
         utterance = self.data[idx]["utterance"]
         utterance_words = utterance.split(" ")
-        #utterance_words = utterance_words + [EOS_TOKEN]
+        utterance_words = [SOS_TOKEN] + utterance_words + [EOS_TOKEN]
         utterance_length = min(len(utterance_words), MAX_LEN_UTTERANCE)
         utterance_idxs = np.zeros(MAX_LEN_UTTERANCE)  # initialize padded array
         for i, word in enumerate(utterance_words):
