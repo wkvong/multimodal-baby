@@ -11,6 +11,7 @@ EMBEDDING_TYPE = "spatial"
 INPUT_DIM = 10000  # unused
 EMBEDDING_DIM = 128
 PRETRAINED_CNN = True
+DROPOUT = 0.
 FINETUNE_CNN = False
 NORMALIZE_FEATURES = False
 SIM = "max"
@@ -101,13 +102,14 @@ class TextEncoder(nn.Module):
         self.input_dim = self.args.get("input_dim")
         self.embedding_dim = self.args.get("embedding_dim")
         self.hidden_dim = self.embedding_dim  # always match embedding and hidden dim for consistency
+        self.dropout = self.args.get("dropout")
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         self.embedding = nn.Embedding(self.input_dim, self.embedding_dim,
                                       padding_idx=0)
 
         if self.text_encoder == "lstm":
-            self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, bidirectional=self.bidirectional)
+            self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, bidirectional=self.bidirectional, dropout=self.dropout)
         
     def forward(self, x, x_len):
         if self.text_encoder == "embedding":
@@ -309,6 +311,8 @@ class MultiModalModel(nn.Module):
                             help="size of input embedding")        
         parser.add_argument("--embedding_dim", type=int, default=EMBEDDING_DIM,
                             help="size of embedding representations")
+        parser.add_argument("--dropout", type=float, default=DROPOUT,
+                            help="dropout")
         parser.add_argument("--pretrained_cnn", action="store_true",
                             help="use pretrained CNN")
         parser.add_argument("--finetune_cnn", action="store_true",

@@ -40,6 +40,7 @@ grids = [
         "embedding_type": ["spatial", "flat"],
         "text_encoder": ["embedding", "lstm"],
         "embedding_dim": [128],
+        "dropout": [.0, .1, .3, .5],
         "sim": ["mean"],
         "pretrained_cnn": [True],
         "multiple_frames": [True],
