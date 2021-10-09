@@ -8,6 +8,8 @@ import argparse
 from pathlib import Path
 
 argparser = argparse.ArgumentParser()
+argparser.add_argument("--basename", default="multimodal")
+argparser.add_argument("--main-file", default="train")
 argparser.add_argument("--logs", type=Path, default=Path("slurm_logs"))
 argparser.add_argument("--scripts", type=Path, default=Path("slurm_scripts"))
 argparser.add_argument("--code-dir", type=Path, default=Path())
@@ -32,10 +34,9 @@ if not conda_avail:
     args.conda = None
 
 # config
-basename = "multimodal"
 grids = [
     {
-        "main_file": ['train'],
+        "main_file": [args.main_file],
         "embedding_type": ["spatial", "flat"],
         "text_encoder": ["embedding", "lstm"],
         "embedding_dim": [128],
@@ -81,7 +82,7 @@ varying_keys = {key for key in merged if len(merged[key]) > 1}
 excluded_flags = {'main_file'}
 
 for job in jobs:
-    jobname = basename
+    jobname = args.basename
     flagstring = ""
     for flag in job:
 
