@@ -17,6 +17,7 @@ import pandas as pd
 from gsheets import Sheets
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader, random_split
+from torch.nn.utils.rnn import pad_sequence
 import pytorch_lightning as pl
 
 import os.path
@@ -55,7 +56,7 @@ VAL_FRAC = 0.05
 
 # sampling arguments
 MAX_FRAMES_PER_UTTERANCE = 32
-MAX_LEN_UTTERANCE = 16
+MAX_LEN_UTTERANCE = 25
 
 # training arguments
 AUGMENT_FRAMES = False
@@ -66,7 +67,6 @@ PAD_TOKEN = "<pad>"
 UNK_TOKEN = "<unk>"
 SOS_TOKEN = "<sos>"
 EOS_TOKEN = "<eos>"
-
 PAD_TOKEN_ID = 0
 UNK_TOKEN_ID = 1
 SOS_TOKEN_ID = 2
@@ -101,23 +101,12 @@ class MultiModalSAYCamDataset(Dataset):
         utterance = self.data[idx]["utterance"]
         utterance_words = utterance.split(" ")
         utterance_words = [SOS_TOKEN] + utterance_words + [EOS_TOKEN]
-        utterance_length = min(len(utterance_words), MAX_LEN_UTTERANCE)
-        utterance_idxs = np.zeros(MAX_LEN_UTTERANCE)  # initialize padded array
-        for i, word in enumerate(utterance_words):
-            if i >= MAX_LEN_UTTERANCE:
-                break
-            
-            try:
-                utterance_idxs[i] = self.vocab[word]
-            except KeyError:
-                utterance_idxs[i] = self.vocab[UNK_TOKEN]
-
-        # convert to torch tensor
-        utterance_idxs = torch.LongTensor(utterance_idxs)
+        utterance_length = len(utterance_words)
+        utterance_idxs = torch.tensor([self.vocab.get(word, UNK_TOKEN_ID) for word in utterance_words], dtype=torch.long)
 
         # get image
         img_filenames = self.data[idx]["frame_filenames"]
-        
+
         if self.multiple_frames:
             # sample a random image associated with this utterance
             img_filename = Path(EXTRACTED_FRAMES_DIRNAME, random.choice(img_filenames))
@@ -126,12 +115,22 @@ class MultiModalSAYCamDataset(Dataset):
             img_filename = Path(EXTRACTED_FRAMES_DIRNAME, img_filenames[0])
 
         img = Image.open(img_filename).convert("RGB")
-            
+
         # apply transforms
         if self.transform is not None:
             img = self.transform(img)
 
         return img, utterance_idxs, utterance_length
+
+def multiModalSAYCamDataset_collate_fn(batch):
+    img, utterance_idxs, utterance_length = zip(*batch)
+    img = torch.stack(img, 0)
+    utterance_idxs = pad_sequence(utterance_idxs, batch_first=True, padding_value=PAD_TOKEN_ID)
+    utterance_length = torch.tensor(utterance_length, dtype=torch.long)
+    if utterance_idxs.size(1) > MAX_LEN_UTTERANCE:
+        utterance_idxs = utterance_idxs[:, :MAX_LEN_UTTERANCE]
+        utterance_length = torch.minimum(utterance_length, torch.tensor(MAX_LEN_UTTERANCE, dtype=torch.long))
+    return img, utterance_idxs, utterance_length
 
     
 class LabeledSEvalDataset(Dataset):
@@ -289,6 +288,7 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
     def train_dataloader(self):
         return DataLoader(
             self.train_dataset,
+            collate_fn=multiModalSAYCamDataset_collate_fn,
             shuffle=True,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
@@ -298,6 +298,7 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
     def val_dataloader(self):
         contrastive_val_dataloader = DataLoader(
             self.val_dataset,
+            collate_fn=multiModalSAYCamDataset_collate_fn,
             shuffle=False,
             # batch_size=self.batch_size,
             batch_size=64,  # fixing this so that validation sets are equal across runs
@@ -307,6 +308,7 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
 
         eval_dev_dataloader = DataLoader(
             self.eval_dev_dataset,
+            collate_fn=multiModalSAYCamDataset_collate_fn,
             shuffle=False,
             # batch_size=self.batch_size // 4,  # divide by 4 here since eval trials have 4 images
             batch_size=1,
