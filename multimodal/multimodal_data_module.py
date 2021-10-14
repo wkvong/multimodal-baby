@@ -102,7 +102,7 @@ class MultiModalSAYCamDataset(Dataset):
         utterance_words = utterance.split(" ")
         #utterance_words = utterance_words + [EOS_TOKEN]
         utterance_length = len(utterance_words)
-        utterance_idxs = torch.tensor([self.vocab.get(word, UNK_TOKEN_ID) for word in utterance_words], dtype=torch.int)
+        utterance_idxs = torch.tensor([self.vocab.get(word, UNK_TOKEN_ID) for word in utterance_words], dtype=torch.long)
 
         # get image
         img_filenames = self.data[idx]["frame_filenames"]
@@ -126,10 +126,10 @@ def multiModalSAYCamDataset_collate_fn(batch):
     img, utterance_idxs, utterance_length = zip(*batch)
     img = torch.stack(img, 0)
     utterance_idxs = pad_sequence(utterance_idxs, batch_first=True, padding_value=PAD_TOKEN_ID)
-    utterance_length = torch.tensor(utterance_length, dtype=torch.int)
+    utterance_length = torch.tensor(utterance_length, dtype=torch.long)
     if utterance_idxs.size(1) > MAX_LEN_UTTERANCE:
         utterance_idxs = utterance_idxs[:, :MAX_LEN_UTTERANCE]
-        utterance_length = torch.minimum(utterance_length, torch.tensor(MAX_LEN_UTTERANCE, dtype=torch.int))
+        utterance_length = torch.minimum(utterance_length, torch.tensor(MAX_LEN_UTTERANCE, dtype=torch.long))
     return img, utterance_idxs, utterance_length
 
     
