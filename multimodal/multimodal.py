@@ -5,13 +5,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from locked_dropout import LockedDropout
 
 TEXT_ENCODER = "embedding"
 EMBEDDING_TYPE = "spatial"
 INPUT_DIM = 10000  # unused
 EMBEDDING_DIM = 128
+DROPOUT_I = 0.0
+DROPOUT_O = 0.0
 PRETRAINED_CNN = True
-DROPOUT = 0.
 FINETUNE_CNN = False
 NORMALIZE_FEATURES = False
 SIM = "max"
@@ -102,15 +104,19 @@ class TextEncoder(nn.Module):
         self.input_dim = self.args.get("input_dim")
         self.embedding_dim = self.args.get("embedding_dim")
         self.hidden_dim = self.embedding_dim  # always match embedding and hidden dim for consistency
-        self.dropout = self.args.get("dropout")
+        self.dropout_i = self.args.get("dropout_i")
+        self.dropout_o = self.args.get("dropout_o")
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
+
         self.embedding = nn.Embedding(self.input_dim, self.embedding_dim,
                                       padding_idx=0)
 
         if self.text_encoder == "lstm":
-            self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, bidirectional=self.bidirectional, dropout=self.dropout)
-        
+            self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, bidirectional=self.bidirectional)
+
+        self.lockdrop = LockedDropout()
+        self.output_dropout = nn.Dropout(self.dropout_o)
+
     def forward(self, x, x_len):
         if self.text_encoder == "embedding":
             if self.embedding_type == "flat":
@@ -120,11 +126,14 @@ class TextEncoder(nn.Module):
                 # calculate mean embedding per utterance
                 output = torch.sum(output, dim=1)  # first sum over length dim, (B, E)
                 output = torch.div(output, x_len.unsqueeze(1))  # then divide by utterance length, (B, E)
-                
+
+                output = self.output_dropout(output)
+
                 return output
             elif self.embedding_type == "spatial":
                 # spatial embedding for embedding only model
                 output = self.embedding(x)  # (B, L, E)
+                output = self.lockdrop(output, self.dropout_o)
                 return output
         elif self.text_encoder == "lstm":
             # initialize hidden state
@@ -133,6 +142,7 @@ class TextEncoder(nn.Module):
 
             # embed padded sequence and pack
             embedding = self.embedding(x)  # (B, L, E)
+            embedding = self.lockdrop(embedding, self.dropout_i)
             embedding = embedding.transpose(0, 1)  # (L, B, E), tranpose batch and seq dims
 
             # need to move x_len to cpu for this line to work
@@ -145,6 +155,7 @@ class TextEncoder(nn.Module):
                 # flat embedding for biLSTM using final hidden states
                 # get final hidden state by averaging forward and backward passes
                 hidden = hidden.mean(dim=0) # (B, E)
+                hidden = self.output_dropout(hidden)
                 return hidden
             elif self.embedding_type == "spatial":
                 # spatial embedding for biLSTM using all hidden states
@@ -158,6 +169,7 @@ class TextEncoder(nn.Module):
                     output = torch.mean(torch.stack([output_fwd, output_bwd]), dim=0)  # (L, B, E)
                     
                 output = output.transpose(0, 1)  # (B, L, E), transpose seq and batch dims back
+                output = self.lockdrop(output, self.dropout_o)
                 return output
 
     def _forward_unbatched(self, x, x_len):
@@ -311,8 +323,10 @@ class MultiModalModel(nn.Module):
                             help="size of input embedding")        
         parser.add_argument("--embedding_dim", type=int, default=EMBEDDING_DIM,
                             help="size of embedding representations")
-        parser.add_argument("--dropout", type=float, default=DROPOUT,
-                            help="dropout")
+        parser.add_argument("--dropout_i", type=float, default=DROPOUT_I,
+                            help="input dropout rate; not applicable for embedding text encoder")
+        parser.add_argument("--dropout_o", type=float, default=DROPOUT_O,
+                            help="output dropout rate")
         parser.add_argument("--pretrained_cnn", action="store_true",
                             help="use pretrained CNN")
         parser.add_argument("--finetune_cnn", action="store_true",
