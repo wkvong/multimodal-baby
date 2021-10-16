@@ -14,7 +14,7 @@ class LMLitModel(pl.LightningModule):
     PyTorch Lightning class for LM model
     """
 
-    def __init__(self, text_encoder, args, tie=True, bias=True):
+    def __init__(self, text_encoder, args):
         super().__init__()
         self.args = vars(args) if args is not None else {}
 
@@ -28,8 +28,8 @@ class LMLitModel(pl.LightningModule):
         self.idx2word = dict((v,k) for k,v in self.vocab.items())
 
         # build output layer
-        self.output_layer = nn.Linear(self.text_encoder.hidden_dim, len(self.vocab), bias=bias)
-        if tie:
+        self.output_layer = nn.Linear(self.text_encoder.hidden_dim, len(self.vocab), bias=args.bias)
+        if args.tie:
             self.output_layer.weight = self.text_encoder.embedding.weight
 
         # save hyperparameters to logger
@@ -38,6 +38,8 @@ class LMLitModel(pl.LightningModule):
     @staticmethod
     def add_to_argparse(parser):
         parser.add_argument("--lr", type=float, default=LR, help="learning rate")
+        parser.add_argument("--tie", action=argparse.BooleanOptionalAction, default=True, help="whether to tie the input embedding and output layer matrix")
+        parser.add_argument("--bias", action=argparse.BooleanOptionalAction, default=True, help="whether to use bias for output layer")
 
         return parser
 

@@ -11,6 +11,7 @@ TEXT_ENCODER = "embedding"
 EMBEDDING_TYPE = "spatial"
 INPUT_DIM = 10000  # unused
 EMBEDDING_DIM = 128
+CRANGE = 5
 DROPOUT_I = 0.0
 DROPOUT_O = 0.0
 PRETRAINED_CNN = True
@@ -104,6 +105,7 @@ class TextEncoder(nn.Module):
         self.input_dim = self.args.get("input_dim")
         self.embedding_dim = self.args.get("embedding_dim")
         self.hidden_dim = self.embedding_dim  # always match embedding and hidden dim for consistency
+        self.crange = self.args.get("crange")
         self.dropout_i = self.args.get("dropout_i")
         self.dropout_o = self.args.get("dropout_o")
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -118,10 +120,12 @@ class TextEncoder(nn.Module):
         self.output_dropout = nn.Dropout(self.dropout_o)
 
     def forward(self, x, x_len):
+        embedding = self.embedding(x)  # (B, L, E)
+
         if self.text_encoder == "embedding":
             if self.embedding_type == "flat":
                 # flat embedding for embedding only model
-                output = self.embedding(x)  # (B, L, E)
+                output = embedding  # (B, L, E)
 
                 # calculate mean embedding per utterance
                 output = torch.sum(output, dim=1)  # first sum over length dim, (B, E)
@@ -132,16 +136,24 @@ class TextEncoder(nn.Module):
                 return output
             elif self.embedding_type == "spatial":
                 # spatial embedding for embedding only model
-                output = self.embedding(x)  # (B, L, E)
+                output = embedding  # (B, L, E)
                 output = self.lockdrop(output, self.dropout_o)
                 return output
+
+        elif self.text_encoder == "cbow":
+            shape = (embedding.size(0), self.crange, embedding.size(1) + 1 + self.crange, embedding.size(2))
+            sum_span_crange = F.pad(embedding, (0, 0, 1, self.crange + 1)).tile((self.crange, 1)).reshape(-1, shape[-1])[:shape[0] * shape[1] * shape[2]].reshape(*shape).sum(1)
+            sum_lr_crange = sum_span_crange[:, :-(1 + self.crange)] + sum_span_crange[:, 1 + self.crange:]
+            output = sum_lr_crange / (2 * self.crange)
+            output = self.lockdrop(output, self.dropout_o)
+            return output
+
         elif self.text_encoder == "lstm":
             # initialize hidden state
             batch_size = x.size(0)
             hidden = self.init_hidden(batch_size)
 
             # embed padded sequence and pack
-            embedding = self.embedding(x)  # (B, L, E)
             embedding = self.lockdrop(embedding, self.dropout_i)
             embedding = embedding.transpose(0, 1)  # (L, B, E), tranpose batch and seq dims
 
@@ -313,10 +325,12 @@ class MultiModalModel(nn.Module):
 
     @staticmethod
     def add_to_argparse(parser):
-        parser.add_argument("--text_encoder", type=str, default=TEXT_ENCODER, choices=["embedding", "lstm"],
+        parser.add_argument("--text_encoder", type=str, default=TEXT_ENCODER, choices=["embedding", "cbow", "lstm"],
                             help="type of text encoder to use (embedding only or LSTM)")
         parser.add_argument("--bidirectional", action="store_true",
                             help="set LSTM text encoder to bidirectional")
+        parser.add_argument("--crange", type=int, default=CRANGE,
+                            help="context range for cbow")
         parser.add_argument("--embedding_type", type=str, default=EMBEDDING_TYPE, choices=["spatial", "flat"],
                             help="type of embeddings to use (spatial or flat embedding)")
         parser.add_argument("--input_dim", type=int, default=INPUT_DIM,

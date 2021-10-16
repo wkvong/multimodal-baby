@@ -38,7 +38,7 @@ grids = [
     {
         "main_file": [args.main_file],
         "embedding_type": ["spatial", "flat"],
-        "text_encoder": ["embedding", "lstm"],
+        "text_encoder": ["embedding", "cbow", "lstm"],
         "embedding_dim": [128],
         "lr": [1e-2],
         "dropout_i": [.0, .1, .3, .5],
