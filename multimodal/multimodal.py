@@ -141,10 +141,9 @@ class TextEncoder(nn.Module):
                 return output
 
         elif self.text_encoder == "cbow":
-            shape = (embedding.size(0), self.crange, embedding.size(1) + 1 + self.crange, embedding.size(2))
-            sum_span_crange = F.pad(embedding, (0, 0, 1, self.crange + 1)).tile((self.crange, 1)).reshape(-1, shape[-1])[:shape[0] * shape[1] * shape[2]].reshape(*shape).sum(1)
-            sum_lr_crange = sum_span_crange[:, :-(1 + self.crange)] + sum_span_crange[:, 1 + self.crange:]
-            output = sum_lr_crange / (2 * self.crange)
+            #presum = F.pad(embedding, (0, 0, self.crange + 1, self.crange)).cumsum(1)
+            #output = (presum[:, 2 * self.crange + 1:] - presum[:, : - (2 * self.crange + 1)] - embedding) / (2 * self.crange)
+            output = torch.stack([torch.cat([embedding[:, j - self.crange : j], embedding[:, j + 1 : j + self.crange + 1]], dim=1).sum(1) for j in range(embedding.size(1))], dim=1) / (2 * self.crange)
             output = self.lockdrop(output, self.dropout_o)
             return output
 
