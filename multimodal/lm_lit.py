@@ -28,8 +28,8 @@ class LMLitModel(pl.LightningModule):
         self.idx2word = dict((v,k) for k,v in self.vocab.items())
 
         # build output layer
-        self.output_layer = nn.Linear(self.text_encoder.hidden_dim, len(self.vocab), bias=args.bias)
-        if args.tie:
+        self.output_layer = nn.Linear(self.text_encoder.hidden_dim, len(self.vocab), bias=self.args.get("bias", True))
+        if self.args.get("tie", True):
             self.output_layer.weight = self.text_encoder.embedding.weight
 
         # save hyperparameters to logger
@@ -38,8 +38,8 @@ class LMLitModel(pl.LightningModule):
     @staticmethod
     def add_to_argparse(parser):
         parser.add_argument("--lr", type=float, default=LR, help="learning rate")
-        parser.add_argument("--tie", action=argparse.BooleanOptionalAction, default=True, help="whether to tie the input embedding and output layer matrix")
-        parser.add_argument("--bias", action=argparse.BooleanOptionalAction, default=True, help="whether to use bias for output layer")
+        parser.add_argument("--tie", type=lambda s: bool(eval(s)), default=True, help="whether to tie the input embedding and output layer matrix")
+        parser.add_argument("--bias", type=lambda s: bool(eval(s)), default=True, help="whether to use bias for output layer")
 
         return parser
 
@@ -57,10 +57,16 @@ class LMLitModel(pl.LightningModule):
         logits = self(y, y_len)
 
         # calculate CE loss
-        loss = F.cross_entropy(logits[:, :-1, :].transpose(-2, -1), y[:, 1:logits.size(1)], ignore_index=PAD_TOKEN_ID, reduction="sum")
-        mean_perplexity = (loss / (y_len - 1).sum()).exp()
+        if self.text_encoder.text_encoder in ['cbow', 'bert']:
+            labels = y
+        else:
+            logits = logits[:, :-1]
+            labels = y[:, 1:1+logits.size(1)]
+        loss = F.cross_entropy(logits.transpose(-2, -1), labels, ignore_index=PAD_TOKEN_ID, reduction="mean")
+        mean_perplexity = loss.exp()
 
         # log train loss and temperature
+        self.log("ce_loss", loss)
         self.log("perplexity", mean_perplexity)
 
         return loss
@@ -73,9 +79,15 @@ class LMLitModel(pl.LightningModule):
             logits = self(y, y_len)
      
             # calculate CE loss
-            loss = F.cross_entropy(logits[:, :-1, :].transpose(-2, -1), y[:, 1:logits.size(1)], ignore_index=PAD_TOKEN_ID, reduction="sum")
-            mean_perplexity = (loss / (y_len - 1).sum()).exp()
+            if self.text_encoder.text_encoder in ['cbow', 'bert']:
+                labels = y
+            else:
+                logits = logits[:, :-1]
+                labels = y[:, 1:1+logits.size(1)]
+            loss = F.cross_entropy(logits.transpose(-2, -1), labels, ignore_index=PAD_TOKEN_ID, reduction="mean")
+            mean_perplexity = loss.exp()
 
+            self.log("val_ce_loss", loss, on_step=False, on_epoch=True)
             self.log("val_perplexity", mean_perplexity, on_step=False, on_epoch=True)
 
             return loss

@@ -37,11 +37,14 @@ if not conda_avail:
 grids = [
     {
         "main_file": [args.main_file],
-        "embedding_type": ["spatial", "flat"],
+        "embedding_type": ["spatial"],
         "text_encoder": ["embedding", "cbow", "lstm"],
-        "embedding_dim": [128],
-        "lr": [1e-2],
-        "dropout_i": [.0, .1, .3, .5],
+        "embedding_dim": [32, 16],
+        "tie": ["True", "False"],
+        "bias": ["True", "False"],
+        "lr": [3e-1, 1e-1, 3e-2],
+        "crange": [1, 2, 3, 4],
+        "dropout_i": [.0, .1],
         "dropout_o": [.0, .1, .3, .5],
         "sim": ["mean"],
         "pretrained_cnn": [True],
@@ -51,7 +54,7 @@ grids = [
         # self distillation?
         "gpus": [1],
         "num_workers": [4],
-        "batch_size": [16, 64, 128],
+        "batch_size": [128, 256],
         "max_epochs": [100],
         # learning rate?
         # weight decay?
