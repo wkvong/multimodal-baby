@@ -50,11 +50,10 @@ class LMLitModel(pl.LightningModule):
     def forward(self, y, y_len):
         outputs = self.text_encoder(y, y_len)
         logits = self.output_layer(outputs)
-        return logits
+        return outputs, logits
 
-    def training_step(self, batch, batch_idx):
-        x, y, y_len = batch
-        logits = self(y, y_len)
+    def calculate_ce_loss(self, y, y_len, return_tokenwise=False):
+        outputs, logits = self(y, y_len)
 
         # calculate CE loss
         if self.text_encoder.text_encoder in ['cbow', 'bert']:
@@ -62,12 +61,19 @@ class LMLitModel(pl.LightningModule):
         else:
             logits = logits[:, :-1]
             labels = y[:, 1:1+logits.size(1)]
-        loss = F.cross_entropy(logits.transpose(-2, -1), labels, ignore_index=PAD_TOKEN_ID, reduction="mean")
-        mean_perplexity = loss.exp()
+        loss = F.cross_entropy(logits.transpose(-2, -1), labels, ignore_index=PAD_TOKEN_ID, reduction="none" if return_tokenwise else "mean")
+        perplexity = loss.exp()
+
+        return loss, perplexity, outputs, logits, labels
+
+    def training_step(self, batch, batch_idx):
+        x, y, y_len = batch
+
+        loss, perplexity, _, _, _ = self.calculate_ce_loss(y, y_len)
 
         # log train loss and temperature
         self.log("ce_loss", loss)
-        self.log("perplexity", mean_perplexity)
+        self.log("perplexity", perplexity)
 
         return loss
 
@@ -76,19 +82,10 @@ class LMLitModel(pl.LightningModule):
             # batch of image-text pairs (same as training)
             x, y, y_len = batch
 
-            logits = self(y, y_len)
-     
-            # calculate CE loss
-            if self.text_encoder.text_encoder in ['cbow', 'bert']:
-                labels = y
-            else:
-                logits = logits[:, :-1]
-                labels = y[:, 1:1+logits.size(1)]
-            loss = F.cross_entropy(logits.transpose(-2, -1), labels, ignore_index=PAD_TOKEN_ID, reduction="mean")
-            mean_perplexity = loss.exp()
+            loss, perplexity, _, _, _ = self.calculate_ce_loss(y, y_len)
 
             self.log("val_ce_loss", loss, on_step=False, on_epoch=True)
-            self.log("val_perplexity", mean_perplexity, on_step=False, on_epoch=True)
+            self.log("val_perplexity", perplexity, on_step=False, on_epoch=True)
 
             return loss
 
