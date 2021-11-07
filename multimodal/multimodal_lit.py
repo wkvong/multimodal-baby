@@ -45,7 +45,7 @@ class MultiModalLitModel(pl.LightningModule):
     @staticmethod
     def add_to_argparse(parser):
         parser.add_argument("--lr", type=float, default=LR, help="learning rate")
-        parser.add_argument("--lambda_mm", type=float, default=0.,
+        parser.add_argument("--lambda_mm", type=float, default=1.,
                             help="multimodal loss *= lambda_mm")
         parser.add_argument("--lambda_lm", type=float, default=0.,
                             help="lm loss *= lambda_lm")
