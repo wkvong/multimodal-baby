@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
+from multimodal.multimodal import MultiModalModel, LanguageModel
 from multimodal.multimodal_data_module import read_vocab
 
 LR = 3e-4
@@ -16,13 +17,18 @@ class MultiModalLitModel(pl.LightningModule):
     PyTorch Lightning class for MultiModal SAYCam model
     """
 
-    def __init__(self, model, args):
+    def __init__(self, vision_encoder, text_encoder, args):
         super().__init__()
         self.args = vars(args) if args is not None else {}
 
         self.lr = self.args.get("lr", LR)
+        self.lambda_mm = self.args.get("lambda_mm", 1.)
+        self.lambda_lm = self.args.get("lambda_lm", 0.)
 
-        self.model = model
+        self.vision_encoder = vision_encoder
+        self.text_encoder = text_encoder
+        self.model = MultiModalModel(self.vision_encoder, self.text_encoder, args)
+        self.language_model = LanguageModel(self.text_encoder, args)
 
         # self-distillation
         self.self_distillation = self.args.get("self_distillation", SELF_DISTILLATION)
@@ -32,11 +38,6 @@ class MultiModalLitModel(pl.LightningModule):
         # set teacher to be non-trainable
         for param in self.teacher.parameters():
             param.requires_grad = False
-        
-        # load vocab and create dict to map indices back to words
-        self.vocab = read_vocab()
-        self.word2idx = self.vocab
-        self.idx2word = dict((v,k) for k,v in self.vocab.items())
 
         # save hyperparameters to logger
         self.save_hyperparameters()
@@ -44,12 +45,14 @@ class MultiModalLitModel(pl.LightningModule):
     @staticmethod
     def add_to_argparse(parser):
         parser.add_argument("--lr", type=float, default=LR, help="learning rate")
+        parser.add_argument("--lambda_mm", type=float, default=0.,
+                            help="multimodal loss *= lambda_mm")
+        parser.add_argument("--lambda_lm", type=float, default=0.,
+                            help="lm loss *= lambda_lm")
         parser.add_argument("--self_distillation", action='store_true',
                             help="include self-distillation loss during training")
         parser.add_argument("--alpha", type=float, default=1.0,
                             help="coefficient for KLdiv loss in self-distillation")
-        
-        return parser
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
@@ -90,8 +93,11 @@ class MultiModalLitModel(pl.LightningModule):
             # update teacher model via ema
             self.update_teacher()
 
+        # calculate language model ce loss
+        lm_ce_loss, perplexity, _, _, _ = self.language_model.calculate_ce_loss(y, y_len)
+
         # calculate joint train loss
-        train_loss = infonce_loss + kl_loss
+        train_loss = self.lambda_mm * (infonce_loss + kl_loss) + self.lambda_lm * lm_ce_loss
         
         # log train loss and temperature
         self.log("train_loss", train_loss)
@@ -101,6 +107,8 @@ class MultiModalLitModel(pl.LightningModule):
         self.log("train_text_accuracy", train_text_accuracy)
         self.log("temperature", self.model.logit_scale.item())
         self.log("kl_temperature", self.model.kl_logit_scale.item())
+        self.log("ce_loss", lm_ce_loss)
+        self.log("perplexity", perplexity)
         
         return train_loss
 
@@ -124,9 +132,14 @@ class MultiModalLitModel(pl.LightningModule):
             val_image_accuracy = (val_image_pred == ground_truth).sum() / batch_size
             val_text_accuracy = (val_text_pred == ground_truth).sum() / batch_size
 
+            # calculate language model ce loss
+            lm_ce_loss, perplexity, _, _, _ = self.language_model.calculate_ce_loss(y, y_len)
+
             self.log("val_loss", val_loss, on_step=False, on_epoch=True)
             self.log("val_image_accuracy", val_image_accuracy, on_step=False, on_epoch=True)
             self.log("val_text_accuracy", val_text_accuracy, on_step=False, on_epoch=True)
+            self.log("val_ce_loss", lm_ce_loss, on_step=False, on_epoch=True)
+            self.log("val_perplexity", perplexity, on_step=False, on_epoch=True)
             
             return val_loss
         elif dataloader_idx == 1:
@@ -152,7 +165,7 @@ class MultiModalLitModel(pl.LightningModule):
             self.log("val_accuracy", val_accuracy, on_step=False, on_epoch=True)
 
             # log category-level evaluation accuracies as a separate metric
-            category_label = self.idx2word[y.item()]
+            category_label = self.text_encoder.idx2word[y.item()]
             self.log(f"val_accuracy_{category_label}", val_accuracy, on_step=False, on_epoch=True)
 
             return val_accuracy

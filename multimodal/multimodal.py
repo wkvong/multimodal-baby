@@ -6,12 +6,13 @@ import torch.nn.functional as F
 import torchvision
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from locked_dropout import LockedDropout
+from multimodal.multimodal_data_module import PAD_TOKEN_ID
 
 TEXT_ENCODER = "embedding"
 EMBEDDING_TYPE = "spatial"
 INPUT_DIM = 10000  # unused
 EMBEDDING_DIM = 128
-CRANGE = 5
+CRANGE = 1
 DROPOUT_I = 0.0
 DROPOUT_O = 0.0
 PRETRAINED_CNN = True
@@ -40,6 +41,13 @@ class VisionEncoder(nn.Module):
         self.pretrained_cnn = self.args.get("pretrained_cnn")
         self.finetune_cnn = self.args.get("finetune_cnn")
         self.model = self._load_pretrained_cnn()
+
+    @staticmethod
+    def add_to_argparse(parser):
+        parser.add_argument("--pretrained_cnn", action="store_true",
+                            help="use pretrained CNN")
+        parser.add_argument("--finetune_cnn", action="store_true",
+                            help="finetune CNN (frozen by default)")
 
     def forward(self, x):
         return self.model(x)
@@ -95,14 +103,13 @@ class TextEncoder(nn.Module):
     """
     Text encoder
     """
-    def __init__(self, args):
+    def __init__(self, vocab, args):
         super().__init__()
         self.args = vars(args) if args is not None else {}
 
         self.text_encoder = self.args.get("text_encoder")
         self.bidirectional = self.args.get("bidirectional")
         self.embedding_type = self.args.get("embedding_type")
-        self.input_dim = self.args.get("input_dim")
         self.embedding_dim = self.args.get("embedding_dim")
         self.hidden_dim = self.embedding_dim  # always match embedding and hidden dim for consistency
         self.crange = self.args.get("crange")
@@ -110,42 +117,50 @@ class TextEncoder(nn.Module):
         self.dropout_o = self.args.get("dropout_o")
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.embedding = nn.Embedding(self.input_dim, self.embedding_dim,
+        # load vocab and create dict to map indices back to words
+        self.vocab = vocab
+        self.word2idx = self.vocab
+        self.idx2word = {idx: word for word, idx in self.vocab.items()}
+
+        # build embedding layer
+        self.embedding = nn.Embedding(self.vocab_size, self.embedding_dim,
                                       padding_idx=0)
 
+        # build model
         if self.text_encoder == "lstm":
             self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, bidirectional=self.bidirectional)
 
         self.lockdrop = LockedDropout()
         self.output_dropout = nn.Dropout(self.dropout_o)
 
+    @staticmethod
+    def add_to_argparse(parser):
+        parser.add_argument("--text_encoder", type=str, default=TEXT_ENCODER, choices=["embedding", "cbow", "lstm"],
+                            help="type of text encoder to use (embedding only or LSTM)")
+        parser.add_argument("--bidirectional", action="store_true",
+                            help="set LSTM text encoder to bidirectional")
+        parser.add_argument("--crange", type=int, default=CRANGE,
+                            help="context range for cbow")
+        parser.add_argument("--dropout_i", type=float, default=DROPOUT_I,
+                            help="input dropout rate; not applicable for embedding text encoder")
+        parser.add_argument("--dropout_o", type=float, default=DROPOUT_O,
+                            help="output dropout rate")
+
     def forward(self, x, x_len):
         embedding = self.embedding(x)  # (B, L, E)
 
         if self.text_encoder == "embedding":
-            if self.embedding_type == "flat":
-                # flat embedding for embedding only model
-                output = embedding  # (B, L, E)
+            raw_output = embedding  # (B, L, E)
 
+            if self.embedding_type == "flat": # flat embedding for embedding only model
                 # calculate mean embedding per utterance
-                output = torch.sum(output, dim=1)  # first sum over length dim, (B, E)
-                output = torch.div(output, x_len.unsqueeze(1))  # then divide by utterance length, (B, E)
-
-                output = self.output_dropout(output)
-
-                return output
-            elif self.embedding_type == "spatial":
-                # spatial embedding for embedding only model
-                output = embedding  # (B, L, E)
-                output = self.lockdrop(output, self.dropout_o)
-                return output
+                ret = torch.sum(raw_output, dim=1) / x_len.unsqueeze(1)
 
         elif self.text_encoder == "cbow":
+            assert self.embedding_type != "flat", "cbow with flat embedding is nonsense"
             presum = F.pad(embedding, (0, 0, self.crange + 1, self.crange)).cumsum(1)
-            output = (presum[:, 2 * self.crange + 1:] - presum[:, : - (2 * self.crange + 1)] - embedding) / (2 * self.crange)
-            #output = torch.stack([torch.cat([embedding[:, max(j - self.crange, 0) : j], embedding[:, j + 1 : j + self.crange + 1]], dim=1).sum(1) for j in range(embedding.size(1))], dim=1) / (2 * self.crange)
-            output = self.lockdrop(output, self.dropout_o)
-            return output
+            raw_output = (presum[:, 2 * self.crange + 1:] - presum[:, : - (2 * self.crange + 1)] - embedding) / (2 * self.crange)
+            #raw_output = torch.stack([torch.cat([embedding[:, max(j - self.crange, 0) : j], embedding[:, j + 1 : j + self.crange + 1]], dim=1).sum(1) for j in range(embedding.size(1))], dim=1) / (2 * self.crange) # alternative way (brute force by definition)
 
         elif self.text_encoder == "lstm":
             # initialize hidden state
@@ -154,34 +169,35 @@ class TextEncoder(nn.Module):
 
             # embed padded sequence and pack
             embedding = self.lockdrop(embedding, self.dropout_i)
-            embedding = embedding.transpose(0, 1)  # (L, B, E), tranpose batch and seq dims
 
             # need to move x_len to cpu for this line to work
-            embedding = pack_padded_sequence(embedding, x_len.cpu(), enforce_sorted=False)
+            embedding = pack_padded_sequence(embedding, x_len.cpu(), batch_first=True, enforce_sorted=False)
 
             # pass through lstm
-            output, (hidden, cell) = self.lstm(embedding, hidden)
+            raw_output, (hidden, cell) = self.lstm(embedding, hidden)
+
+            # unpack and reshape
+            raw_output, _ = pad_packed_sequence(raw_output, batch_first=True)  # (B, L, 2*E) for bilstm, (B, L, E) for unilstm
+
+            # average hidden states from forward and backward passes for bilstm
+            if self.bidirectional:
+                raw_output_fwd = raw_output[:, :, :self.embedding_dim]  # (B, L, E)
+                raw_output_bwd = raw_output[:, :, self.embedding_dim:]  # (B, L, E)
+                raw_output = torch.mean(torch.stack([raw_output_fwd, raw_output_bwd]), dim=0)  # (B, L, E)
 
             if self.embedding_type == "flat":
                 # flat embedding for biLSTM using final hidden states
                 # get final hidden state by averaging forward and backward passes
-                hidden = hidden.mean(dim=0) # (B, E)
-                hidden = self.output_dropout(hidden)
-                return hidden
-            elif self.embedding_type == "spatial":
-                # spatial embedding for biLSTM using all hidden states
-                # unpack and reshape
-                output, _ = pad_packed_sequence(output)  # (L, B, 2*E) for bilstm, (L, B, E) for unilstm
+                ret = hidden.mean(dim=0) # (B, E)
 
-                # average hidden states from forward and backward passes for bilstm
-                if self.bidirectional:
-                    output_fwd = output[:, :, :self.embedding_dim]  # (L, B, E)
-                    output_bwd = output[:, :, self.embedding_dim:]  # (L, B, E)
-                    output = torch.mean(torch.stack([output_fwd, output_bwd]), dim=0)  # (L, B, E)
-                    
-                output = output.transpose(0, 1)  # (B, L, E), transpose seq and batch dims back
-                output = self.lockdrop(output, self.dropout_o)
-                return output
+        output = self.lockdrop(raw_output, self.dropout_o)
+
+        if self.embedding_type == "flat":
+            ret = self.output_dropout(ret)
+        elif self.embedding_type == "spatial":
+            ret = output
+
+        return ret, output
 
     def _forward_unbatched(self, x, x_len):
         if self.text_encoder == "embedding":
@@ -239,6 +255,10 @@ class TextEncoder(nn.Module):
             outputs = torch.stack(outputs)
             return outputs
 
+    @property
+    def vocab_size(self):
+        return len(self.vocab)
+
     def init_hidden(self, batch_size):
         d = 2 if self.bidirectional else 1
         return (torch.zeros(d * self.lstm.num_layers, batch_size, self.hidden_dim).to(self.device),
@@ -249,31 +269,41 @@ class MultiModalModel(nn.Module):
     """
     Model description
     """
-    def __init__(self, args):
+    def __init__(self, vision_encoder, text_encoder, args):
         super().__init__()
         self.args = vars(args) if args is not None else {}
 
-        self.text_encoder = self.args.get("text_encoder", TEXT_ENCODER)
         self.sim = self.args.get("sim", SIM)
         self.embedding_type = self.args.get("embedding_type", EMBEDDING_TYPE)
         self.normalize_features = self.args.get("normalize_features", NORMALIZE_FEATURES)
 
-        self.image_embed = VisionEncoder(args=args)
-        self.text_embed = TextEncoder(args=args)
+        self.image_embed = vision_encoder
+        self.text_embed = text_encoder
 
         # contrastive temperature parameter
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
 
         # self-distillation temperature parameter
         self.kl_logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
-        
+
+    @staticmethod
+    def add_to_argparse(parser):
+        parser.add_argument("--embedding_type", type=str, default=EMBEDDING_TYPE, choices=["spatial", "flat"],
+                            help="type of embeddings to use (spatial or flat embedding)")
+        parser.add_argument("--embedding_dim", type=int, default=EMBEDDING_DIM,
+                            help="size of embedding representations")
+        parser.add_argument("--normalize_features", action="store_true",
+                            help="normalize feature embeddings after encoding")
+        parser.add_argument("--sim", type=str, default=SIM, choices=["mean", "max"],
+                            help="type of similarity to use (mean or max over image patches per word)")
 
     def encode_image(self, image):
         return self.image_embed(image)
 
     def encode_text(self, text, text_length):
-        return self.text_embed(text, text_length)
-        
+        text_features, outputs = self.text_embed(text, text_length)
+        return text_features
+
     def forward(self, image, text, text_length, self_distillation=False, teacher=False):
         if self.embedding_type == "flat":
             # encode image and text as flat embeddings
@@ -286,21 +316,22 @@ class MultiModalModel(nn.Module):
 
             # calculate match similarity
             match = image_features @ text_features.T
+
         elif self.embedding_type == "spatial":
             # encode image and text as spatial embeddings
             image_features = self.encode_image(image)  # (B, E, H, W,)
             text_features = self.encode_text(text, text_length)  # (B, L, E)
-     
+
             if self.normalize_features:
                 image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
                 text_features = F.normalize(text_features, p=2, dim=2)  # normalize text features
-     
+
             # calculate batched similarity
             if self.sim == "mean":
                 # mean similarity takes the dot product (sum) of all spatial image and word
                 # embeddings, and then takes the average across all words and spatial locations
                 match_sum = torch.einsum('iehw,tle->it', [image_features, text_features])  # calculate matchmap
-                match = match_sum / (7 * 7 * text_length)  # divide by h, w, l
+                match = match_sum / (image_features.size(-2) * image_features.size(-1) * text_length)  # divide by h, w, l
             elif self.sim == "max":
                 # max similarity takes the maximum dot product for all spatial embeddings
                 # for a given word, and then averages across words
@@ -316,35 +347,44 @@ class MultiModalModel(nn.Module):
                 logit_scale = self.kl_logit_scale.exp()
         else:
             logit_scale = self.logit_scale.exp()
-            
+
         logits_per_image = match * logit_scale
         logits_per_text = match.t() * logit_scale
 
         return logits_per_image, logits_per_text
 
+
+class LanguageModel(nn.Module):
+    def __init__(self, text_encoder, args):
+        super().__init__()
+        self.args = vars(args) if args is not None else {}
+
+        self.text_encoder = text_encoder
+
+        # build output layer
+        self.output_layer = nn.Linear(self.text_encoder.hidden_dim, self.text_encoder.vocab_size, bias=self.args.get("bias", True))
+        if self.args.get("tie", True):
+            self.output_layer.weight = self.text_encoder.embedding.weight
+
     @staticmethod
     def add_to_argparse(parser):
-        parser.add_argument("--text_encoder", type=str, default=TEXT_ENCODER, choices=["embedding", "cbow", "lstm"],
-                            help="type of text encoder to use (embedding only or LSTM)")
-        parser.add_argument("--bidirectional", action="store_true",
-                            help="set LSTM text encoder to bidirectional")
-        parser.add_argument("--crange", type=int, default=CRANGE,
-                            help="context range for cbow")
-        parser.add_argument("--embedding_type", type=str, default=EMBEDDING_TYPE, choices=["spatial", "flat"],
-                            help="type of embeddings to use (spatial or flat embedding)")
-        parser.add_argument("--input_dim", type=int, default=INPUT_DIM,
-                            help="size of input embedding")        
-        parser.add_argument("--embedding_dim", type=int, default=EMBEDDING_DIM,
-                            help="size of embedding representations")
-        parser.add_argument("--dropout_i", type=float, default=DROPOUT_I,
-                            help="input dropout rate; not applicable for embedding text encoder")
-        parser.add_argument("--dropout_o", type=float, default=DROPOUT_O,
-                            help="output dropout rate")
-        parser.add_argument("--pretrained_cnn", action="store_true",
-                            help="use pretrained CNN")
-        parser.add_argument("--finetune_cnn", action="store_true",
-                            help="finetune CNN (frozen by default)")
-        parser.add_argument("--normalize_features", action="store_true",
-                            help="normalize feature embeddings after encoding")
-        parser.add_argument("--sim", type=str, default=SIM, choices=["mean", "max"],
-                            help="type of similarity to use (mean or max over image patches per word)")
+        parser.add_argument("--tie", type=lambda s: bool(eval(s)), default=True, help="whether to tie the input embedding and output layer weight")
+        parser.add_argument("--bias", type=lambda s: bool(eval(s)), default=True, help="whether to use bias for output layer")
+
+    def forward(self, y, y_len):
+        text_features, outputs = self.text_encoder(y, y_len)
+        logits = self.output_layer(outputs)
+        return outputs, logits
+
+    def calculate_ce_loss(self, y, y_len, tokenwise=False):
+        outputs, logits = self(y, y_len)
+
+        if self.text_encoder.text_encoder in ['cbow', 'bert']:
+            labels = y
+        else:
+            logits = logits[:, :-1]
+            labels = y[:, 1:1+logits.size(1)]
+        loss = F.cross_entropy(logits.transpose(-2, -1), labels, ignore_index=PAD_TOKEN_ID, reduction="none" if tokenwise else "mean")
+        perplexity = loss.exp()
+
+        return loss, perplexity, outputs, logits, labels
