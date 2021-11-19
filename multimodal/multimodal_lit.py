@@ -8,7 +8,9 @@ import pytorch_lightning as pl
 from multimodal.multimodal import MultiModalModel, LanguageModel
 from multimodal.multimodal_data_module import read_vocab
 
+OPTIMIZER = torch.optim.AdamW
 LR = 3e-4
+WEIGHT_DECAY = 0.01
 SELF_DISTILLATION = False
 ALPHA = 1
 
@@ -21,7 +23,9 @@ class MultiModalLitModel(pl.LightningModule):
         super().__init__()
         self.args = vars(args) if args is not None else {}
 
+        self.optimizer_class = self.args.get("optimizer", OPTIMIZER)
         self.lr = self.args.get("lr", LR)
+        self.weight_decay = self.args.get("weight_decay", WEIGHT_DECAY)
         self.lambda_mm = self.args.get("lambda_mm", 1.)
         self.lambda_lm = self.args.get("lambda_lm", 0.)
 
@@ -44,7 +48,11 @@ class MultiModalLitModel(pl.LightningModule):
 
     @staticmethod
     def add_to_argparse(parser):
+        parser.add_argument("--optimizer", type=lambda o: getattr(torch.optim, o), default=OPTIMIZER,
+                            help="optimizer class under toch.optim")
         parser.add_argument("--lr", type=float, default=LR, help="learning rate")
+        parser.add_argument("--weight_decay", type=float, default=WEIGHT_DECAY,
+                            help="weight decay on all parameters")
         parser.add_argument("--lambda_mm", type=float, default=1.,
                             help="multimodal loss *= lambda_mm")
         parser.add_argument("--lambda_lm", type=float, default=0.,
@@ -55,7 +63,7 @@ class MultiModalLitModel(pl.LightningModule):
                             help="coefficient for KLdiv loss in self-distillation")
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
+        optimizer = self.optimizer_class(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         return optimizer        
 
     def forward(self, x, y, y_len):
