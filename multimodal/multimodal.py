@@ -19,6 +19,9 @@ PRETRAINED_CNN = True
 FINETUNE_CNN = False
 NORMALIZE_FEATURES = False
 SIM = "max"
+TEMPERATURE = 1 / 0.07
+KL_TEMPERATURE = 1 / 0.07
+FIX_TEMPERATURE = False
 
 def set_parameter_requires_grad(model, feature_extracting=True):
     '''Helper function for setting body to non-trainable'''
@@ -276,15 +279,18 @@ class MultiModalModel(nn.Module):
         self.sim = self.args.get("sim", SIM)
         self.embedding_type = self.args.get("embedding_type", EMBEDDING_TYPE)
         self.normalize_features = self.args.get("normalize_features", NORMALIZE_FEATURES)
+        self.initial_temperature = self.args.get("temperature", TEMPERATURE)
+        self.initial_kl_temperature = self.args.get("kl_temperature", KL_TEMPERATURE)
+        self.fix_temperature = self.args.get("fix_temperature", FIX_TEMPERATURE)
 
         self.image_embed = vision_encoder
         self.text_embed = text_encoder
 
         # contrastive temperature parameter
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(self.initial_temperature))
 
         # self-distillation temperature parameter
-        self.kl_logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        self.kl_logit_scale = nn.Parameter(torch.ones([]) * np.log(self.initial_kl_temperature))
 
     @staticmethod
     def add_to_argparse(parser):
@@ -296,6 +302,12 @@ class MultiModalModel(nn.Module):
                             help="normalize feature embeddings after encoding")
         parser.add_argument("--sim", type=str, default=SIM, choices=["mean", "max"],
                             help="type of similarity to use (mean or max over image patches per word)")
+        parser.add_argument("--temperature", type=float, default=TEMPERATURE,
+                            help="initial temperature")
+        parser.add_argument("--kl_temperature", type=float, default=KL_TEMPERATURE,
+                            help="initial kl temperature")
+        parser.add_argument("--fix_temperature", action="store_true",
+                            help="fix the temperature so it is not trained (TODO: but still under weight decay)")
 
     def encode_image(self, image):
         return self.image_embed(image)
@@ -342,11 +354,14 @@ class MultiModalModel(nn.Module):
         # transform to logits and scale with temperature param (either infonce or kl temp)
         if self_distillation:
             if teacher:
-                logit_scale = 1  # don't scale logits for teacher model
+                logit_scale = torch.ones_like(self.kl_log_scale)  # don't scale logits for teacher model
             else:
                 logit_scale = self.kl_logit_scale.exp()
         else:
             logit_scale = self.logit_scale.exp()
+
+        if self.fix_temperature: # do not train the logit_scale, i.e., do not backprop through the temperature
+            logit_scale = logit_scale.detach()
 
         logits_per_image = match * logit_scale
         logits_per_text = match.t() * logit_scale
