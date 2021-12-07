@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 from multimodal.multimodal import MultiModalModel, LanguageModel
 from multimodal.multimodal_data_module import read_vocab
+from utils import get_entropy
 
 OPTIMIZER = torch.optim.AdamW
 LR = 3e-4
@@ -85,6 +86,8 @@ class MultiModalLitModel(pl.LightningModule):
         train_text_pred = torch.argmax(logits_per_text, dim=-1)
         train_image_accuracy = (train_image_pred == ground_truth).sum() / batch_size
         train_text_accuracy = (train_text_pred == ground_truth).sum() / batch_size
+        train_image_entropy = get_entropy(logits_per_image, dim=-1).mean()
+        train_text_entropy = get_entropy(logits_per_text, dim=-1).mean()
 
         # calculate self-distillation loss
         kl_loss = 0
@@ -113,6 +116,8 @@ class MultiModalLitModel(pl.LightningModule):
         self.log("train_kl_loss", kl_loss)
         self.log("train_image_accuracy", train_image_accuracy)
         self.log("train_text_accuracy", train_text_accuracy)
+        self.log("train_image_entropy", train_image_entropy)
+        self.log("train_text_entropy", train_text_entropy)
         self.log("temperature", self.model.logit_scale.item())
         self.log("kl_temperature", self.model.kl_logit_scale.item())
         self.log("ce_loss", lm_ce_loss)
@@ -139,6 +144,8 @@ class MultiModalLitModel(pl.LightningModule):
             val_text_pred = torch.argmax(logits_per_text, dim=-1)
             val_image_accuracy = (val_image_pred == ground_truth).sum() / batch_size
             val_text_accuracy = (val_text_pred == ground_truth).sum() / batch_size
+            val_image_entropy = get_entropy(logits_per_image, dim=-1).mean()
+            val_text_entropy = get_entropy(logits_per_text, dim=-1).mean()
 
             # calculate language model ce loss
             lm_ce_loss, perplexity, _, _, _ = self.language_model.calculate_ce_loss(y, y_len)
@@ -146,6 +153,8 @@ class MultiModalLitModel(pl.LightningModule):
             self.log("val_loss", val_loss, on_step=False, on_epoch=True)
             self.log("val_image_accuracy", val_image_accuracy, on_step=False, on_epoch=True)
             self.log("val_text_accuracy", val_text_accuracy, on_step=False, on_epoch=True)
+            self.log("val_image_entropy", val_image_entropy, on_step=False, on_epoch=True)
+            self.log("val_text_entropy", val_text_entropy, on_step=False, on_epoch=True)
             self.log("val_ce_loss", lm_ce_loss, on_step=False, on_epoch=True)
             self.log("val_perplexity", perplexity, on_step=False, on_epoch=True)
             
@@ -156,21 +165,19 @@ class MultiModalLitModel(pl.LightningModule):
 
             # resize x so images from the same trial are in the batch dim
             # [B, N, C, H, W] -> [B*N, C, H, W]  (with B = 1)
-            x = x.view(-1, 3, 224, 224)  
+            x = x.view(-1, *x.shape[-3:])
 
             # calculate accuracy
             logits_per_image, logits_per_text = self.model(x, y, y_len)
             logits = logits_per_text[0]  # get logits per trial
             pred = torch.argmax(logits).item()
             label = 0  # correct answer is always the first item 
+            val_accuracy = int(pred == label)
+            val_entropy = get_entropy(logits)
 
-            if pred == label:
-                val_accuracy = 1
-            else:
-                val_accuracy = 0
-
-            # log evaluation accuracy
+            # log evaluation accuracy and entropy
             self.log("val_accuracy", val_accuracy, on_step=False, on_epoch=True)
+            self.log("val_entropy", val_entropy, on_step=False, on_epoch=True)
 
             # log category-level evaluation accuracies as a separate metric
             category_label = self.text_encoder.idx2word[y.item()]
