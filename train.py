@@ -9,7 +9,7 @@ from pytorch_lightning.loggers import WandbLogger
 from torchinfo import summary
 
 from multimodal.multimodal_data_module import MultiModalSAYCamDataModule, read_vocab
-from multimodal.multimodal import MultiModalModel
+from multimodal.multimodal import VisionEncoder, TextEncoder, MultiModalModel, LanguageModel
 from multimodal.multimodal_lit import MultiModalLitModel
 
 
@@ -27,7 +27,10 @@ def _setup_parser():
     MultiModalSAYCamDataModule.add_to_argparse(data_group)
 
     model_group = parser.add_argument_group("Model Args")
+    VisionEncoder.add_to_argparse(model_group)
+    TextEncoder.add_to_argparse(model_group)
     MultiModalModel.add_to_argparse(model_group)
+    LanguageModel.add_to_argparse(model_group)
 
     lit_model_group = parser.add_argument_group("LitModel Args")
     MultiModalLitModel.add_to_argparse(lit_model_group)
@@ -49,9 +52,10 @@ def main():
 
     # set up data module and models
     data = MultiModalSAYCamDataModule(args)
-    args.input_dim = len(read_vocab())
-    model = MultiModalModel(args)
-    lit_model = MultiModalLitModel(model, args)
+    vocab = read_vocab()
+    vision_encoder = VisionEncoder(args=args)
+    text_encoder = TextEncoder(vocab, args=args)
+    lit_model = MultiModalLitModel(vision_encoder, text_encoder, args)
 
     # setup checkpoint callback
     checkpoint_callback = ModelCheckpoint(
