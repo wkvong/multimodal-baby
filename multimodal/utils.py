@@ -2,6 +2,8 @@ from PIL import ImageFilter
 import random
 import numpy as np
 import torch
+import torch.nn.functional as F
+
 
 def msplit(string, delimiters):
     """Split with multiple delimiters."""
@@ -20,19 +22,19 @@ def msplit(string, delimiters):
 
 def convert_timestamps_to_seconds(timestamps):
     """Function to convert a variety of starting timestamps from SAYCam transcripts into seconds."""
-    
+
     new_timestamps = []
     for timestamp in timestamps:
         timestamp = str(timestamp)  # convert to string
         if timestamp != 'nan':
             timestamp_one = msplit(timestamp, '-')[0]  # get starting timestamp
-         
+
             if timestamp_one != '':
                 splits = msplit(timestamp_one, (':', '.', ',', ';'))
-         
+
                 if splits[0] == '':
                     splits[0] = '0'
-         
+
                 if len(splits) == 1:
                     splits.append('0')
                 else:
@@ -97,3 +99,8 @@ class GaussianBlur(object):
         sigma = random.uniform(self.sigma[0], self.sigma[1])
         x = x.filter(ImageFilter.GaussianBlur(radius=sigma))
         return x    
+
+
+def get_entropy(logits, dim=-1):
+    log_p = F.log_softmax(logits, dim=dim)
+    return (F.softmax(log_p, dim=dim) * -log_p).sum(dim=dim) # E[- log p] = sum - p log p

@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from locked_dropout import LockedDropout
+# from locked_dropout import LockedDropout
 from multimodal.multimodal_data_module import PAD_TOKEN_ID
 
 TEXT_ENCODER = "embedding"
@@ -28,6 +28,16 @@ def set_parameter_requires_grad(model, feature_extracting=True):
     if feature_extracting:
         for param in model.parameters():
             param.requires_grad = False
+
+
+class LockedDropout(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x, dropout, dim=1):
+        if not (self.training and dropout):
+            return x
+        return x.new_empty(x.shape[:dim] + (1,) + x.shape[dim+1:]).bernoulli_(1 - dropout) / (1 - dropout) * x
 
 
 class VisionEncoder(nn.Module):
@@ -135,7 +145,8 @@ class TextEncoder(nn.Module):
 
         # build model
         if self.text_encoder == "lstm":
-            self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, bidirectional=self.bidirectional)
+            self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim,
+                                bidirectional=self.bidirectional)
 
         self.lockdrop = LockedDropout()
         self.output_dropout = nn.Dropout(self.dropout_o)
@@ -159,15 +170,17 @@ class TextEncoder(nn.Module):
         if self.text_encoder == "embedding":
             raw_output = embedding  # (B, L, E)
 
-            if self.embedding_type == "flat": # flat embedding for embedding only model
+            if self.embedding_type == "flat":  # flat embedding for embedding only model
                 # calculate mean embedding per utterance
                 ret = torch.sum(raw_output, dim=1) / x_len.unsqueeze(1)
 
         elif self.text_encoder == "cbow":
             assert self.embedding_type != "flat", "cbow with flat embedding is nonsense"
-            presum = F.pad(embedding, (0, 0, self.crange + 1, self.crange)).cumsum(1)
-            raw_output = (presum[:, 2 * self.crange + 1:] - presum[:, : - (2 * self.crange + 1)] - embedding) / (2 * self.crange)
-            #raw_output = torch.stack([torch.cat([embedding[:, max(j - self.crange, 0) : j], embedding[:, j + 1 : j + self.crange + 1]], dim=1).sum(1) for j in range(embedding.size(1))], dim=1) / (2 * self.crange) # alternative way (brute force by definition)
+            presum = F.pad(
+                embedding, (0, 0, self.crange + 1, self.crange)).cumsum(1)
+            raw_output = (presum[:, 2 * self.crange + 1:] - presum[:,
+                                                                   : - (2 * self.crange + 1)] - embedding) / (2 * self.crange)
+            # raw_output = torch.stack([torch.cat([embedding[:, max(j - self.crange, 0) : j], embedding[:, j + 1 : j + self.crange + 1]], dim=1).sum(1) for j in range(embedding.size(1))], dim=1) / (2 * self.crange) # alternative way (brute force by definition)
 
         elif self.text_encoder == "lstm":
             # initialize hidden state

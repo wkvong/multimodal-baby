@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 from multimodal.multimodal import MultiModalModel, LanguageModel
 from multimodal.multimodal_data_module import read_vocab
-from utils import get_entropy
+from multimodal.utils import get_entropy
 
 OPTIMIZER = torch.optim.AdamW
 LR = 3e-4
