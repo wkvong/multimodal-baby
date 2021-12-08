@@ -10,7 +10,6 @@ from multimodal.multimodal_data_module import PAD_TOKEN_ID
 
 TEXT_ENCODER = "embedding"
 EMBEDDING_TYPE = "spatial"
-INPUT_DIM = 10000  # unused
 EMBEDDING_DIM = 128
 CRANGE = 1
 DROPOUT_I = 0.0
@@ -18,10 +17,11 @@ DROPOUT_O = 0.0
 PRETRAINED_CNN = True
 FINETUNE_CNN = False
 NORMALIZE_FEATURES = False
-SIM = "max"
+SIM = "mean"
 TEMPERATURE = 1 / 0.07
 KL_TEMPERATURE = 1 / 0.07
 FIX_TEMPERATURE = False
+
 
 def set_parameter_requires_grad(model, feature_extracting=True):
     '''Helper function for setting body to non-trainable'''
@@ -68,7 +68,8 @@ class VisionEncoder(nn.Module):
     def _load_pretrained_cnn(self):
         # initialize resnext model and replace fc layer to match pretrained model
         model = torchvision.models.resnext50_32x4d(pretrained=False)
-        model.fc = torch.nn.Linear(in_features=2048, out_features=2765, bias=True)
+        model.fc = torch.nn.Linear(
+            in_features=2048, out_features=2765, bias=True)
 
         # load checkpoint
         if self.pretrained_cnn:
@@ -82,7 +83,7 @@ class VisionEncoder(nn.Module):
             n_clip = len(prefix)
             renamed_checkpoint = {k[n_clip:]: v for k, v in
                                   checkpoint['model_state_dict'].items()}
-            
+
             model.load_state_dict(renamed_checkpoint)
 
         if not self.finetune_cnn:
@@ -106,6 +107,7 @@ class TextEncoder(nn.Module):
     """
     Text encoder
     """
+
     def __init__(self, vocab, args):
         super().__init__()
         self.args = vars(args) if args is not None else {}
@@ -114,11 +116,13 @@ class TextEncoder(nn.Module):
         self.bidirectional = self.args.get("bidirectional")
         self.embedding_type = self.args.get("embedding_type")
         self.embedding_dim = self.args.get("embedding_dim")
-        self.hidden_dim = self.embedding_dim  # always match embedding and hidden dim for consistency
+        # always match embedding and hidden dim for consistency
+        self.hidden_dim = self.embedding_dim
         self.crange = self.args.get("crange")
         self.dropout_i = self.args.get("dropout_i")
         self.dropout_o = self.args.get("dropout_o")
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu")
 
         # load vocab and create dict to map indices back to words
         self.vocab = vocab
