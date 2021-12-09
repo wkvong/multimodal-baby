@@ -19,8 +19,8 @@ PRETRAINED_CNN = True
 FINETUNE_CNN = False
 NORMALIZE_FEATURES = False
 SIM = "max"
-TEMPERATURE = 1 / 0.07
-KL_TEMPERATURE = 1 / 0.07
+TEMPERATURE = 0.07
+KL_TEMPERATURE = 0.07
 FIX_TEMPERATURE = False
 
 def set_parameter_requires_grad(model, feature_extracting=True):
@@ -287,10 +287,10 @@ class MultiModalModel(nn.Module):
         self.text_embed = text_encoder
 
         # contrastive temperature parameter
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(self.initial_temperature))
+        self.logit_neg_log_temperature = nn.Parameter(torch.ones([]) * - np.log(self.initial_temperature))
 
         # self-distillation temperature parameter
-        self.kl_logit_scale = nn.Parameter(torch.ones([]) * np.log(self.initial_kl_temperature))
+        self.kl_logit_neg_log_temperature = nn.Parameter(torch.ones([]) * - np.log(self.initial_kl_temperature))
 
     @staticmethod
     def add_to_argparse(parser):
@@ -354,11 +354,12 @@ class MultiModalModel(nn.Module):
         # transform to logits and scale with temperature param (either infonce or kl temp)
         if self_distillation:
             if teacher:
-                logit_scale = torch.ones_like(self.kl_log_scale)  # don't scale logits for teacher model
+                logit_log_scale = torch.zeros_like(self.kl_logit_neg_log_temperature)  # don't scale logits for teacher model
             else:
-                logit_scale = self.kl_logit_scale.exp()
+                logit_log_scale = self.kl_logit_neg_log_temperature
         else:
-            logit_scale = self.logit_scale.exp()
+            logit_log_scale = self.logit_neg_log_temperature
+        logit_scale = logit_log_scale.exp()
 
         if self.fix_temperature: # do not train the logit_scale, i.e., do not backprop through the temperature
             logit_scale = logit_scale.detach()
