@@ -19,7 +19,7 @@ FINETUNE_CNN = False
 NORMALIZE_FEATURES = False
 SIM = "max"
 TEMPERATURE = 0.07
-KL_TEMPERATURE = 0.07
+# KL_TEMPERATURE = 0.07
 FIX_TEMPERATURE = False
 
 
@@ -279,9 +279,10 @@ class TextEncoder(nn.Module):
                     output = output.transpose(0, 1).squeeze()
 
                     # pad output to max_seq_len of current batch
-                    padded_output = torch.zeros((max_seq_len, self.embedding_dim)).to(self.device)
+                    padded_output = torch.zeros(
+                        (max_seq_len, self.embedding_dim)).to(self.device)
                     padded_output[:i_len[0], :] = output
-                    
+
                 outputs.append(padded_output)
 
             outputs = torch.stack(outputs)
@@ -301,15 +302,17 @@ class MultiModalModel(nn.Module):
     """
     Model description
     """
+
     def __init__(self, vision_encoder, text_encoder, args):
         super().__init__()
         self.args = vars(args) if args is not None else {}
 
         self.sim = self.args.get("sim", SIM)
         self.embedding_type = self.args.get("embedding_type", EMBEDDING_TYPE)
-        self.normalize_features = self.args.get("normalize_features", NORMALIZE_FEATURES)
+        self.normalize_features = self.args.get(
+            "normalize_features", NORMALIZE_FEATURES)
         self.initial_temperature = self.args.get("temperature", TEMPERATURE)
-        self.initial_kl_temperature = self.args.get("kl_temperature", KL_TEMPERATURE)
+        # self.initial_kl_temperature = self.args.get("kl_temperature", KL_TEMPERATURE)
         self.fix_temperature = self.args.get("fix_temperature", FIX_TEMPERATURE)
 
         self.image_embed = vision_encoder
@@ -319,7 +322,7 @@ class MultiModalModel(nn.Module):
         self.logit_neg_log_temperature = nn.Parameter(torch.ones([]) * - np.log(self.initial_temperature))
 
         # self-distillation temperature parameter
-        self.kl_logit_neg_log_temperature = nn.Parameter(torch.ones([]) * - np.log(self.initial_kl_temperature))
+        # self.kl_logit_neg_log_temperature = nn.Parameter(torch.ones([]) * - np.log(self.initial_kl_temperature))
 
     @staticmethod
     def add_to_argparse(parser):
@@ -333,8 +336,8 @@ class MultiModalModel(nn.Module):
                             help="type of similarity to use (mean or max over image patches per word)")
         parser.add_argument("--temperature", type=float, default=TEMPERATURE,
                             help="initial temperature")
-        parser.add_argument("--kl_temperature", type=float, default=KL_TEMPERATURE,
-                            help="initial kl temperature")
+        # parser.add_argument("--kl_temperature", type=float, default=KL_TEMPERATURE,
+        #                     help="initial kl temperature")
         parser.add_argument("--fix_temperature", action="store_true",
                             help="fix the temperature so it is not trained (TODO: but still under weight decay)")
 
@@ -381,13 +384,13 @@ class MultiModalModel(nn.Module):
                 match = torch.sum(match_max, dim=2) / text_length  # divide by h, w, l
 
         # transform to logits and scale with temperature param (either infonce or kl temp)
-        if self_distillation:
-            if teacher:
-                logit_log_scale = torch.zeros_like(self.kl_logit_neg_log_temperature)  # don't scale logits for teacher model
-            else:
-                logit_log_scale = self.kl_logit_neg_log_temperature
-        else:
-            logit_log_scale = self.logit_neg_log_temperature
+        # if self_distillation:
+        #     if teacher:
+        #         logit_log_scale = torch.zeros_like(self.kl_logit_neg_log_temperature)  # don't scale logits for teacher model
+        #     else:
+        #         logit_log_scale = self.kl_logit_neg_log_temperature
+        # else:
+        logit_log_scale = self.logit_neg_log_temperature
         logit_scale = logit_log_scale.exp()
 
         if self.fix_temperature: # do not train the logit_scale, i.e., do not backprop through the temperature

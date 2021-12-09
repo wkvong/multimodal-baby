@@ -134,8 +134,8 @@ class MultiModalLitModel(pl.LightningModule):
         self.log("train_text_entropy", train_text_entropy)
         self.log("temperature",
                  (-self.model.logit_neg_log_temperature).exp().item())
-        self.log("kl_temperature",
-                 (-self.model.kl_logit_neg_log_temperature).exp().item())
+        # self.log("kl_temperature",
+        #          (-self.model.kl_logit_neg_log_temperature).exp().item())
         self.log("ce_loss", lm_ce_loss)
         self.log("perplexity", perplexity)
 
