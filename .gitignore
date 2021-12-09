@@ -1,9 +1,12 @@
+checkpoints/
 data/
 lightning_logs/
 models/
+slurm_logs/
+slurm_scripts/
 wandb/
 __pycache__/
 .ipynb_checkpoints/
 *.DS_Store
 *.pyc
-
+*.mp4
