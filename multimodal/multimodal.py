@@ -17,9 +17,9 @@ DROPOUT_O = 0.0
 PRETRAINED_CNN = True
 FINETUNE_CNN = False
 NORMALIZE_FEATURES = False
-SIM = "mean"
-TEMPERATURE = 1 / 0.07
-KL_TEMPERATURE = 1 / 0.07
+SIM = "max"
+TEMPERATURE = 0.07
+KL_TEMPERATURE = 0.07
 FIX_TEMPERATURE = False
 
 
@@ -191,24 +191,29 @@ class TextEncoder(nn.Module):
             embedding = self.lockdrop(embedding, self.dropout_i)
 
             # need to move x_len to cpu for this line to work
-            embedding = pack_padded_sequence(embedding, x_len.cpu(), batch_first=True, enforce_sorted=False)
+            embedding = pack_padded_sequence(
+                embedding, x_len.cpu(), batch_first=True, enforce_sorted=False)
 
             # pass through lstm
             raw_output, (hidden, cell) = self.lstm(embedding, hidden)
 
             # unpack and reshape
-            raw_output, _ = pad_packed_sequence(raw_output, batch_first=True)  # (B, L, 2*E) for bilstm, (B, L, E) for unilstm
+            # (B, L, 2*E) for bilstm, (B, L, E) for unilstm
+            raw_output, _ = pad_packed_sequence(raw_output, batch_first=True)
 
             # average hidden states from forward and backward passes for bilstm
             if self.bidirectional:
-                raw_output_fwd = raw_output[:, :, :self.embedding_dim]  # (B, L, E)
-                raw_output_bwd = raw_output[:, :, self.embedding_dim:]  # (B, L, E)
-                raw_output = torch.mean(torch.stack([raw_output_fwd, raw_output_bwd]), dim=0)  # (B, L, E)
+                raw_output_fwd = raw_output[:, :,
+                                            :self.embedding_dim]  # (B, L, E)
+                raw_output_bwd = raw_output[:, :,
+                                            self.embedding_dim:]  # (B, L, E)
+                raw_output = torch.mean(torch.stack(
+                    [raw_output_fwd, raw_output_bwd]), dim=0)  # (B, L, E)
 
             if self.embedding_type == "flat":
                 # flat embedding for biLSTM using final hidden states
                 # get final hidden state by averaging forward and backward passes
-                ret = hidden.mean(dim=0) # (B, E)
+                ret = hidden.mean(dim=0)  # (B, E)
 
         output = self.lockdrop(raw_output, self.dropout_o)
 
@@ -226,10 +231,11 @@ class TextEncoder(nn.Module):
                 if self.embedding_type == "flat":
                     output = self.embedding(i)  # embed each word individually
                     output = torch.sum(output, dim=0)  # sum over length dim
-                    output = torch.div(output, i_len)  # divide by utterance len
+                    # divide by utterance len
+                    output = torch.div(output, i_len)
                 elif self.embedding_type == "spatial":
                     output = self.embedding(i)  # embed each word individually
-                    
+
                 outputs.append(output)
             outputs = torch.stack(outputs)
             return outputs
@@ -240,13 +246,14 @@ class TextEncoder(nn.Module):
                 batch_size = 1
                 i = i.unsqueeze(0)  # add fake batch dimension for lstm
                 i_len = i_len.unsqueeze(0)  # do the same for length
-                hidden = self.init_hidden(batch_size)  
+                hidden = self.init_hidden(batch_size)
 
                 # embed, and single sequence (need to do this otherwise model uses padding)
                 # alternative would be to remove padding before passing into lstm
                 embedding = self.embedding(i)  # (1, L, E)
                 embedding = embedding.transpose(0, 1)  # (L, 1, E)
-                embedding = pack_padded_sequence(embedding, i_len.cpu(), enforce_sorted=False)
+                embedding = pack_padded_sequence(
+                    embedding, i_len.cpu(), enforce_sorted=False)
 
                 # pass through lstm
                 output, (hidden, cell) = self.lstm(embedding, hidden)
@@ -254,17 +261,22 @@ class TextEncoder(nn.Module):
                 if self.embedding_type == "flat":
                     # flat embedding for biLSTM using final hidden states
                     # get final hidden state by averaging forward and backward passes
-                    padded_output = hidden.mean(dim=0).squeeze() # (B, E)
+                    padded_output = hidden.mean(dim=0).squeeze()  # (B, E)
                 elif self.embedding_type == "spatial":
-                    output, _ = pad_packed_sequence(output)  # (L, B, 2*E) for bilstm, (L, B, E) for unilstm
-                    
+                    # (L, B, 2*E) for bilstm, (L, B, E) for unilstm
+                    output, _ = pad_packed_sequence(output)
+
                     # average hidden states from forward and backward passes for bilstm
                     if self.bidirectional:
-                        output_fwd = output[:, :, :self.embedding_dim]  # (L, B, E)
-                        output_bwd = output[:, :, self.embedding_dim:]  # (L, B, E)
-                        output = torch.mean(torch.stack([output_fwd, output_bwd]), dim=0)  # (L, B, E)
+                        output_fwd = output[:, :,
+                                            :self.embedding_dim]  # (L, B, E)
+                        output_bwd = output[:, :,
+                                            self.embedding_dim:]  # (L, B, E)
+                        output = torch.mean(torch.stack(
+                            [output_fwd, output_bwd]), dim=0)  # (L, B, E)
 
-                    output = output.transpose(0, 1).squeeze()  # transpose, and remove batch dim
+                    # transpose, and remove batch dim
+                    output = output.transpose(0, 1).squeeze()
 
                     # pad output to max_seq_len of current batch
                     padded_output = torch.zeros((max_seq_len, self.embedding_dim)).to(self.device)
@@ -304,10 +316,10 @@ class MultiModalModel(nn.Module):
         self.text_embed = text_encoder
 
         # contrastive temperature parameter
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(self.initial_temperature))
+        self.logit_neg_log_temperature = nn.Parameter(torch.ones([]) * - np.log(self.initial_temperature))
 
         # self-distillation temperature parameter
-        self.kl_logit_scale = nn.Parameter(torch.ones([]) * np.log(self.initial_kl_temperature))
+        self.kl_logit_neg_log_temperature = nn.Parameter(torch.ones([]) * - np.log(self.initial_kl_temperature))
 
     @staticmethod
     def add_to_argparse(parser):
@@ -371,11 +383,12 @@ class MultiModalModel(nn.Module):
         # transform to logits and scale with temperature param (either infonce or kl temp)
         if self_distillation:
             if teacher:
-                logit_scale = torch.ones_like(self.kl_log_scale)  # don't scale logits for teacher model
+                logit_log_scale = torch.zeros_like(self.kl_logit_neg_log_temperature)  # don't scale logits for teacher model
             else:
-                logit_scale = self.kl_logit_scale.exp()
+                logit_log_scale = self.kl_logit_neg_log_temperature
         else:
-            logit_scale = self.logit_scale.exp()
+            logit_log_scale = self.logit_neg_log_temperature
+        logit_scale = logit_log_scale.exp()
 
         if self.fix_temperature: # do not train the logit_scale, i.e., do not backprop through the temperature
             logit_scale = logit_scale.detach()
