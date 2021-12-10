@@ -81,46 +81,35 @@ class MultiModalLitModel(pl.LightningModule):
     def forward(self, x, y, y_len):
         return self.model(x, y, y_len)
 
-    def calculate_loss(self, batch, stage, log):
+    # def calculate_self_distillation_loss(self, x, y, y_len):
+    #     # get teacher targets and student predictions
+    #     teacher_logits_per_image, teacher_logits_per_text = self.teacher(
+    #         x, y, y_len, self_distillation=True, teacher=True)
+    #     student_logits_per_image, student_logits_per_text = self.model(
+    #         x, y, y_len, self_distillation=True, teacher=False)
+
+    #     # calculate kl div loss
+    #     kl_loss = (F.kl_div(F.log_softmax(student_logits_per_image, dim=-1), teacher_logits_per_image, reduction='batchmean') +
+    #                F.kl_div(F.log_softmax(student_logits_per_text, dim=-1), teacher_logits_per_text, reduction='batchmean')).div(2) * self.alpha
+
+    #     # update teacher model via ema
+    #     self.update_teacher()
+
+    #     return kl_loss
+
+    def calculate_joint_loss(self, batch, stage, log):
         # batch of image-text pairs
         x, y, y_len = batch
 
         if self.lambda_mm or not self.optimize_unused:
-            logits_per_image, logits_per_text = self(x, y, y_len)
+            infonce_loss, image_accuracy, text_accuracy, \
+            image_entropy, text_entropy, logits_per_image, logits_per_text = \
+            self.model.calculate_contrastive_loss(x, y, y_len)
 
-            # create ground truth labels
-            batch_size = x.size(0)
-            ground_truth = torch.tensor(
-                np.arange(batch_size), dtype=torch.long, device=self.device)
-
-            # calculate infonce loss
-            infonce_loss = (
-                F.cross_entropy(logits_per_image, ground_truth) +
-                F.cross_entropy(logits_per_text, ground_truth)).div(2)
-
-            # calculate accuracy (image and text separately)
-            image_pred = torch.argmax(logits_per_image, dim=-1)
-            text_pred = torch.argmax(logits_per_text, dim=-1)
-            image_accuracy = (image_pred == ground_truth).sum() / batch_size
-            text_accuracy = (text_pred == ground_truth).sum() / batch_size
-            image_entropy = get_entropy(logits_per_image, dim=-1).mean()
-            text_entropy = get_entropy(logits_per_text, dim=-1).mean()
-
-            # calculate self-distillation loss
-            # kl_loss = 0
             # if self.self_distillation:
-            #     # get teacher targets and student predictions
-            #     teacher_logits_per_image, teacher_logits_per_text = self.teacher(
-            #         x, y, y_len, self_distillation=True, teacher=True)
-            #     student_logits_per_image, student_logits_per_text = self.model(
-            #         x, y, y_len, self_distillation=True, teacher=False)
-
-            #     # calculate kl div loss
-            #     kl_loss = (F.kl_div(F.log_softmax(student_logits_per_image, dim=-1), teacher_logits_per_image, reduction='batchmean') +
-            #                F.kl_div(F.log_softmax(student_logits_per_text, dim=-1), teacher_logits_per_text, reduction='batchmean')).div(2) * self.alpha
-
-            #     # update teacher model via ema
-            #     self.update_teacher()
+            #     kl_loss = self.calculate_self_distillation_loss(x, y, y_len)
+            # else:
+            #     kl_loss = 0.
 
             # log
             log(f"{stage}_infonce_loss", infonce_loss)
@@ -157,14 +146,14 @@ class MultiModalLitModel(pl.LightningModule):
         return loss
 
     def training_step(self, batch, batch_idx):
-        return self.calculate_loss(batch, 'train', self.log)
+        return self.calculate_joint_loss(batch, 'train', self.log)
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
         stage = 'val'
         log = functools.partial(self.log, on_step=False, on_epoch=True)
 
         if dataloader_idx == 0:
-            return self.calculate_loss(batch, stage, log)
+            return self.calculate_joint_loss(batch, stage, log)
 
         elif dataloader_idx == 1:
             # TODO: check whether adding special tokens will make a difference

@@ -7,6 +7,7 @@ import torchvision
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 # from locked_dropout import LockedDropout
 from multimodal.multimodal_data_module import PAD_TOKEN_ID
+from multimodal.utils import get_entropy
 
 TEXT_ENCODER = "embedding"
 EMBEDDING_TYPE = "spatial"
@@ -400,6 +401,31 @@ class MultiModalModel(nn.Module):
         logits_per_text = match.t() * logit_scale
 
         return logits_per_image, logits_per_text
+
+    def calculate_contrastive_loss(self, x, y, y_len):
+        logits_per_image, logits_per_text = self(x, y, y_len)
+
+        # create ground truth labels
+        batch_size = x.size(0)
+        ground_truth = torch.tensor(
+            np.arange(batch_size), dtype=torch.long,
+            device=logits_per_image.device)
+
+        # calculate infonce loss
+        infonce_loss = (
+            F.cross_entropy(logits_per_image, ground_truth) +
+            F.cross_entropy(logits_per_text, ground_truth)).div(2)
+
+        # calculate accuracy (image and text separately)
+        image_pred = torch.argmax(logits_per_image, dim=-1)
+        text_pred = torch.argmax(logits_per_text, dim=-1)
+        image_accuracy = (image_pred == ground_truth).sum() / batch_size
+        text_accuracy = (text_pred == ground_truth).sum() / batch_size
+        image_entropy = get_entropy(logits_per_image, dim=-1).mean()
+        text_entropy = get_entropy(logits_per_text, dim=-1).mean()
+
+        return infonce_loss, image_accuracy, text_accuracy, \
+            image_entropy, text_entropy, logits_per_image, logits_per_text
 
 
 class LanguageModel(nn.Module):
