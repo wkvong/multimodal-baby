@@ -39,6 +39,8 @@ def _setup_parser():
                         help="experiment name for logging")
     parser.add_argument("--seed", type=int, default=0,
                         help="random seed for everything")
+    parser.add_argument("--save_top_k", type=int, default=1,
+                        help="saves best k models; 0 saves none; -1 saves all")
 
     return parser
 
@@ -61,7 +63,7 @@ def main():
     checkpoint_callback = ModelCheckpoint(
         monitor='val_loss/dataloader_idx_0',
         save_last=True,
-        save_top_k=1,
+        save_top_k=args.save_top_k,
         dirpath=os.path.join(os.getcwd(), f'checkpoints/{args.exp_name}/'),
         filename='{epoch}')
     
