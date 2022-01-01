@@ -320,8 +320,12 @@ class MultiModalModel(nn.Module):
         self.text_embed = text_encoder
 
         # contrastive temperature parameter
-        self.logit_neg_log_temperature = nn.Parameter(
-            torch.ones([]) * - np.log(self.initial_temperature))
+        if self.fix_temperature:
+            self.logit_neg_log_temperature = torch.ones(
+                []) * - np.log(self.initial_temperature)
+        else:
+            self.logit_neg_log_temperature = nn.Parameter(
+                torch.ones([]) * - np.log(self.initial_temperature))
 
     @staticmethod
     def add_to_argparse(parser):
@@ -394,8 +398,8 @@ class MultiModalModel(nn.Module):
         logit_log_scale = self.logit_neg_log_temperature
         logit_scale = logit_log_scale.exp()
 
-        if self.fix_temperature:  # do not train the logit_scale, i.e., do not backprop through the temperature
-            logit_scale = logit_scale.detach()
+        # if self.fix_temperature:  # do not train the logit_scale, i.e., do not backprop through the temperature
+        #     logit_scale = logit_scale.detach()
 
         logits_per_image = match * logit_scale
         logits_per_text = match.t() * logit_scale
