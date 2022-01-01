@@ -50,6 +50,7 @@ VOCAB_FILENAME = DATA_DIR / "vocab.json"
 # default arguments
 # dataloader arguments
 BATCH_SIZE = 4
+VAL_BATCH_SIZE = 16
 NUM_WORKERS = 4
 TRAIN_FRAC = 0.9
 VAL_FRAC = 0.05
@@ -72,15 +73,17 @@ UNK_TOKEN_ID = 1
 SOS_TOKEN_ID = 2
 EOS_TOKEN_ID = 3
 
+
 def read_vocab(vocab_filename=VOCAB_FILENAME):
     with open(vocab_filename) as f:
         return json.load(f)
+
 
 class MultiModalSAYCamDataset(Dataset):
     """
     Dataset that returns paired image-utterances from baby S of the SAYCam Dataset
     """
-    
+
     def __init__(self, data, vocab, multiple_frames, transform):
         super().__init__()
         self.data = data
@@ -91,7 +94,7 @@ class MultiModalSAYCamDataset(Dataset):
     def __len__(self) -> int:
         """Return length of the dataset."""
         return len(self.data)
-    
+
     def __getitem__(self, idx: int) -> Tuple[Any, Any, Any]:
         """
         Returns an image-utterance pair
@@ -102,14 +105,16 @@ class MultiModalSAYCamDataset(Dataset):
         utterance_words = utterance.split(" ")
         utterance_words = [SOS_TOKEN] + utterance_words + [EOS_TOKEN]
         utterance_length = len(utterance_words)
-        utterance_idxs = torch.tensor([self.vocab.get(word, UNK_TOKEN_ID) for word in utterance_words], dtype=torch.long)
+        utterance_idxs = torch.tensor([self.vocab.get(
+            word, UNK_TOKEN_ID) for word in utterance_words], dtype=torch.long)
 
         # get image
         img_filenames = self.data[idx]["frame_filenames"]
 
         if self.multiple_frames:
             # sample a random image associated with this utterance
-            img_filename = Path(EXTRACTED_FRAMES_DIRNAME, random.choice(img_filenames))
+            img_filename = Path(EXTRACTED_FRAMES_DIRNAME,
+                                random.choice(img_filenames))
         else:
             # otherwise, sample the first frame
             img_filename = Path(EXTRACTED_FRAMES_DIRNAME, img_filenames[0])
@@ -122,29 +127,32 @@ class MultiModalSAYCamDataset(Dataset):
 
         return img, utterance_idxs, utterance_length
 
+
 def multiModalSAYCamDataset_collate_fn(batch):
     img, utterance_idxs, utterance_length = zip(*batch)
     img = torch.stack(img, 0)
-    utterance_idxs = pad_sequence(utterance_idxs, batch_first=True, padding_value=PAD_TOKEN_ID)
+    utterance_idxs = pad_sequence(
+        utterance_idxs, batch_first=True, padding_value=PAD_TOKEN_ID)
     utterance_length = torch.tensor(utterance_length, dtype=torch.long)
     if utterance_idxs.size(1) > MAX_LEN_UTTERANCE:
         utterance_idxs = utterance_idxs[:, :MAX_LEN_UTTERANCE]
-        utterance_length = torch.minimum(utterance_length, torch.tensor(MAX_LEN_UTTERANCE, dtype=torch.long))
+        utterance_length = torch.minimum(
+            utterance_length, torch.tensor(MAX_LEN_UTTERANCE, dtype=torch.long))
     return img, utterance_idxs, utterance_length
 
-    
+
 class LabeledSEvalDataset(Dataset):
     """
     Dataset that returns a set of referents and a target word for evaluation
     """
-    
+
     def __init__(self, data, vocab):
         self.data = data
         self.vocab = vocab
         self.transform = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-            ])
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
 
     def __getitem__(self, idx):
         # read trial information
@@ -154,22 +162,24 @@ class LabeledSEvalDataset(Dataset):
         # target image is always the first index
         imgs = torch.zeros((4, 3, 224, 224))
         target_img_filename = trial["target_img_filename"]
-        imgs[0] = self.transform(Image.open(target_img_filename).convert("RGB"))
+        imgs[0] = self.transform(Image.open(
+            target_img_filename).convert("RGB"))
 
         for i, foil_img_filename in enumerate(trial["foil_img_filenames"]):
-            imgs[i+1] = self.transform(Image.open(foil_img_filename).convert("RGB"))
+            imgs[i +
+                 1] = self.transform(Image.open(foil_img_filename).convert("RGB"))
 
         # get target category index from vocab as a single utterance
         label = self.vocab[trial["target_category"]]
         label = torch.LongTensor([label])
         label_len = len(label)
-            
+
         return imgs, label, label_len
 
     def __len__(self):
         return len(self.data)
 
-    
+
 class MultiModalSAYCamDataModule(pl.LightningDataModule):
     """
     The MultiModal SAYCam Dataset is a dataset created from baby S of the SAYCam Dataset consisting of
@@ -181,10 +191,12 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
 
         self.args = vars(args) if args is not None else {}
         self.batch_size = self.args.get("batch_size", BATCH_SIZE)
+        self.val_batch_size = self.args.get("val_batch_size", VAL_BATCH_SIZE)
         self.num_workers = self.args.get("num_workers", NUM_WORKERS)
-        self.multiple_frames = self.args.get("multiple_frames", MULTIPLE_FRAMES)
+        self.multiple_frames = self.args.get(
+            "multiple_frames", MULTIPLE_FRAMES)
         self.augment_frames = self.args.get("augment_frames", AUGMENT_FRAMES)
-        self.on_gpu = isinstance(self.args.get("gpus", None), (str, int))        
+        self.on_gpu = isinstance(self.args.get("gpus", None), (str, int))
 
         if self.augment_frames:
             # add same augmentations as emin used
@@ -193,28 +205,34 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
                 # transforms.RandomApply([transforms.ColorJitter(0.9, 0.9, 0.9, 0.5)], p=0.9),
                 # transforms.RandomGrayscale(p=0.2),
                 transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
-                transforms.RandomHorizontalFlip(),            
+                transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                transforms.Normalize([0.485, 0.456, 0.406], [
+                                     0.229, 0.224, 0.225])
             ])
         else:
             # just convert to tensor and normalize
             self.transform = transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                transforms.Normalize([0.485, 0.456, 0.406], [
+                                     0.229, 0.224, 0.225])
             ])
 
         # keep base transform for val and test
         self.base_transform = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-            ])
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
 
     @staticmethod
     def add_to_argparse(parser):
         parser.add_argument(
-            "--batch_size", type=int, default=BATCH_SIZE, help="Number of examples to operate on per forward step."
+            "--batch_size", type=int, default=BATCH_SIZE, help="Number of examples to operate on per train step."
         )
+        parser.add_argument(
+            "--val_batch_size", type=int, default=VAL_BATCH_SIZE, help="Number of examples to operate on per validation step."
+        )
+
         parser.add_argument(
             "--num_workers", type=int, default=NUM_WORKERS, help="Number of additional processes to load data."
         )
@@ -230,7 +248,7 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
     # def config(self):
     #     """Return important settings of the dataset, which will be passed to instantiate models."""
     #     return {"input_dims": self.dims, "output_dims": self.output_dims, "mapping": self.mapping}
-            
+
     def prepare_data(self, *args, **kwargs) -> None:
         print("Calling prepare_data!")
         _download_transcripts()
@@ -242,7 +260,7 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
         _create_eval_metadata()
         _create_vocab()
         # _create_animations()  # TODO: add extra argument to generate this?
-    
+
     def setup(self, *args, **kwargs) -> None:
         print("Calling setup!")
         # read image-text data splits
@@ -266,7 +284,7 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
         with open(EVAL_TEST_METADATA_FILENAME) as f:
             eval_test_data = json.load(f)
             eval_test_data = eval_test_data["data"]
-            
+
         # read vocab
         vocab = read_vocab()
 
@@ -294,14 +312,13 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=False,
         )
-        
+
     def val_dataloader(self):
         contrastive_val_dataloader = DataLoader(
             self.val_dataset,
             collate_fn=multiModalSAYCamDataset_collate_fn,
             shuffle=False,
-            # batch_size=self.batch_size,
-            batch_size=64,  # fixing this so that validation sets are equal across runs
+            batch_size=self.val_batch_size,
             num_workers=self.num_workers,
             pin_memory=False,
         )
@@ -318,27 +335,28 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
 
         return [contrastive_val_dataloader,
                 eval_dev_dataloader]
-        
+
+
 def _download_transcripts():
     """Download SAYCam transcripts."""
-    
+
     # check if transcripts have already been downloaded
     if os.path.exists(TRANSCRIPTS_DIRNAME):
         print("SAYCam transcripts have already been downloaded. Skipping this step.")
     else:
         print("Downloading SAYCam transcripts from Google Sheets")
-     
+
         # create transcript folder
         if not os.path.exists(TRANSCRIPTS_DIRNAME):
             os.makedirs(TRANSCRIPTS_DIRNAME)
-            
+
         # set up google sheets object
         sheets = Sheets.from_files(GSHEETS_CREDENTIALS_FILENAME)
-            
+
         # get urls of saycam files to download
         df = pd.read_csv(TRANSCRIPT_LINKS_FILENAME)
         urls = df["GoogleSheets Link"].unique()
-            
+
         for i, url in enumerate(urls):
             print(f"Downloading SAYCam transcript {i+1}/{len(urls)}: {url}")
             s = sheets.get(url)
@@ -349,18 +367,21 @@ def _download_transcripts():
             for j in range(1, len(s.sheets)):
                 try:
                     # try and parse this sheet as a data frame
-                    df = s.sheets[j].to_frame()  # convert worksheet to data frame
-                    filename = f"{TRANSCRIPTS_DIRNAME}/{title}_{s.sheets[j].title}.csv"  # get filename of dataframe
+                    # convert worksheet to data frame
+                    df = s.sheets[j].to_frame()
+                    # get filename of dataframe
+                    filename = f"{TRANSCRIPTS_DIRNAME}/{title}_{s.sheets[j].title}.csv"
                     df.to_csv(filename, index=False)  # save as CSV
                 except pd.errors.ParserError:
                     continue  # move onto the next file
-                    
+
             # sleep for 30 seconds to prevent rate limiting
             time.sleep(30)
 
+
 def _rename_transcripts():
     """Manually rename a few of the transcripts that don't match naming scheme."""
-    
+
     if os.path.exists(TRANSCRIPTS_DIRNAME / "S_20141029_2412_part 2.csv"):
         print("Renaming transcripts")
         os.rename(TRANSCRIPTS_DIRNAME / "S_20141029_2412_part 2.csv",
@@ -382,7 +403,8 @@ def _rename_transcripts():
                   TRANSCRIPTS_DIRNAME / "S_20141122_2505_02.csv")
     else:
         print("Transcripts have already been renamed. Skipping this step.")
-            
+
+
 def _preprocess_transcripts():
     """Preprocess transcripts by cleaning the text and extracting frame timings."""
 
@@ -398,14 +420,16 @@ def _preprocess_transcripts():
 
         # get all transcripts and allowed speakers
         transcripts = sorted(Path(TRANSCRIPTS_DIRNAME).glob("*.csv"))
-        allowed_speakers = ["M", "Mom", "mom", "m", "mother", "Mother", "papa", "the mom"]
+        allowed_speakers = ["M", "Mom", "mom", "m",
+                            "mother", "Mother", "papa", "the mom"]
 
         # preprocess each transcript
         for transcript_idx, transcript_filename in enumerate(transcripts):
             # empty list to store processed transcript information
             preprocessed_transcript = []
-            preprocessed_transcript_filename = PREPROCESSED_TRANSCRIPTS_DIRNAME / transcript_filename.name
-     
+            preprocessed_transcript_filename = PREPROCESSED_TRANSCRIPTS_DIRNAME / \
+                transcript_filename.name
+
             # read transcript CSV
             print(f"Preprocessing transcript: {transcript_filename.name} ({transcript_idx+1}/{len(transcripts)})")
             transcript = pd.read_csv(transcript_filename)
