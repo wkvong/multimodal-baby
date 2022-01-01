@@ -12,8 +12,6 @@ from multimodal.utils import get_entropy
 OPTIMIZER = torch.optim.AdamW
 LR = 3e-4
 WEIGHT_DECAY = 0.01
-# SELF_DISTILLATION = False
-# ALPHA = 1
 
 
 class MultiModalLitModel(pl.LightningModule):
@@ -39,18 +37,6 @@ class MultiModalLitModel(pl.LightningModule):
             self.vision_encoder, self.text_encoder, args)
         self.language_model = LanguageModel(self.text_encoder, args)
 
-        # self-distillation
-        # self.self_distillation = self.args.get(
-        #     "self_distillation", SELF_DISTILLATION)
-
-        # if self.self_distillation:
-        #     # only instantiate teacher model if self-distillation is on
-        #     self.teacher = copy.deepcopy(self.model)
-
-        #     # set teacher to be non-trainable
-        #     for param in self.teacher.parameters():
-        #         param.requires_grad = False
-
         # save hyperparameters to logger
         self.save_hyperparameters()
 
@@ -68,10 +54,6 @@ class MultiModalLitModel(pl.LightningModule):
                             help="lm loss *= lambda_lm")
         parser.add_argument("--optimize_unused", action="store_true",
                             help="optimize the computation for unused loss")
-        # parser.add_argument("--self_distillation", action='store_true',
-        #                     help="include self-distillation loss during training")
-        # parser.add_argument("--alpha", type=float, default=1.0,
-        #                     help="coefficient for KLdiv loss in self-distillation")
 
     def configure_optimizers(self):
         optimizer = self.optimizer_class(
@@ -81,46 +63,23 @@ class MultiModalLitModel(pl.LightningModule):
     def forward(self, x, y, y_len):
         return self.model(x, y, y_len)
 
-    # def calculate_self_distillation_loss(self, x, y, y_len):
-    #     # get teacher targets and student predictions
-    #     teacher_logits_per_image, teacher_logits_per_text = self.teacher(
-    #         x, y, y_len, self_distillation=True, teacher=True)
-    #     student_logits_per_image, student_logits_per_text = self.model(
-    #         x, y, y_len, self_distillation=True, teacher=False)
-
-    #     # calculate kl div loss
-    #     kl_loss = (F.kl_div(F.log_softmax(student_logits_per_image, dim=-1), teacher_logits_per_image, reduction='batchmean') +
-    #                F.kl_div(F.log_softmax(student_logits_per_text, dim=-1), teacher_logits_per_text, reduction='batchmean')).div(2) * self.alpha
-
-    #     # update teacher model via ema
-    #     self.update_teacher()
-
-    #     return kl_loss
-
     def calculate_joint_loss(self, batch, stage, log):
         # batch of image-text pairs
         x, y, y_len = batch
 
         if self.lambda_mm or not self.optimize_unused:
             infonce_loss, image_accuracy, text_accuracy, \
-            image_entropy, text_entropy, logits_per_image, logits_per_text = \
-            self.model.calculate_contrastive_loss(x, y, y_len)
-
-            # if self.self_distillation:
-            #     kl_loss = self.calculate_self_distillation_loss(x, y, y_len)
-            # else:
-            #     kl_loss = 0.
+                image_entropy, text_entropy, logits_per_image, logits_per_text = \
+                self.model.calculate_contrastive_loss(x, y, y_len)
 
             # log
             log(f"{stage}_infonce_loss", infonce_loss)
-            # log(f"{stage}_kl_loss", kl_loss)
             log(f"{stage}_image_accuracy", image_accuracy)
             log(f"{stage}_text_accuracy", text_accuracy)
             log(f"{stage}_image_entropy", image_entropy)
             log(f"{stage}_text_entropy", text_entropy)
             log("temperature",
-                     (-self.model.logit_neg_log_temperature).exp().item())
-            # log("kl_temperature", (-self.model.kl_logit_neg_log_temperature).exp().item())
+                (-self.model.logit_neg_log_temperature).exp().item())
 
         else:
             infonce_loss = 0.
@@ -186,10 +145,3 @@ class MultiModalLitModel(pl.LightningModule):
                 accuracy = 0.
 
             return accuracy
-
-    # def update_teacher(self):
-    #     for teacher, student in zip(self.teacher.parameters(), self.model.parameters()):
-    #         teacher.data.copy_(self.ema(teacher.data, student.data))
-
-    # def ema(self, s, t):
-    #     return s * (1 - 0.999) + t * 0.999

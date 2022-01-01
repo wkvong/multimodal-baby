@@ -20,7 +20,6 @@ FINETUNE_CNN = False
 NORMALIZE_FEATURES = False
 SIM = "max"
 TEMPERATURE = 0.07
-# KL_TEMPERATURE = 0.07
 FIX_TEMPERATURE = False
 
 
@@ -314,16 +313,15 @@ class MultiModalModel(nn.Module):
             "normalize_features", NORMALIZE_FEATURES)
         self.initial_temperature = self.args.get("temperature", TEMPERATURE)
         # self.initial_kl_temperature = self.args.get("kl_temperature", KL_TEMPERATURE)
-        self.fix_temperature = self.args.get("fix_temperature", FIX_TEMPERATURE)
+        self.fix_temperature = self.args.get(
+            "fix_temperature", FIX_TEMPERATURE)
 
         self.image_embed = vision_encoder
         self.text_embed = text_encoder
 
         # contrastive temperature parameter
-        self.logit_neg_log_temperature = nn.Parameter(torch.ones([]) * - np.log(self.initial_temperature))
-
-        # self-distillation temperature parameter
-        # self.kl_logit_neg_log_temperature = nn.Parameter(torch.ones([]) * - np.log(self.initial_kl_temperature))
+        self.logit_neg_log_temperature = nn.Parameter(
+            torch.ones([]) * - np.log(self.initial_temperature))
 
     @staticmethod
     def add_to_argparse(parser):
@@ -337,8 +335,6 @@ class MultiModalModel(nn.Module):
                             help="type of similarity to use (mean or max over image patches per word)")
         parser.add_argument("--temperature", type=float, default=TEMPERATURE,
                             help="initial temperature")
-        # parser.add_argument("--kl_temperature", type=float, default=KL_TEMPERATURE,
-        #                     help="initial kl temperature")
         parser.add_argument("--fix_temperature", action="store_true",
                             help="fix the temperature so it is not trained (TODO: but still under weight decay)")
 
@@ -349,15 +345,17 @@ class MultiModalModel(nn.Module):
         text_features, outputs = self.text_embed(text, text_length)
         return text_features
 
-    def forward(self, image, text, text_length, self_distillation=False, teacher=False):
+    def forward(self, image, text, text_length):
         if self.embedding_type == "flat":
             # encode image and text as flat embeddings
             image_features = self.encode_image(image)  # (B, E)
             text_features = self.encode_text(text, text_length)  # (B, E)
 
             if self.normalize_features:
-                image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
-                text_features = F.normalize(text_features, p=2, dim=1)  # normalize text features
+                # normalize image features
+                image_features = F.normalize(image_features, p=2, dim=1)
+                # normalize text features
+                text_features = F.normalize(text_features, p=2, dim=1)
 
             # calculate match similarity
             match = image_features @ text_features.T
@@ -368,33 +366,35 @@ class MultiModalModel(nn.Module):
             text_features = self.encode_text(text, text_length)  # (B, L, E)
 
             if self.normalize_features:
-                image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
-                text_features = F.normalize(text_features, p=2, dim=2)  # normalize text features
+                # normalize image features
+                image_features = F.normalize(image_features, p=2, dim=1)
+                # normalize text features
+                text_features = F.normalize(text_features, p=2, dim=2)
 
             # calculate batched similarity
             if self.sim == "mean":
                 # mean similarity takes the dot product (sum) of all spatial image and word
                 # embeddings, and then takes the average across all words and spatial locations
-                match_sum = torch.einsum('iehw,tle->it', [image_features, text_features])  # calculate matchmap
-                match = match_sum / (image_features.size(-2) * image_features.size(-1) * text_length)  # divide by h, w, l
+                match_sum = torch.einsum(
+                    'iehw,tle->it', [image_features, text_features])  # calculate matchmap
+                # divide by h, w, l
+                match = match_sum / (image_features.size(-2)
+                                     * image_features.size(-1) * text_length)
             elif self.sim == "max":
                 # max similarity takes the maximum dot product for all spatial embeddings
                 # for a given word, and then averages across words
-                match_max = torch.einsum('iehw,tle->itlhw', [image_features, text_features])  # calculate matchmap
-                match_max = torch.amax(match_max, dim=(3, 4))  # amax to apply over multiple dims
-                match = torch.sum(match_max, dim=2) / text_length  # divide by h, w, l
+                match_max = torch.einsum(
+                    'iehw,tle->itlhw', [image_features, text_features])  # calculate matchmap
+                # amax to apply over multiple dims
+                match_max = torch.amax(match_max, dim=(3, 4))
+                match = torch.sum(match_max, dim=2) / \
+                    text_length  # divide by h, w, l
 
-        # transform to logits and scale with temperature param (either infonce or kl temp)
-        # if self_distillation:
-        #     if teacher:
-        #         logit_log_scale = torch.zeros_like(self.kl_logit_neg_log_temperature)  # don't scale logits for teacher model
-        #     else:
-        #         logit_log_scale = self.kl_logit_neg_log_temperature
-        # else:
+        # transform to logits and scale with temperature param
         logit_log_scale = self.logit_neg_log_temperature
         logit_scale = logit_log_scale.exp()
 
-        if self.fix_temperature: # do not train the logit_scale, i.e., do not backprop through the temperature
+        if self.fix_temperature:  # do not train the logit_scale, i.e., do not backprop through the temperature
             logit_scale = logit_scale.detach()
 
         logits_per_image = match * logit_scale
@@ -436,14 +436,17 @@ class LanguageModel(nn.Module):
         self.text_encoder = text_encoder
 
         # build output layer
-        self.output_layer = nn.Linear(self.text_encoder.hidden_dim, self.text_encoder.vocab_size, bias=self.args.get("bias", True))
+        self.output_layer = nn.Linear(
+            self.text_encoder.hidden_dim, self.text_encoder.vocab_size, bias=self.args.get("bias", True))
         if self.args.get("tie", True):
             self.output_layer.weight = self.text_encoder.embedding.weight
 
     @staticmethod
     def add_to_argparse(parser):
-        parser.add_argument("--tie", type=lambda s: bool(eval(s)), default=True, help="whether to tie the input embedding and output layer weight")
-        parser.add_argument("--bias", type=lambda s: bool(eval(s)), default=True, help="whether to use bias for output layer")
+        parser.add_argument("--tie", type=lambda s: bool(eval(s)), default=True,
+                            help="whether to tie the input embedding and output layer weight")
+        parser.add_argument("--bias", type=lambda s: bool(eval(s)),
+                            default=True, help="whether to use bias for output layer")
 
     def forward(self, y, y_len):
         text_features, outputs = self.text_encoder(y, y_len)
@@ -458,7 +461,8 @@ class LanguageModel(nn.Module):
         else:
             logits = logits[:, :-1]
             labels = y[:, 1:1+logits.size(1)]
-        loss = F.cross_entropy(logits.transpose(-2, -1), labels, ignore_index=PAD_TOKEN_ID, reduction="none" if tokenwise else "mean")
+        loss = F.cross_entropy(logits.transpose(-2, -1), labels,
+                               ignore_index=PAD_TOKEN_ID, reduction="none" if tokenwise else "mean")
         perplexity = loss.exp()
 
         return loss, perplexity, outputs, logits, labels
