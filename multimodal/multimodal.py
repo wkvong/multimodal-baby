@@ -459,6 +459,5 @@ class LanguageModel(nn.Module):
             logits = logits[:, :-1]
             labels = y[:, 1:1+logits.size(1)]
         loss = F.cross_entropy(logits.transpose(-2, -1), labels, ignore_index=PAD_TOKEN_ID, reduction="none" if tokenwise else "mean")
-        perplexity = loss.exp()
 
-        return loss, perplexity, outputs, logits, labels
+        return loss, outputs, logits, labels

@@ -101,6 +101,12 @@ class MultiModalLitModel(pl.LightningModule):
         # batch of image-text pairs
         x, y, y_len = batch
 
+        # dict of results to return
+        ret = {
+            'batch_size': x.size(0),
+            'length': y_len.sum(),
+        }
+
         if self.lambda_mm or not self.optimize_unused:
             infonce_loss, image_accuracy, text_accuracy, \
             image_entropy, text_entropy, logits_per_image, logits_per_text = \
@@ -122,17 +128,28 @@ class MultiModalLitModel(pl.LightningModule):
                      (-self.model.logit_neg_log_temperature).exp().item())
             # log("kl_temperature", (-self.model.kl_logit_neg_log_temperature).exp().item())
 
+            ret.update({
+                'infonce_loss': infonce_loss,
+                'image_accuracy': image_accuracy,
+                'text_accuracy': text_accuracy,
+                'image_entropy': image_entropy,
+                'text_entropy': text_entropy,
+            })
+
         else:
             infonce_loss = 0.
 
         if self.lambda_lm or not self.optimize_unused:
             # calculate language model ce loss
-            lm_ce_loss, perplexity, _, _, _ = \
+            lm_ce_loss, _, _, _ = \
                 self.language_model.calculate_ce_loss(y, y_len)
 
             # log
             log(f"{stage}_ce_loss", lm_ce_loss)
-            log(f"{stage}_perplexity", perplexity)
+
+            ret.update({
+                'ce_loss': lm_ce_loss,
+            })
 
         else:
             lm_ce_loss = 0.
@@ -143,17 +160,76 @@ class MultiModalLitModel(pl.LightningModule):
         # log
         log(f"{stage}_loss", loss)
 
-        return loss
+        ret.update({
+            'loss': loss,
+        })
+
+        return ret
+
+    def joint_loss_epoch_end(self, outputs, stage, log):
+        def mean_over_examples(name):
+            # mean over examples
+            n_examples = 0
+            value_sum = 0.
+            for output in outputs:
+                batch_size = output['batch_size']
+                value = output[name].item()
+                n_examples += batch_size
+                value_sum += value * batch_size
+            value_mean = value_sum / n_examples
+            return value_mean
+
+        def mean_over_predicted_tokens(name):
+            # mean over predicted tokens
+            n_tokens = 0
+            value_sum = 0.
+            for output in outputs:
+                batch_size = output['batch_size']
+                length = output['length'].item()
+                length -= batch_size
+                value = output[name].item()
+                n_tokens += length
+                value_sum += value * length
+            value_mean = value_sum / n_tokens
+            return value_mean
+
+        if self.lambda_mm or not self.optimize_unused:
+            for name in (
+                'infonce_loss', 'image_accuracy', 'text_accuracy',
+                'image_entropy', 'text_entropy',):
+                log(f"{stage}_{name}", mean_over_examples(name))
+
+        if self.lambda_lm or not self.optimize_unused:
+            for name in ('ce_loss',):
+                value_mean = mean_over_predicted_tokens(name)
+                log(f"{stage}_{name}", value_mean)
+
+                if name == 'ce_loss':
+                    # log perplexity
+                    perplexity = np.exp(value_mean)
+                    log(f"{stage}_perplexity", perplexity)
+
+        for name in ('loss',):
+            log(f"{stage}_{name}", mean_over_examples(name))
 
     def training_step(self, batch, batch_idx):
         return self.calculate_joint_loss(batch, 'train', self.log)
+
+    def training_epoch_end(self, outputs):
+        log = lambda name, value, *args, **kwargs: self.log(
+            f'{name}_epoch', value, on_step=False, on_epoch=True,
+            *args, **kwargs)
+        return self.joint_loss_epoch_end(outputs, 'train', log)
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
         stage = 'val'
         log = functools.partial(self.log, on_step=False, on_epoch=True)
 
+        ret = {}
+
         if dataloader_idx == 0:
-            return self.calculate_joint_loss(batch, stage, log)
+            empty_log = lambda *args, **kwargs: None
+            ret.update(self.calculate_joint_loss(batch, stage, empty_log))
 
         elif dataloader_idx == 1:
             # TODO: check whether adding special tokens will make a difference
@@ -182,10 +258,17 @@ class MultiModalLitModel(pl.LightningModule):
                 category_label = self.text_encoder.idx2word[y.item()]
                 log(f"{stage}_accuracy_{category_label}", accuracy)
 
+                ret.update({'accuracy': accuracy})
+
             else:
                 accuracy = 0.
 
-            return accuracy
+        return ret
+
+    def validation_epoch_end(self, outputs):
+        # only deal with outputs of the first dataset
+        log = functools.partial(self.log, on_step=False, on_epoch=True)
+        return self.joint_loss_epoch_end(outputs[0], 'val', log)
 
     # def update_teacher(self):
     #     for teacher, student in zip(self.teacher.parameters(), self.model.parameters()):

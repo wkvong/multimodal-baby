@@ -50,6 +50,7 @@ VOCAB_FILENAME = DATA_DIR / "vocab.json"
 # default arguments
 # dataloader arguments
 BATCH_SIZE = 4
+VAL_BATCH_SIZE = 64
 NUM_WORKERS = 4
 TRAIN_FRAC = 0.9
 VAL_FRAC = 0.05
@@ -181,6 +182,8 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
 
         self.args = vars(args) if args is not None else {}
         self.batch_size = self.args.get("batch_size", BATCH_SIZE)
+        self.drop_last = self.args.get("drop_last", False)
+        self.val_batch_size = self.args.get("val_batch_size", VAL_BATCH_SIZE)
         self.num_workers = self.args.get("num_workers", NUM_WORKERS)
         self.multiple_frames = self.args.get("multiple_frames", MULTIPLE_FRAMES)
         self.augment_frames = self.args.get("augment_frames", AUGMENT_FRAMES)
@@ -214,6 +217,12 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
     def add_to_argparse(parser):
         parser.add_argument(
             "--batch_size", type=int, default=BATCH_SIZE, help="Number of examples to operate on per forward step."
+        )
+        parser.add_argument(
+            "--drop_last", action="store_true", help="Drop the last not full batch."
+        )
+        parser.add_argument(
+            "--val_batch_size", type=int, default=VAL_BATCH_SIZE, help="Number of examples to operate on per forward step during validation."
         )
         parser.add_argument(
             "--num_workers", type=int, default=NUM_WORKERS, help="Number of additional processes to load data."
@@ -291,6 +300,7 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
             collate_fn=multiModalSAYCamDataset_collate_fn,
             shuffle=True,
             batch_size=self.batch_size,
+            drop_last=self.drop_last,
             num_workers=self.num_workers,
             pin_memory=False,
         )
@@ -300,8 +310,7 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
             self.val_dataset,
             collate_fn=multiModalSAYCamDataset_collate_fn,
             shuffle=False,
-            # batch_size=self.batch_size,
-            batch_size=64,  # fixing this so that validation sets are equal across runs
+            batch_size=self.val_batch_size,
             num_workers=self.num_workers,
             pin_memory=False,
         )

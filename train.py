@@ -61,7 +61,7 @@ def main():
 
     # setup checkpoint callback
     checkpoint_callback = ModelCheckpoint(
-        monitor='val_loss/dataloader_idx_0',
+        monitor='val_loss',
         save_last=True,
         save_top_k=args.save_top_k,
         dirpath=os.path.join(os.getcwd(), f'checkpoints/{args.exp_name}/'),
