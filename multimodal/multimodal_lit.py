@@ -8,6 +8,8 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 from multimodal.multimodal import MultiModalModel, LanguageModel
 from multimodal.utils import get_entropy
+from multimodal.multimodal_data_module import \
+    PAD_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID
 
 OPTIMIZER = torch.optim.AdamW
 LR = 3e-4
@@ -104,7 +106,6 @@ class MultiModalLitModel(pl.LightningModule):
         # dict of results to return
         ret = {
             'batch_size': x.size(0),
-            'length': y_len.sum(),
         }
 
         if self.lambda_mm or not self.optimize_unused:
@@ -129,11 +130,11 @@ class MultiModalLitModel(pl.LightningModule):
             # log("kl_temperature", (-self.model.kl_logit_neg_log_temperature).exp().item())
 
             ret.update({
-                'infonce_loss': infonce_loss,
+                'infonce_loss': infonce_loss.detach(),
                 'image_accuracy': image_accuracy,
                 'text_accuracy': text_accuracy,
-                'image_entropy': image_entropy,
-                'text_entropy': text_entropy,
+                'image_entropy': image_entropy.detach(),
+                'text_entropy': text_entropy.detach(),
             })
 
         else:
@@ -141,14 +142,35 @@ class MultiModalLitModel(pl.LightningModule):
 
         if self.lambda_lm or not self.optimize_unused:
             # calculate language model ce loss
-            lm_ce_loss, _, _, _ = \
-                self.language_model.calculate_ce_loss(y, y_len)
+            ce_loss, _, _, labels = \
+                self.language_model.calculate_ce_loss(y, y_len, tokenwise=True)
+
+            # get all kinds of losses with/without special tokens
+            # standard loss including all special tokens
+            mask = (labels != PAD_TOKEN_ID)
+            n_tokens = mask.sum()
+            lm_ce_loss = ce_loss.sum() / n_tokens
+            # excluding SOS_TOKEN
+            mask = mask & (labels != SOS_TOKEN_ID)
+            n_tokens_wo_sos = mask.sum()
+            lm_ce_loss_wo_sos = (ce_loss * mask).sum() / n_tokens_wo_sos
+            # further excluding EOS_TOKEN
+            mask = mask & (labels != EOS_TOKEN_ID)
+            n_tokens_wo_sos_eos = mask.sum()
+            lm_ce_loss_wo_sos_eos = (ce_loss * mask).sum() / n_tokens_wo_sos_eos
 
             # log
             log(f"{stage}_ce_loss", lm_ce_loss)
+            log(f"{stage}_ce_loss_wo_sos", lm_ce_loss_wo_sos)
+            log(f"{stage}_ce_loss_wo_sos_eos", lm_ce_loss_wo_sos_eos)
 
             ret.update({
-                'ce_loss': lm_ce_loss,
+                'ce_loss': lm_ce_loss.detach(),
+                'ce_loss_wo_sos': lm_ce_loss_wo_sos.detach(),
+                'ce_loss_wo_sos_eos': lm_ce_loss_wo_sos_eos.detach(),
+                'n_tokens': n_tokens,
+                'n_tokens_wo_sos': n_tokens_wo_sos,
+                'n_tokens_wo_sos_eos': n_tokens_wo_sos_eos,
             })
 
         else:
@@ -179,18 +201,16 @@ class MultiModalLitModel(pl.LightningModule):
             value_mean = value_sum / n_examples
             return value_mean
 
-        def mean_over_predicted_tokens(name):
-            # mean over predicted tokens
-            n_tokens = 0
+        def mean_over_tokens(name, n_tokens_name):
+            # mean over tokens
+            n_tokens_sum = 0
             value_sum = 0.
             for output in outputs:
-                batch_size = output['batch_size']
-                length = output['length'].item()
-                length -= batch_size
+                n_tokens = output[n_tokens_name].item()
                 value = output[name].item()
-                n_tokens += length
-                value_sum += value * length
-            value_mean = value_sum / n_tokens
+                n_tokens_sum += n_tokens
+                value_sum += value * n_tokens
+            value_mean = value_sum / n_tokens_sum
             return value_mean
 
         if self.lambda_mm or not self.optimize_unused:
@@ -200,14 +220,14 @@ class MultiModalLitModel(pl.LightningModule):
                 log(f"{stage}_{name}", mean_over_examples(name))
 
         if self.lambda_lm or not self.optimize_unused:
-            for name in ('ce_loss',):
-                value_mean = mean_over_predicted_tokens(name)
-                log(f"{stage}_{name}", value_mean)
+            for suffix in ('', '_wo_sos', '_wo_sos_eos'):
+                value_mean = mean_over_tokens(
+                    f'ce_loss{suffix}', f'n_tokens{suffix}')
+                log(f"{stage}_ce_loss{suffix}", value_mean)
 
-                if name == 'ce_loss':
-                    # log perplexity
-                    perplexity = np.exp(value_mean)
-                    log(f"{stage}_perplexity", perplexity)
+                # perplexity
+                perplexity = np.exp(value_mean)
+                log(f"{stage}_perplexity{suffix}", perplexity)
 
         for name in ('loss',):
             log(f"{stage}_{name}", mean_over_examples(name))

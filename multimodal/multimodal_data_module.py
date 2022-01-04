@@ -877,8 +877,12 @@ def _create_vocab():
         print("Creating vocab.json file!")
 
         # create vocab dictionary
-        vocab_dict = {PAD_TOKEN: 0, UNK_TOKEN: 1, SOS_TOKEN: 2, EOS_TOKEN: 3}
-        num_words = 4
+        vocab_dict = {
+            PAD_TOKEN: PAD_TOKEN_ID,
+            UNK_TOKEN: UNK_TOKEN_ID,
+            SOS_TOKEN: SOS_TOKEN_ID,
+            EOS_TOKEN: EOS_TOKEN_ID}
+        num_words = len(vocab_dict)
 
         # load utterances from training set
         with open(TRAIN_METADATA_FILENAME) as f:
