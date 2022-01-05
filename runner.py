@@ -8,18 +8,31 @@ import argparse
 from pathlib import Path
 import copy
 
-argparser = argparse.ArgumentParser()
-argparser.add_argument("--basename", default="multimodal")
-argparser.add_argument("--logs", type=Path, default=Path("logs"))
-argparser.add_argument("--scripts", type=Path, default=Path("scripts"))
-argparser.add_argument("--code-dir", type=Path, default=Path())
-argparser.add_argument("--checkpoints", type=Path, default=Path("checkpoints"))
-argparser.add_argument("--mail-type", default="END,FAIL")
-argparser.add_argument("--mail-user", default="waikeenvong@gmail.com")
-argparser.add_argument("--python", default="python")
-argparser.add_argument("--conda", type=Path, default=Path("/home/wv9/code/WaiKeen/miniconda3/etc/profile.d/conda.sh"))
-argparser.add_argument("--dry-run", action="store_true")
-argparser.add_argument("--auto-flag", action="store_true", help="automatically find varying flags and display them in job names; if not set, use designated list of flags")
+argparser = argparse.ArgumentParser(
+    description="Generate and optionally submit slurm jobs. runner_config.py is the configuration file.")
+argparser.add_argument("--basename", default="multimodal",
+                       help="The basename of jobs. All jobnames will start with this basename.")
+argparser.add_argument("--scripts", type=Path, default=Path("scripts"),
+                       help="The directory of scripts.")
+argparser.add_argument("--logs", type=Path, default=Path("logs"),
+                       help="The directory of logs.")
+argparser.add_argument("--checkpoints", type=Path, default=Path("checkpoints"),
+                       help="The directory of checkpoints.")
+argparser.add_argument("--code-dir", type=Path, default=Path(),
+                       help="The working directory of the jobs.")
+argparser.add_argument("--mail-type", default="END,FAIL",
+                       help="What types of mails to send to the mail user.")
+argparser.add_argument("--mail-user", default="waikeenvong@gmail.com",
+                       help="The mail user to send mails to.")
+argparser.add_argument("--python", default="python",
+                       help="The python to run with; e.g., python3.")
+argparser.add_argument("--conda", type=Path,
+                       default=Path("/home/wv9/code/WaiKeen/miniconda3/etc/profile.d/conda.sh"),
+                       help="The path to the conda.sh; ignored if failed to access.")
+argparser.add_argument("--dry-run", action="store_true",
+                       help="Do not start jobs when running. Without this flag, jobs will be immediately submitted.")
+argparser.add_argument("--auto-flag", action="store_true",
+                       help="Automatically find varying flags and display them in job names; if not set, use designated ordered list of flags.")
 args = argparser.parse_args()
 
 # create slurm directories
