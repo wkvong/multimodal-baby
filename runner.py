@@ -20,6 +20,10 @@ argparser.add_argument("--checkpoints", type=Path, default=Path("checkpoints"),
                        help="The directory of checkpoints.")
 argparser.add_argument("--code-dir", type=Path, default=Path(),
                        help="The working directory of the jobs.")
+argparser.add_argument("--time", default="6:00:00",
+                       help="The time limit of the jobs.")
+argparser.add_argument("--mem", default="32GB",
+                       help="The memory limit of the jobs.")
 argparser.add_argument("--mail-type", default="END,FAIL",
                        help="What types of mails to send to the mail user.")
 argparser.add_argument("--mail-user", default="waikeenvong@gmail.com",
@@ -138,8 +142,8 @@ for job in jobs:
         slurmfile.write(f"#SBATCH --output={(args.logs / (jobname + '.out')).absolute()}\n")
         slurmfile.write(f"#SBATCH --error={(args.logs / (jobname + '.err')).absolute()}\n")
         slurmfile.write("#SBATCH --export=ALL\n")
-        slurmfile.write("#SBATCH --time=6:00:00\n")
-        slurmfile.write("#SBATCH --mem=32GB\n")
+        slurmfile.write(f"#SBATCH --time={args.time}\n")
+        slurmfile.write(f"#SBATCH --mem={args.mem}\n")
         slurmfile.write("#SBATCH --cpus-per-task=4\n")
         slurmfile.write("#SBATCH --gres=gpu:1\n")
         slurmfile.write("#SBATCH --constraint=pascal|turing|volta\n")
