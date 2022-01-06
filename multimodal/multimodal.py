@@ -320,12 +320,11 @@ class MultiModalModel(nn.Module):
         self.text_embed = text_encoder
 
         # contrastive temperature parameter
-        if self.fix_temperature:
-            self.logit_neg_log_temperature = torch.ones(
-                []) * - np.log(self.initial_temperature)
-        else:
+        self.logit_neg_log_temperature = torch.ones(
+            []) * - np.log(self.initial_temperature)
+        if not self.fix_temperature:
             self.logit_neg_log_temperature = nn.Parameter(
-                torch.ones([]) * - np.log(self.initial_temperature))
+                self.logit_neg_log_temperature)
 
     @staticmethod
     def add_to_argparse(parser):
