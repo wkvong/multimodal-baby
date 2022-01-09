@@ -124,6 +124,7 @@ class TextEncoder(nn.Module):
         self.args = vars(args) if args is not None else {}
 
         self.text_encoder = self.args.get("text_encoder")
+        self._captioning = self.args.get("captioning", False)
         self.bidirectional = self.args.get("bidirectional")
         self.embedding_type = self.args.get("embedding_type")
         self.embedding_dim = self.args.get("embedding_dim")
@@ -149,6 +150,14 @@ class TextEncoder(nn.Module):
             self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim,
                                 bidirectional=self.bidirectional)
 
+        # build captioning related parts
+        if self.captioning:
+            assert self.text_encoder == "lstm" and not self.bidirectional, \
+                "only unidirectional lstm supports captioning"
+            input_dim = self.args.get("embedding_dim") # input image feature dim
+            init_dim = self.init_dim # dim of all init states
+            self.init_transform = nn.Linear(input_dim, init_dim)
+
         self.lockdrop = LockedDropout()
         self.output_dropout = nn.Dropout(self.dropout_o)
 
@@ -156,6 +165,8 @@ class TextEncoder(nn.Module):
     def add_to_argparse(parser):
         parser.add_argument("--text_encoder", type=str, default=TEXT_ENCODER, choices=["embedding", "cbow", "lstm"],
                             help="type of text encoder to use (embedding only or LSTM)")
+        parser.add_argument("--captioning", action="store_true",
+                            help="whether to initialize the hidden states with the image features")
         parser.add_argument("--bidirectional", action="store_true",
                             help="set LSTM text encoder to bidirectional")
         parser.add_argument("--crange", type=int, default=CRANGE,
@@ -165,7 +176,7 @@ class TextEncoder(nn.Module):
         parser.add_argument("--dropout_o", type=float, default=DROPOUT_O,
                             help="output dropout rate")
 
-    def forward(self, x, x_len):
+    def forward(self, x, x_len, image_features=None):
         embedding = self.embedding(x)  # (B, L, E)
 
         if self.text_encoder == "embedding":
@@ -186,7 +197,7 @@ class TextEncoder(nn.Module):
         elif self.text_encoder == "lstm":
             # initialize hidden state
             batch_size = x.size(0)
-            hidden = self.init_hidden(batch_size)
+            hidden = self.init_hidden(batch_size, image_features=image_features)
 
             # embed padded sequence and pack
             embedding = self.lockdrop(embedding, self.dropout_i)
@@ -225,7 +236,7 @@ class TextEncoder(nn.Module):
 
         return ret, output
 
-    def _forward_unbatched(self, x, x_len):
+    def _forward_unbatched(self, x, x_len, image_features=None):
         if self.text_encoder == "embedding":
             outputs = []
             for i, i_len in zip(x, x_len):
@@ -247,7 +258,7 @@ class TextEncoder(nn.Module):
                 batch_size = 1
                 i = i.unsqueeze(0)  # add fake batch dimension for lstm
                 i_len = i_len.unsqueeze(0)  # do the same for length
-                hidden = self.init_hidden(batch_size)
+                hidden = self.init_hidden(batch_size, image_features=image_features)
 
                 # embed, and single sequence (need to do this otherwise model uses padding)
                 # alternative would be to remove padding before passing into lstm
@@ -293,8 +304,31 @@ class TextEncoder(nn.Module):
     def vocab_size(self):
         return len(self.vocab)
 
-    def init_hidden(self, batch_size):
+    @property
+    def captioning(self):
+        return getattr(self, '_captioning', False)  # for backward compatibility
+
+    @property
+    def init_dim(self):
         d = 2 if self.bidirectional else 1
+        return 2 * d * self.lstm.num_layers * self.hidden_dim
+
+    def init_hidden(self, batch_size, image_features=None):
+        d = 2 if self.bidirectional else 1
+
+        # captioning: init by image_features
+        if image_features is not None:
+            if image_features.dim() > 2: # (B, E, H, W)
+                assert image_features.dim() == 4
+                # compress image_features into shape (B, E)
+                image_features = image_features.mean(dim=(2, 3))
+            else: # (B, E)
+                assert image_features.dim() == 2
+            return self.init_transform(image_features)\
+                .reshape(image_features.size(0), 2, d * self.lstm.num_layers, self.hidden_dim)\
+                .permute(1, 2, 0, 3)\
+                .unbind()
+
         return (torch.zeros(d * self.lstm.num_layers, batch_size, self.hidden_dim).to(self.device),
                 torch.zeros(d * self.lstm.num_layers, batch_size, self.hidden_dim).to(self.device))
 
@@ -345,15 +379,17 @@ class MultiModalModel(nn.Module):
     def encode_image(self, image):
         return self.image_embed(image)
 
-    def encode_text(self, text, text_length):
-        text_features, outputs = self.text_embed(text, text_length)
-        return text_features
+    def encode_text(self, text, text_length, image_features=None):
+        return self.text_embed(text, text_length, image_features=image_features)
 
-    def forward(self, image, text, text_length, self_distillation=False, teacher=False):
+    def forward(self, image, text, text_length, self_distillation=False, teacher=False, return_text_outputs=False):
         if self.embedding_type == "flat":
             # encode image and text as flat embeddings
             image_features = self.encode_image(image)  # (B, E)
-            text_features = self.encode_text(text, text_length)  # (B, E)
+            text_features, text_outputs = self.encode_text(
+                text, text_length,
+                image_features=image_features if self.text_embed.captioning else None,  # TODO: why captioning here? Note: if not using image_features here, then text_outputs cannot be reused for captioning in the language model.
+            )  # text_features: (B, E)
 
             if self.normalize_features:
                 image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
@@ -365,7 +401,10 @@ class MultiModalModel(nn.Module):
         elif self.embedding_type == "spatial":
             # encode image and text as spatial embeddings
             image_features = self.encode_image(image)  # (B, E, H, W,)
-            text_features = self.encode_text(text, text_length)  # (B, L, E)
+            text_features, text_outputs = self.encode_text(
+                text, text_length,
+                image_features=image_features if self.text_embed.captioning else None,  # TODO: why captioning here? Note: if not using image_features here, then text_outputs cannot be reused for captioning in the language model.
+            )  # text_features: (B, L, E)
 
             if self.normalize_features:
                 image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
@@ -400,10 +439,14 @@ class MultiModalModel(nn.Module):
         logits_per_image = match * logit_scale
         logits_per_text = match.t() * logit_scale
 
-        return logits_per_image, logits_per_text
+        ret = logits_per_image, logits_per_text
+        if return_text_outputs:
+            ret = ret + (text_outputs,)
+        return ret
 
     def calculate_contrastive_loss(self, x, y, y_len):
-        logits_per_image, logits_per_text = self(x, y, y_len)
+        logits_per_image, logits_per_text, text_outputs = \
+            self(x, y, y_len, return_text_outputs=True)
 
         # create ground truth labels
         batch_size = x.size(0)
@@ -425,7 +468,8 @@ class MultiModalModel(nn.Module):
         text_entropy = get_entropy(logits_per_text, dim=-1).mean()
 
         return infonce_loss, image_accuracy, text_accuracy, \
-            image_entropy, text_entropy, logits_per_image, logits_per_text
+            image_entropy, text_entropy, logits_per_image, logits_per_text, \
+            text_outputs
 
 
 class LanguageModel(nn.Module):
@@ -445,13 +489,16 @@ class LanguageModel(nn.Module):
         parser.add_argument("--tie", type=lambda s: bool(eval(s)), default=True, help="whether to tie the input embedding and output layer weight")
         parser.add_argument("--bias", type=lambda s: bool(eval(s)), default=True, help="whether to use bias for output layer")
 
-    def forward(self, y, y_len):
-        text_features, outputs = self.text_encoder(y, y_len)
+    def forward(self, y, y_len, outputs=None, image_features=None):
+        if outputs is None:
+            text_features, outputs = self.text_encoder(
+                y, y_len, image_features=image_features)
         logits = self.output_layer(outputs)
         return outputs, logits
 
-    def calculate_ce_loss(self, y, y_len, tokenwise=False):
-        outputs, logits = self(y, y_len)
+    def calculate_ce_loss(self, y, y_len, outputs=None, image_features=None, tokenwise=False):
+        outputs, logits = self(
+            y, y_len, outputs=outputs, image_features=image_features)
 
         if self.text_encoder.text_encoder in ['cbow', 'bert']:
             labels = y

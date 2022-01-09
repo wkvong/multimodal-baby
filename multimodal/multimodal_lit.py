@@ -108,10 +108,13 @@ class MultiModalLitModel(pl.LightningModule):
             'batch_size': x.size(0),
         }
 
+        # reuse text_outputs if possible
+        text_outputs = None
+
         if self.lambda_mm or not self.optimize_unused:
             infonce_loss, image_accuracy, text_accuracy, \
-            image_entropy, text_entropy, logits_per_image, logits_per_text = \
-            self.model.calculate_contrastive_loss(x, y, y_len)
+            image_entropy, text_entropy, logits_per_image, logits_per_text, \
+            text_outputs = self.model.calculate_contrastive_loss(x, y, y_len)
 
             # if self.self_distillation:
             #     kl_loss = self.calculate_self_distillation_loss(x, y, y_len)
@@ -141,9 +144,15 @@ class MultiModalLitModel(pl.LightningModule):
             infonce_loss = 0.
 
         if self.lambda_lm or not self.optimize_unused:
+            # get image_features if needed
+            image_features = None
+            if self.language_model.text_encoder.captioning and text_outputs is None:
+                image_features = self.vision_encoder(x)
+
             # calculate language model ce loss
-            ce_loss, _, _, labels = \
-                self.language_model.calculate_ce_loss(y, y_len, tokenwise=True)
+            ce_loss, _, _, labels = self.language_model.calculate_ce_loss(
+                y, y_len, outputs=text_outputs, image_features=image_features,
+                tokenwise=True)
 
             # get all kinds of losses with/without special tokens
             # standard loss including all special tokens
