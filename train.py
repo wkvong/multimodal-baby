@@ -1,5 +1,5 @@
 import argparse
-import os
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -41,6 +41,11 @@ def _setup_parser():
                         help="random seed for everything")
     parser.add_argument("--save_top_k", type=int, default=1,
                         help="saves best k models; 0 saves none; -1 saves all")
+    parser.add_argument("--resume_ckpt_path", type=Path, default=None,
+                        help="path to the checkpoint to resume from")
+    parser.add_argument("--resume_last_ckpt", action="store_true",
+                        help="resume from the last checkpoint; if set, "
+                             "--resume_ckpt_path is ignored.")
 
     return parser
 
@@ -48,6 +53,12 @@ def main():
     # parse args
     parser = _setup_parser()
     args = parser.parse_args()
+
+    # checkpoint paths
+    ckpt_dir = Path('checkpoints') / args.exp_name
+    if args.resume_last_ckpt:
+        # ignore args.resume_ckpt_path
+        args.resume_ckpt_path = ckpt_dir / 'last.ckpt'
 
     # set random seed
     pl.seed_everything(args.seed)
@@ -64,7 +75,7 @@ def main():
         monitor='val_loss',
         save_last=True,
         save_top_k=args.save_top_k,
-        dirpath=os.path.join(os.getcwd(), f'checkpoints/{args.exp_name}/'),
+        dirpath=ckpt_dir,
         filename='{epoch}')
     
     # create trainer (with checkpoint and logger if specified)
@@ -82,7 +93,7 @@ def main():
     print(args)
 
     # fit model
-    trainer.fit(lit_model, data)
+    trainer.fit(lit_model, data, ckpt_path=args.resume_ckpt_path)
     
 if __name__ == "__main__":
     main()
