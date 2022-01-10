@@ -305,6 +305,10 @@ class TextEncoder(nn.Module):
         return len(self.vocab)
 
     @property
+    def regressional(self):
+        return self.text_encoder == "lstm" and not self.bidirectional
+
+    @property
     def captioning(self):
         return getattr(self, '_captioning', False)  # for backward compatibility
 
@@ -500,7 +504,7 @@ class LanguageModel(nn.Module):
         outputs, logits = self(
             y, y_len, outputs=outputs, image_features=image_features)
 
-        if self.text_encoder.text_encoder in ['cbow', 'bert']:
+        if not self.text_encoder.regressional:
             labels = y
         else:
             logits = logits[:, :-1]
