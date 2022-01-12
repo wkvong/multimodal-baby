@@ -154,7 +154,7 @@ class TextEncoder(nn.Module):
         if self.captioning:
             assert self.text_encoder == "lstm" and not self.bidirectional, \
                 "only unidirectional lstm supports captioning"
-            self.init_transform = nn.Linear(
+            self.connector = nn.Linear(
                 self.args.get("embedding_dim"),  # input image feature dim
                 2 * self.lstm.num_layers * self.hidden_dim,
             )
@@ -324,7 +324,7 @@ class TextEncoder(nn.Module):
                 image_features = image_features.mean(dim=(2, 3))
             else: # (B, E)
                 assert image_features.dim() == 2
-            return self.init_transform(image_features)\
+            return self.connector(image_features)\
                 .reshape(image_features.size(0), 2, d * self.lstm.num_layers, self.hidden_dim)\
                 .permute(1, 2, 0, 3)\
                 .unbind()
