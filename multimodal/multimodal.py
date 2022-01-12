@@ -379,17 +379,14 @@ class MultiModalModel(nn.Module):
     def encode_image(self, image):
         return self.image_embed(image)
 
-    def encode_text(self, text, text_length, image_features=None):
-        return self.text_embed(text, text_length, image_features=image_features)
+    def encode_text(self, text, text_length):
+        return self.text_embed(text, text_length)
 
-    def forward(self, image, text, text_length, self_distillation=False, teacher=False, return_text_outputs=False):
+    def forward(self, image, text, text_length, self_distillation=False, teacher=False, return_image_features=False, return_text_outputs=False):
         if self.embedding_type == "flat":
             # encode image and text as flat embeddings
             image_features = self.encode_image(image)  # (B, E)
-            text_features, text_outputs = self.encode_text(
-                text, text_length,
-                image_features=image_features if self.text_embed.captioning else None,  # TODO: why captioning here? Note: if not using image_features here, then text_outputs cannot be reused for captioning in the language model.
-            )  # text_features: (B, E)
+            text_features, text_outputs = self.encode_text(text, text_length)  # text_features: (B, E)
 
             if self.normalize_features:
                 image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
@@ -401,10 +398,7 @@ class MultiModalModel(nn.Module):
         elif self.embedding_type == "spatial":
             # encode image and text as spatial embeddings
             image_features = self.encode_image(image)  # (B, E, H, W,)
-            text_features, text_outputs = self.encode_text(
-                text, text_length,
-                image_features=image_features if self.text_embed.captioning else None,  # TODO: why captioning here? Note: if not using image_features here, then text_outputs cannot be reused for captioning in the language model.
-            )  # text_features: (B, L, E)
+            text_features, text_outputs = self.encode_text(text, text_length)  # text_features: (B, L, E)
 
             if self.normalize_features:
                 image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
@@ -440,13 +434,15 @@ class MultiModalModel(nn.Module):
         logits_per_text = match.t() * logit_scale
 
         ret = logits_per_image, logits_per_text
+        if return_image_features:
+            ret = ret + (image_features,)
         if return_text_outputs:
             ret = ret + (text_outputs,)
         return ret
 
     def calculate_contrastive_loss(self, x, y, y_len):
-        logits_per_image, logits_per_text, text_outputs = \
-            self(x, y, y_len, return_text_outputs=True)
+        logits_per_image, logits_per_text, image_features, text_outputs = self(
+            x, y, y_len, return_image_features=True, return_text_outputs=True)
 
         # create ground truth labels
         batch_size = x.size(0)
@@ -469,7 +465,7 @@ class MultiModalModel(nn.Module):
 
         return infonce_loss, image_accuracy, text_accuracy, \
             image_entropy, text_entropy, logits_per_image, logits_per_text, \
-            text_outputs
+            image_features, text_outputs
 
 
 class LanguageModel(nn.Module):
