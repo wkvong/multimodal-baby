@@ -7,11 +7,14 @@ import itertools
 import argparse
 from pathlib import Path
 import copy
+import importlib
 
 argparser = argparse.ArgumentParser(
     description="Generate and optionally submit slurm jobs. runner_config.py is the configuration file.")
 argparser.add_argument("--basename", default="multimodal",
                        help="The basename of jobs. All jobnames will start with this basename.")
+argparser.add_argument("--config", default="runner_config",
+                       help="The config module to import. To make command line inputs easier, I allow .py suffix.")
 argparser.add_argument("--scripts", type=Path, default=Path("scripts"),
                        help="The directory of scripts.")
 argparser.add_argument("--logs", type=Path, default=Path("logs"),
@@ -52,7 +55,11 @@ if not conda_avail:
     args.conda = None
 
 # config
-from runner_config import grids, flags
+py_suffix = '.py'
+if args.config.endswith(py_suffix):
+    args.config = args.config[:-len(py_suffix)]
+config = importlib.import_module(args.config)
+grids, flags = config.grids, config.flags
 
 jobs = []
 for grid in grids:
