@@ -149,6 +149,8 @@ class MultiModalLitModel(pl.LightningModule):
                 # get image_features if needed
                 if image_features is None:
                     image_features = self.vision_encoder(x)
+                    if self.model.normalize_features:
+                        image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
                 # text_outputs is not reusable since it's not obtained from captioning in the contrastive module
                 text_outputs = None
 
