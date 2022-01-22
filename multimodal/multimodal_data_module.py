@@ -73,15 +73,48 @@ UNK_TOKEN_ID = 1
 SOS_TOKEN_ID = 2
 EOS_TOKEN_ID = 3
 
+# normalizer for images
+normalizer = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+
 def read_vocab(vocab_filename=VOCAB_FILENAME):
     with open(vocab_filename) as f:
         return json.load(f)
 
-class MultiModalSAYCamDataset(Dataset):
+class MultiModalDataset(Dataset):
     """
-    Dataset that returns paired image-utterances from baby S of the SAYCam Dataset
+    Abstract Dataset that returns paired image-utterances.
     """
-    
+
+    def __init__(self):
+        super().__init__()
+
+    def __len__(self) -> int:
+        """Returns the length of the dataset."""
+        raise NotImplementedError
+
+    def __getitem__(self, idx: int) -> Tuple[Any, Any, Any]:
+        """
+        Returns an image-utterance pair in tuple (img, utterance_idxs, utterance_length).
+        """
+        raise NotImplementedError
+
+
+def multiModalDataset_collate_fn(batch):
+    img, utterance_idxs, utterance_length = zip(*batch)
+    img = torch.stack(img, 0)
+    utterance_idxs = pad_sequence(utterance_idxs, batch_first=True, padding_value=PAD_TOKEN_ID)
+    utterance_length = torch.tensor(utterance_length, dtype=torch.long)
+    if utterance_idxs.size(1) > MAX_LEN_UTTERANCE:
+        utterance_idxs = utterance_idxs[:, :MAX_LEN_UTTERANCE]
+        utterance_length = torch.minimum(utterance_length, torch.tensor(MAX_LEN_UTTERANCE, dtype=torch.long))
+    return img, utterance_idxs, utterance_length
+
+
+class MultiModalSAYCamDataset(MultiModalDataset):
+    """
+    Dataset that returns paired image-utterances from baby S of the SAYCam Dataset.
+    """
+
     def __init__(self, data, vocab, multiple_frames, transform):
         super().__init__()
         self.data = data
@@ -90,12 +123,12 @@ class MultiModalSAYCamDataset(Dataset):
         self.transform = transform
 
     def __len__(self) -> int:
-        """Return length of the dataset."""
+        """Returns the length of the dataset."""
         return len(self.data)
-    
+
     def __getitem__(self, idx: int) -> Tuple[Any, Any, Any]:
         """
-        Returns an image-utterance pair
+        Returns an image-utterance pair in tuple (img, utterance_idxs, utterance_length)
         """
 
         # get utterance and convert to indices
@@ -123,28 +156,18 @@ class MultiModalSAYCamDataset(Dataset):
 
         return img, utterance_idxs, utterance_length
 
-def multiModalSAYCamDataset_collate_fn(batch):
-    img, utterance_idxs, utterance_length = zip(*batch)
-    img = torch.stack(img, 0)
-    utterance_idxs = pad_sequence(utterance_idxs, batch_first=True, padding_value=PAD_TOKEN_ID)
-    utterance_length = torch.tensor(utterance_length, dtype=torch.long)
-    if utterance_idxs.size(1) > MAX_LEN_UTTERANCE:
-        utterance_idxs = utterance_idxs[:, :MAX_LEN_UTTERANCE]
-        utterance_length = torch.minimum(utterance_length, torch.tensor(MAX_LEN_UTTERANCE, dtype=torch.long))
-    return img, utterance_idxs, utterance_length
 
-    
 class LabeledSEvalDataset(Dataset):
     """
     Dataset that returns a set of referents and a target word for evaluation
     """
-    
+
     def __init__(self, data, vocab):
         self.data = data
         self.vocab = vocab
         self.transform = transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                normalizer,
             ])
 
     def __getitem__(self, idx):
@@ -164,17 +187,16 @@ class LabeledSEvalDataset(Dataset):
         label = self.vocab[trial["target_category"]]
         label = torch.LongTensor([label])
         label_len = len(label)
-            
+
         return imgs, label, label_len
 
     def __len__(self):
         return len(self.data)
 
-    
-class MultiModalSAYCamDataModule(pl.LightningDataModule):
+
+class MultiModalDataModule(pl.LightningDataModule):
     """
-    The MultiModal SAYCam Dataset is a dataset created from baby S of the SAYCam Dataset consisting of
-    image frames and the associated child-directed utterances.
+    The abstract data module consisting of images and the associated utterances.
     """
 
     def __init__(self, args=None) -> None:
@@ -185,9 +207,8 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
         self.drop_last = self.args.get("drop_last", False)
         self.val_batch_size = self.args.get("val_batch_size", VAL_BATCH_SIZE)
         self.num_workers = self.args.get("num_workers", NUM_WORKERS)
-        self.multiple_frames = self.args.get("multiple_frames", MULTIPLE_FRAMES)
+        self.on_gpu = isinstance(self.args.get("gpus", None), (str, int))
         self.augment_frames = self.args.get("augment_frames", AUGMENT_FRAMES)
-        self.on_gpu = isinstance(self.args.get("gpus", None), (str, int))        
 
         if self.augment_frames:
             # add same augmentations as emin used
@@ -196,21 +217,21 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
                 # transforms.RandomApply([transforms.ColorJitter(0.9, 0.9, 0.9, 0.5)], p=0.9),
                 # transforms.RandomGrayscale(p=0.2),
                 transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
-                transforms.RandomHorizontalFlip(),            
+                transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                normalizer,
             ])
         else:
             # just convert to tensor and normalize
             self.transform = transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                normalizer,
             ])
 
         # keep base transform for val and test
         self.base_transform = transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                normalizer,
             ])
 
     @staticmethod
@@ -228,9 +249,6 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
             "--num_workers", type=int, default=NUM_WORKERS, help="Number of additional processes to load data."
         )
         parser.add_argument(
-            "--multiple_frames", action="store_true", help="Randomly sample frames per utterance."
-        )
-        parser.add_argument(
             "--augment_frames", action="store_true", help="Apply data augmentation to images."
         )
         return parser
@@ -239,9 +257,42 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
     # def config(self):
     #     """Return important settings of the dataset, which will be passed to instantiate models."""
     #     return {"input_dims": self.dims, "output_dims": self.output_dims, "mapping": self.mapping}
-            
+
     def prepare_data(self, *args, **kwargs) -> None:
         print("Calling prepare_data!")
+
+    def setup(self, *args, **kwargs) -> None:
+        print("Calling setup!")
+
+    def train_dataloader(self):
+        raise NotImplementedError
+
+    def val_dataloader(self):
+        raise NotImplementedError
+
+
+class MultiModalSAYCamDataModule(MultiModalDataModule):
+    """
+    A data module created from baby S of the SAYCam Dataset consisting of
+    image frames and the associated child-directed utterances.
+    """
+
+    def __init__(self, args=None) -> None:
+        super().__init__(args)
+
+        self.multiple_frames = self.args.get("multiple_frames", MULTIPLE_FRAMES)
+
+    @staticmethod
+    def add_to_argparse(parser):
+        parser = super(MultiModalSAYCamDataModule, MultiModalSAYCamDataModule).add_to_argparse(parser)
+
+        parser.add_argument(
+            "--multiple_frames", action="store_true", help="Randomly sample frames per utterance."
+        )
+        return parser
+
+    def prepare_data(self, *args, **kwargs) -> None:
+        super().prepare_data(*args, **kwargs)
         _download_transcripts()
         _rename_transcripts()
         _preprocess_transcripts()
@@ -251,9 +302,9 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
         _create_eval_metadata()
         _create_vocab()
         # _create_animations()  # TODO: add extra argument to generate this?
-    
+
     def setup(self, *args, **kwargs) -> None:
-        print("Calling setup!")
+        super().setup(*args, **kwargs)
         # read image-text data splits
         with open(TRAIN_METADATA_FILENAME) as f:
             train_data = json.load(f)
@@ -275,7 +326,7 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
         with open(EVAL_TEST_METADATA_FILENAME) as f:
             eval_test_data = json.load(f)
             eval_test_data = eval_test_data["data"]
-            
+
         # read vocab
         vocab = read_vocab()
 
@@ -297,18 +348,18 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
     def train_dataloader(self):
         return DataLoader(
             self.train_dataset,
-            collate_fn=multiModalSAYCamDataset_collate_fn,
+            collate_fn=multiModalDataset_collate_fn,
             shuffle=True,
             batch_size=self.batch_size,
             drop_last=self.drop_last,
             num_workers=self.num_workers,
             pin_memory=False,
         )
-        
+
     def val_dataloader(self):
         contrastive_val_dataloader = DataLoader(
             self.val_dataset,
-            collate_fn=multiModalSAYCamDataset_collate_fn,
+            collate_fn=multiModalDataset_collate_fn,
             shuffle=False,
             batch_size=self.val_batch_size,
             num_workers=self.num_workers,
@@ -317,7 +368,7 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
 
         eval_dev_dataloader = DataLoader(
             self.eval_dev_dataset,
-            collate_fn=multiModalSAYCamDataset_collate_fn,
+            collate_fn=multiModalDataset_collate_fn,
             shuffle=False,
             # batch_size=self.batch_size // 4,  # divide by 4 here since eval trials have 4 images
             batch_size=1,
@@ -327,27 +378,27 @@ class MultiModalSAYCamDataModule(pl.LightningDataModule):
 
         return [contrastive_val_dataloader,
                 eval_dev_dataloader]
-        
+
 def _download_transcripts():
     """Download SAYCam transcripts."""
-    
+
     # check if transcripts have already been downloaded
     if os.path.exists(TRANSCRIPTS_DIRNAME):
         print("SAYCam transcripts have already been downloaded. Skipping this step.")
     else:
         print("Downloading SAYCam transcripts from Google Sheets")
-     
+
         # create transcript folder
         if not os.path.exists(TRANSCRIPTS_DIRNAME):
             os.makedirs(TRANSCRIPTS_DIRNAME)
-            
+
         # set up google sheets object
         sheets = Sheets.from_files(GSHEETS_CREDENTIALS_FILENAME)
-            
+
         # get urls of saycam files to download
         df = pd.read_csv(TRANSCRIPT_LINKS_FILENAME)
         urls = df["GoogleSheets Link"].unique()
-            
+
         for i, url in enumerate(urls):
             print(f"Downloading SAYCam transcript {i+1}/{len(urls)}: {url}")
             s = sheets.get(url)
@@ -363,13 +414,13 @@ def _download_transcripts():
                     df.to_csv(filename, index=False)  # save as CSV
                 except pd.errors.ParserError:
                     continue  # move onto the next file
-                    
+
             # sleep for 30 seconds to prevent rate limiting
             time.sleep(30)
 
 def _rename_transcripts():
     """Manually rename a few of the transcripts that don't match naming scheme."""
-    
+
     if os.path.exists(TRANSCRIPTS_DIRNAME / "S_20141029_2412_part 2.csv"):
         print("Renaming transcripts")
         os.rename(TRANSCRIPTS_DIRNAME / "S_20141029_2412_part 2.csv",
@@ -391,7 +442,7 @@ def _rename_transcripts():
                   TRANSCRIPTS_DIRNAME / "S_20141122_2505_02.csv")
     else:
         print("Transcripts have already been renamed. Skipping this step.")
-            
+
 def _preprocess_transcripts():
     """Preprocess transcripts by cleaning the text and extracting frame timings."""
 
@@ -414,46 +465,46 @@ def _preprocess_transcripts():
             # empty list to store processed transcript information
             preprocessed_transcript = []
             preprocessed_transcript_filename = PREPROCESSED_TRANSCRIPTS_DIRNAME / transcript_filename.name
-     
+
             # read transcript CSV
             print(f"Preprocessing transcript: {transcript_filename.name} ({transcript_idx+1}/{len(transcripts)})")
             transcript = pd.read_csv(transcript_filename)
-     
+
             # skip empty transcripts
             if len(transcript) <= 1:
                 continue
-            
+
             # create new column of timestamps converted to seconds
             new_timestamps = convert_timestamps_to_seconds(transcript["Time"])
             transcript["Time (Seconds)"] = new_timestamps
-     
+
             # reset utterance count
             utterance_num = 1
-     
+
             # extract unique video filename from transcript
             video_filename = pd.unique(transcript["Video Name"])
-     
+
             # drop any missing filenames, or any filenames with "part" in them
             video_filename = [x for x in video_filename if not pd.isnull(x)]
             video_filename = [x for x in video_filename if "part" not in x]
-     
+
             # skip if video filename is not unique
             if len(video_filename) != 1:
                 continue
-     
+
             # extract video filename and replace suffix
             video_filename = video_filename[0]
             video_filename = Path(video_filename).with_suffix(".mp4")
-     
+
             # check video and transcript filenames match
             assert video_filename.stem == transcript_filename.stem
-     
+
             for transcript_row_idx, row in transcript.iterrows():
                 # get information from current utterance
                 utterance = str(row["Utterance"])  # convert to string
                 speaker = str(row["Speaker"])
                 start_timestamp = row["Time (Seconds)"]
-     
+
                 # get end timestamp
                 # hack: if last timestamp, just set end timestamp to be start time
                 # this means we don't have to read the video file for this to work
@@ -461,20 +512,20 @@ def _preprocess_transcripts():
                     end_timestamp = transcript["Time (Seconds)"][transcript_row_idx+1]
                 else:
                     end_timestamp = start_timestamp  # this will sample a single frame for the last utterance
-     
+
                 # skip processing utterance if start or end timestamps are null,
                 # or if speaker is not in the list of allowed speakers
                 if pd.isnull(start_timestamp) or pd.isnull(end_timestamp) or speaker not in allowed_speakers:
                     continue
-     
+
                 # preprocess utterance to extract sub-utterances and timestamps
                 utterances, timestamps, num_frames = _preprocess_utterance(
                     utterance, start_timestamp, end_timestamp)
-     
+
                 # skip if preprocessed utterance is empty
                 if len(utterances) == 0:
                     continue
-     
+
                 # create dataset based on preprocessed utterances
                 for (curr_utterance, curr_timestamps, curr_num_frames) in zip(utterances, timestamps, num_frames):
                     # loop over all possible frames for the current utterance
@@ -483,9 +534,9 @@ def _preprocess_transcripts():
                         preprocessed_transcript.append([transcript_filename.name,
                             video_filename.name, curr_utterance, curr_timestamp,
                             utterance_num, frame_num, frame_filename])
-     
+
                     utterance_num += 1
-     
+
             # save preprocessed transcript as CSV
             if len(preprocessed_transcript) > 0:
                 preprocessed_transcript_columns = ["transcript_filename", "video_filename",
@@ -548,7 +599,7 @@ def _preprocess_utterance(utterance, start_timestamp, end_timestamp):
     assert len(all_timestamps) == len(num_frames)
 
     return utterances, all_timestamps, num_frames
-            
+
 def _extract_train_frames():
     """Extract aligned frames from SAYCam videos"""
 
@@ -589,7 +640,7 @@ def _extract_train_frames():
                 framestamp = int(timestamp * frame_rate)
 
                 # extract frame based on timestamp
-                cap.set(1, framestamp)  # set frame to extract from 
+                cap.set(1, framestamp)  # set frame to extract from
                 ret, frame = cap.read()  # read frame
                 frame = _extract_frame(frame, frame_height, frame_width)
 
@@ -605,17 +656,17 @@ def _get_video_info(cap):
     frame_rate = cap.get(cv.CAP_PROP_FPS)  # leave this as a float
     frame_length = frame_count // frame_rate
     return frame_count, frame_width, frame_height, frame_rate, frame_length
-    
-    
+
+
 def _extract_frame(frame, frame_height, frame_width):
     """Extract a single frame"""
-    
+
     # settings for frame extraction
     final_size = 224
     resized_minor_length = 256
     new_height = frame_height * resized_minor_length // min(frame_height, frame_width)
     new_width = frame_width * resized_minor_length // min(frame_height, frame_width)
-    
+
     # function to resize frame and recolor
     try:
         resized_frame = cv.resize(frame, (new_width, new_height), interpolation=cv.INTER_CUBIC)
@@ -651,54 +702,54 @@ def _extract_eval_frames():
             os.makedirs(EVAL_FRAMES_DIRNAME)
             os.makedirs(EVAL_FRAMES_DIRNAME / "dev")
             os.makedirs(EVAL_FRAMES_DIRNAME / "test")
-     
+
         # get original set of evaluation categories
         eval_categories = os.listdir(LABELED_S_DIRNAME)
         for eval_category in eval_categories:
             eval_category_dirname = os.path.join(LABELED_S_DIRNAME, eval_category)
             eval_category_frames = sorted(os.listdir(eval_category_dirname))
-     
+
             # get indices to split original labeled s dataset into dev and test
             split_idxs = np.arange(len(eval_category_frames))
             np.random.shuffle(split_idxs)
             dev_idxs = split_idxs[:int(len(eval_category_frames) * 0.5)]
             test_idxs = split_idxs[int(len(eval_category_frames) * 0.5):]
-            
+
             # check dataset has been split correct
             assert len(dev_idxs) + len(test_idxs) == len(split_idxs)
-     
+
             # copy over dev frames into a new directory
             print(f"copying {eval_category} frames for dev set")
-     
+
             # check if directory exists, and if not, create it
             if not os.path.exists(os.path.join(EVAL_FRAMES_DIRNAME, "dev", eval_category)):
                 os.makedirs(os.path.join(EVAL_FRAMES_DIRNAME, "dev", eval_category))
-     
+
             for dev_idx in dev_idxs:
                 # get path to original frame
                 original_filename = os.path.join(LABELED_S_DIRNAME, eval_category, eval_category_frames[dev_idx])
-     
+
                 # copy frame
                 shutil.copyfile(original_filename, os.path.join(EVAL_FRAMES_DIRNAME, "dev", eval_category, eval_category_frames[dev_idx]))
-     
+
             # copy over test frames into a new directory
             print(f"copying {eval_category} frames for test set")
-     
+
             # check if directory exists, and if not, create it
             if not os.path.exists(os.path.join(EVAL_FRAMES_DIRNAME, "test", eval_category)):
                 os.makedirs(os.path.join(EVAL_FRAMES_DIRNAME, "test", eval_category))
-     
+
             for test_idx in test_idxs:
                 # get path to original frame
                 original_filename = os.path.join(LABELED_S_DIRNAME, eval_category, eval_category_frames[test_idx])
-     
+
                 # copy frame
                 shutil.copyfile(original_filename, os.path.join(EVAL_FRAMES_DIRNAME, "test", eval_category, eval_category_frames[test_idx]))
-    
-    
+
+
 def _create_train_metadata():
     """Creates JSON files with image-utterance information"""
-    
+
     if os.path.exists(TRAIN_METADATA_FILENAME) and os.path.exists(VAL_METADATA_FILENAME) and os.path.exists(TEST_METADATA_FILENAME):
         print("Training metadata files have already been created . Skipping this step.")
     else:
@@ -709,10 +760,10 @@ def _create_train_metadata():
 
         utterances = []
 
-        for idx, transcript in enumerate(transcripts):            
+        for idx, transcript in enumerate(transcripts):
             # read in preprocessed transcript
             transcript_df = pd.read_csv(transcript)
-            
+
             # group by utterances
             utterance_groups = transcript_df.groupby("utterance_num")
             for utterance, utterance_group in utterance_groups:
@@ -744,13 +795,13 @@ def _create_train_metadata():
                 if len(curr_utterance["frame_filenames"]) == 0:
                     print("No corresponding frames found, skipping this utterance")
                     continue
-                
+
                 # append details of remaining utterances to metadata list
                 utterances.append(curr_utterance)
 
         # shuffle utterances
         random.shuffle(utterances)
-                
+
         # split utterances into train/val/test
         train_n = int(len(utterances) * TRAIN_FRAC)
         val_n = int(len(utterances) * VAL_FRAC)
@@ -762,7 +813,7 @@ def _create_train_metadata():
         train_utterances = [utterances[i] for i in train_idxs]
         val_utterances = [utterances[i] for i in val_idxs]
         test_utterances = [utterances[i] for i in test_idxs]
-                
+
         # put utterances into a dictionary
         train_dict = {"data": train_utterances}
         val_dict = {"data": val_utterances}
@@ -794,7 +845,7 @@ def _create_eval_metadata():
         # get evaluation categories and remove ones not in vocab
         eval_dev_dirname = EVAL_FRAMES_DIRNAME / "dev"
         eval_test_dirname = EVAL_FRAMES_DIRNAME / "test"
-        eval_categories = sorted(os.listdir(eval_dev_dirname)) 
+        eval_categories = sorted(os.listdir(eval_dev_dirname))
         eval_categories.remove("carseat")
         eval_categories.remove("couch")
         eval_categories.remove("greenery")
@@ -807,12 +858,12 @@ def _create_eval_metadata():
                 target_category_dirname = os.path.join(eval_dev_dirname, target_category)
                 target_img_filename = os.path.join(target_category_dirname,
                                                    np.random.choice(os.listdir(target_category_dirname)))
-     
+
                 foil_categories = eval_categories.copy()
                 foil_categories.remove(target_category)
                 foil_categories = np.random.choice(foil_categories, size=n_foils, replace=False)
                 foil_img_filenames = []
-     
+
                 for j in range(n_foils):
                     foil_category_dirname = os.path.join(eval_dev_dirname, foil_categories[j])
                     foil_img_filename = os.path.join(foil_category_dirname,
@@ -835,12 +886,12 @@ def _create_eval_metadata():
                 target_category_dirname = os.path.join(eval_test_dirname, target_category)
                 target_img_filename = os.path.join(target_category_dirname,
                                                    np.random.choice(os.listdir(target_category_dirname)))
-     
+
                 foil_categories = eval_categories.copy()
                 foil_categories.remove(target_category)
                 foil_categories = np.random.choice(foil_categories, size=n_foils, replace=False)
                 foil_img_filenames = []
-     
+
                 for j in range(n_foils):
                     foil_category_dirname = os.path.join(eval_test_dirname, foil_categories[j])
                     foil_img_filename = os.path.join(foil_category_dirname,
@@ -855,7 +906,7 @@ def _create_eval_metadata():
                 eval_trial["foil_categories"] = list(foil_categories)
                 eval_trial["foil_img_filenames"] = foil_img_filenames
                 eval_test_dataset.append(eval_trial)
-                    
+
         # put eval trials into dictionaries
         eval_dev_dict = {"data": eval_dev_dataset}
         eval_test_dict = {"data": eval_test_dataset}
@@ -866,8 +917,8 @@ def _create_eval_metadata():
 
         with open(EVAL_TEST_METADATA_FILENAME, "w") as f:
             json.dump(eval_test_dict, f)
-        
-            
+
+
 def _create_vocab():
     """Create vocabulary object and save to file"""
 
@@ -901,7 +952,7 @@ def _create_vocab():
         # save as JSON file
         with open(VOCAB_FILENAME, "w") as f:
             json.dump(vocab_dict, f)
-        
+
 
 def _create_animations():
     """Create animated GIFs of extracted frames paired with each utterance"""
@@ -910,45 +961,45 @@ def _create_animations():
         print("Animated gifs have already been created. Skipping this step.")
     else:
         print("Creating animated gifs")
-    
+
         # create directory to store extracted frames
         if not os.path.exists(ANIMATED_FRAMES_DIRNAME):
             os.makedirs(ANIMATED_FRAMES_DIRNAME)
-     
+
         # get list of preprocessed transcripts
         transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))[:5]
-     
+
         for idx, transcript in enumerate(transcripts):
             print(f"Creating animated gifs: {transcript} ({idx+1}/{len(transcripts)})")
-            
+
             # read in preprocessed transcript
             transcript_df = pd.read_csv(transcript)
-            
+
             # group by utterances
             utterance_groups = transcript_df.groupby("utterance_num")
-     
+
             # create gif
             for utterance, utterance_group in utterance_groups:
                 utterance_num = pd.unique(utterance_group["utterance_num"]).item()
                 gif_filename = f"{pd.unique(utterance_group['transcript_filename']).item()[:-4]}_{utterance_num:03}.gif"
                 gif_filepath = Path(ANIMATED_FRAMES_DIRNAME, gif_filename)
                 frame_filenames = utterance_group["frame_filename"]
-     
+
                 frames = []
                 for frame_filename in frame_filenames:
                     frame_filepath = EXTRACTED_FRAMES_DIRNAME / frame_filename
-     
+
                     try:
                         img = imageio.imread(frame_filepath)
                     except FileNotFoundError:
                         continue
-                        
+
                     frames.append(img)
-     
+
                 if len(frames) > 0:
                     print(f"Saving {gif_filepath}, with {len(frames)} frames")
                     imageio.mimsave(gif_filepath, frames, fps=10)
 
-            
+
 if __name__ == "__main__":
     load_and_print_info(MultiModalSAYCamDataModule)
