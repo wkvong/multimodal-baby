@@ -73,6 +73,10 @@ UNK_TOKEN_ID = 1
 SOS_TOKEN_ID = 2
 EOS_TOKEN_ID = 3
 
+# image arguments
+IMAGE_H = 224
+IMAGE_W = 224
+
 # normalizer for images
 normalizer = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
@@ -182,7 +186,7 @@ class LabeledSEvalDataset(Dataset):
 
         # read in images (target and foils)
         # target image is always the first index
-        imgs = torch.zeros((4, 3, 224, 224))
+        imgs = torch.zeros((4, 3, IMAGE_H, IMAGE_W))
         target_img_filename = trial["target_img_filename"]
         imgs[0] = self.transform(Image.open(target_img_filename).convert("RGB"))
 
@@ -219,7 +223,7 @@ class MultiModalDataModule(pl.LightningDataModule):
         if self.augment_frames:
             # add same augmentations as emin used
             self.transform = transforms.Compose([
-                transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
+                transforms.RandomResizedCrop((IMAGE_H, IMAGE_W), scale=(0.2, 1.)),
                 # transforms.RandomApply([transforms.ColorJitter(0.9, 0.9, 0.9, 0.5)], p=0.9),
                 # transforms.RandomGrayscale(p=0.2),
                 transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
@@ -659,7 +663,6 @@ def _extract_frame(frame, frame_height, frame_width):
     """Extract a single frame"""
 
     # settings for frame extraction
-    final_size = 224
     resized_minor_length = 256
     new_height = frame_height * resized_minor_length // min(frame_height, frame_width)
     new_width = frame_width * resized_minor_length // min(frame_height, frame_width)
@@ -673,10 +676,10 @@ def _extract_frame(frame, frame_height, frame_width):
 
     # crop
     height, width, _ = resized_frame.shape
-    startx = width // 2 - (final_size // 2)
-    starty = height // 2 - (final_size // 2) - 16
-    cropped_frame = resized_frame[starty:starty + final_size, startx:startx + final_size]
-    assert cropped_frame.shape[0] == final_size and cropped_frame.shape[1] == final_size, \
+    startx = width // 2 - (IMAGE_W // 2)
+    starty = height // 2 - (IMAGE_H // 2) - 16
+    cropped_frame = resized_frame[starty:starty + IMAGE_H, startx:startx + IMAGE_W]
+    assert cropped_frame.shape[0] == IMAGE_H and cropped_frame.shape[1] == IMAGE_W, \
         (cropped_frame.shape, height, width)
 
     # reverse x/y axes

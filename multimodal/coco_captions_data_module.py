@@ -5,8 +5,15 @@ import argparse
 from collections import Counter
 
 from PIL import Image
+from torchvision import transforms
 import torch
 from torch.utils.data import DataLoader
+
+from multimodal.multimodal_data_module import MultiModalDataset, \
+    multiModalDataset_collate_fn, MultiModalDataModule, \
+    PAD_TOKEN, UNK_TOKEN, SOS_TOKEN, EOS_TOKEN, \
+    PAD_TOKEN_ID, UNK_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID, \
+    IMAGE_H, IMAGE_W
 
 # directories and filenames
 DATA_DIR = Path("/misc/vlgscratch5/LakeGroup/shared_data/coco")
@@ -20,11 +27,6 @@ TRAIN_IMAGE_DIR = DATA_DIR / "train2017"
 VAL_IMAGE_DIR = DATA_DIR / "val2017"
 TRAIN_DATA_FILENAME = KARPATHY_CAPTION_DATASETS_DIR / "preprocessed_captions_train2017.json"
 VAL_DATA_FILENAME = KARPATHY_CAPTION_DATASETS_DIR / "preprocessed_captions_val2017.json"
-
-from multimodal.multimodal_data_module import MultiModalDataset, \
-    multiModalDataset_collate_fn, MultiModalDataModule, \
-    PAD_TOKEN, UNK_TOKEN, SOS_TOKEN, EOS_TOKEN, \
-    PAD_TOKEN_ID, UNK_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID
 
 
 def load_dataset(filename):
@@ -82,6 +84,16 @@ class COCOCaptionsDataModule(MultiModalDataModule):
 
     def __init__(self, args=None) -> None:
         super().__init__(args)
+
+        resizer = transforms.Resize((IMAGE_H, IMAGE_W))
+        self.transform = transforms.Compose([
+            resizer,
+            self.transform,
+        ])
+        self.base_transform = transforms.Compose([
+            resizer,
+            self.base_transform,
+        ])
 
     @staticmethod
     def add_additional_to_argparse(parser):
