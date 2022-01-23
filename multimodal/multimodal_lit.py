@@ -255,7 +255,7 @@ class MultiModalLitModel(pl.LightningModule):
             *args, **kwargs)
         return self.joint_loss_epoch_end(outputs, 'train', log)
 
-    def validation_step(self, batch, batch_idx, dataloader_idx):
+    def validation_step(self, batch, batch_idx, dataloader_idx=0):
         stage = 'val'
         log = functools.partial(self.log, on_step=False, on_epoch=True)
 
@@ -302,7 +302,9 @@ class MultiModalLitModel(pl.LightningModule):
     def validation_epoch_end(self, outputs):
         # only deal with outputs of the first dataset
         log = functools.partial(self.log, on_step=False, on_epoch=True)
-        return self.joint_loss_epoch_end(outputs[0], 'val', log)
+        if len(outputs) == 2 and isinstance(outputs[0], list):  # multiple val dataloaders
+            outputs = outputs[0]
+        return self.joint_loss_epoch_end(outputs, 'val', log)
 
     # def update_teacher(self):
     #     for teacher, student in zip(self.teacher.parameters(), self.model.parameters()):
