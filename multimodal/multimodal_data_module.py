@@ -80,6 +80,12 @@ def read_vocab(vocab_filename=VOCAB_FILENAME):
     with open(vocab_filename) as f:
         return json.load(f)
 
+def load_data(filename):
+    with open(filename) as f:
+        data = json.load(f)
+        return data['data']
+
+
 class MultiModalDataset(Dataset):
     """
     Abstract Dataset that returns paired image-utterances.
@@ -283,12 +289,16 @@ class MultiModalSAYCamDataModule(MultiModalDataModule):
         self.multiple_frames = self.args.get("multiple_frames", MULTIPLE_FRAMES)
 
     @staticmethod
-    def add_to_argparse(parser):
-        parser = super(MultiModalSAYCamDataModule, MultiModalSAYCamDataModule).add_to_argparse(parser)
-
+    def add_additional_to_argparse(parser):
         parser.add_argument(
             "--multiple_frames", action="store_true", help="Randomly sample frames per utterance."
         )
+        return parser
+
+    @staticmethod
+    def add_to_argparse(parser):
+        parser = super(MultiModalSAYCamDataModule, MultiModalSAYCamDataModule).add_to_argparse(parser)
+        parser = MultiModalSAYCamDataModule.add_additional_to_argparse(parser)
         return parser
 
     def prepare_data(self, *args, **kwargs) -> None:
@@ -306,26 +316,13 @@ class MultiModalSAYCamDataModule(MultiModalDataModule):
     def setup(self, *args, **kwargs) -> None:
         super().setup(*args, **kwargs)
         # read image-text data splits
-        with open(TRAIN_METADATA_FILENAME) as f:
-            train_data = json.load(f)
-            train_data = train_data["data"]
-
-        with open(VAL_METADATA_FILENAME) as f:
-            val_data = json.load(f)
-            val_data = val_data["data"]
-
-        with open(TEST_METADATA_FILENAME) as f:
-            test_data = json.load(f)
-            test_data = test_data["data"]
+        train_data = load_data(TRAIN_METADATA_FILENAME)
+        val_data = load_data(VAL_METADATA_FILENAME)
+        test_data = load_data(TEST_METADATA_FILENAME)
 
         # read eval data splits
-        with open(EVAL_DEV_METADATA_FILENAME) as f:
-            eval_dev_data = json.load(f)
-            eval_dev_data = eval_dev_data["data"]
-
-        with open(EVAL_TEST_METADATA_FILENAME) as f:
-            eval_test_data = json.load(f)
-            eval_test_data = eval_test_data["data"]
+        eval_dev_data = load_data(EVAL_DEV_METADATA_FILENAME)
+        eval_test_data = load_data(EVAL_TEST_METADATA_FILENAME)
 
         # read vocab
         vocab = read_vocab()

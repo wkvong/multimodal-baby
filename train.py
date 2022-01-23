@@ -8,7 +8,10 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from torchinfo import summary
 
-from multimodal.multimodal_data_module import MultiModalSAYCamDataModule, read_vocab
+from multimodal.multimodal_data_module import MultiModalDataModule, MultiModalSAYCamDataModule, read_vocab
+from multimodal.coco_captions_data_module import COCOCaptionsDataModule
+from multimodal.multimodal_data_module import VOCAB_FILENAME as SAYCAM_VOCAB_FILENAME
+from multimodal.coco_captions_data_module import VOCAB_FILENAME as COCO_VOCAB_FILENAME
 from multimodal.multimodal import VisionEncoder, TextEncoder, MultiModalModel, LanguageModel
 from multimodal.multimodal_lit import MultiModalLitModel
 
@@ -24,7 +27,9 @@ def _setup_parser():
 
     # get data, model and litmodel specific arguments
     data_group = parser.add_argument_group("Data Args")
-    MultiModalSAYCamDataModule.add_to_argparse(data_group)
+    MultiModalDataModule.add_to_argparse(data_group)
+    MultiModalSAYCamDataModule.add_additional_to_argparse(data_group)
+    COCOCaptionsDataModule.add_additional_to_argparse(data_group)
 
     model_group = parser.add_argument_group("Model Args")
     VisionEncoder.add_to_argparse(model_group)
@@ -37,6 +42,9 @@ def _setup_parser():
 
     parser.add_argument("--exp_name", type=str, default="multimodal_test",
                         help="experiment name for logging")
+    parser.add_argument("--dataset", type=str, choices=["saycam", "coco"],
+                        default="saycam",
+                        help="which dataset to use")
     parser.add_argument("--seed", type=int, default=0,
                         help="random seed for everything")
     parser.add_argument("--save_top_k", type=int, default=1,
@@ -61,8 +69,12 @@ def main():
     pl.seed_everything(args.seed)
 
     # set up data module and models
-    data = MultiModalSAYCamDataModule(args)
-    vocab = read_vocab()
+    DataModuleClass, vocab_filename = {
+        "saycam": (MultiModalSAYCamDataModule, SAYCAM_VOCAB_FILENAME),
+        "coco": (COCOCaptionsDataModule, COCO_VOCAB_FILENAME),
+    }[args.dataset]
+    data = DataModuleClass(args)
+    vocab = read_vocab(vocab_filename)
     vision_encoder = VisionEncoder(args=args)
     text_encoder = TextEncoder(vocab, args=args)
     lit_model = MultiModalLitModel(vision_encoder, text_encoder, args)
