@@ -210,7 +210,7 @@ def _prepare_data(count_threshold=5):
     token2idx = {token: idx for idx, token in enumerate(vocab)}
 
     with open(VOCAB_FILENAME, 'w') as f:
-        json.dump(idx2token, f)
+        json.dump(token2idx, f)
     VOCAB_FILENAME.chmod(0o644)
 
     # lookup tokens
