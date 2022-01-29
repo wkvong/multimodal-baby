@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import argparse
 from collections import Counter
+import random
 
 from PIL import Image
 from torchvision import transforms
@@ -23,10 +24,14 @@ RAW_VAL_DATA_FILENAME = ANNOTATIONS_DATA_DIR / "captions_val2017.json"
 KARPATHY_CAPTION_DATASETS_DIR = DATA_DIR / "karpathy_caption_datasets"
 KARPATHY_CAPTION_DATASET_FILENAME = KARPATHY_CAPTION_DATASETS_DIR / "dataset_coco.json"
 VOCAB_FILENAME = KARPATHY_CAPTION_DATASETS_DIR / "vocab.json"
-TRAIN_IMAGE_DIR = DATA_DIR / "train2017"
-VAL_IMAGE_DIR = DATA_DIR / "val2017"
-TRAIN_DATA_FILENAME = KARPATHY_CAPTION_DATASETS_DIR / "preprocessed_captions_train2017.json"
-VAL_DATA_FILENAME = KARPATHY_CAPTION_DATASETS_DIR / "preprocessed_captions_val2017.json"
+IMAGE_DIR = DATA_DIR / "all_images"
+TRAIN_DATA_FILENAME = KARPATHY_CAPTION_DATASETS_DIR / "preprocessed_captions_train.json"
+VAL_DATA_FILENAME = KARPATHY_CAPTION_DATASETS_DIR / "preprocessed_captions_val.json"
+TEST_DATA_FILENAME = KARPATHY_CAPTION_DATASETS_DIR / "preprocessed_captions_test.json"
+
+# default arguments
+# training arguments
+MULTIPLE_CAPTIONS = False
 
 
 def load_dataset(filename):
@@ -40,33 +45,35 @@ class COCOCaptionsDataset(MultiModalDataset):
     Dataset that returns paired image-captions from MS COCO Captions Dataset.
     """
 
-    def __init__(self, dataset, image_dir, transform):
+    def __init__(self, dataset, image_dir, multiple_captions, transform):
         super().__init__()
         self.dataset = dataset
-        self.id2image = {image['id']: image for image in dataset['images']}
         self.image_dir = image_dir
+        self.multiple_captions = multiple_captions
         self.transform = transform
 
     def __len__(self) -> int:
         """Returns the length of the dataset."""
-        return len(self.dataset['annotations'])
+        return len(self.dataset['images'])
 
     def __getitem__(self, idx: int) -> Tuple[Any, Any, Any]:
         """
         Returns an image-caption pair in tuple (image, caption_idxs, caption_length)
         """
 
-        annotation = self.dataset['annotations'][idx]
+        image = self.dataset['images'][idx]
 
         # get caption
-        caption_idxs = annotation['token_ids']
+        captions = image['sentences']
+        caption = random.choice(captions) if self.multiple_captions else \
+                  captions[0]
+        caption_idxs = caption['token_ids']
         caption_idxs = [SOS_TOKEN_ID] + caption_idxs + [EOS_TOKEN_ID]
         caption_length = len(caption_idxs)
         caption_idxs = torch.tensor(caption_idxs, dtype=torch.long)
 
         # get image
-        image = self.id2image[annotation['image_id']]
-        image_filename = self.image_dir / image['file_name']
+        image_filename = self.image_dir / image['filename']
         image = Image.open(image_filename).convert("RGB")
 
         # apply transforms
@@ -95,8 +102,15 @@ class COCOCaptionsDataModule(MultiModalDataModule):
             self.base_transform,
         ])
 
+        self.multiple_captions = self.args.get(
+            "multiple_captions", MULTIPLE_CAPTIONS)
+
     @staticmethod
     def add_additional_to_argparse(parser):
+        parser.add_argument(
+            "--multiple_captions", action="store_true",
+            help="Randomly sample captions per image."
+        )
         return parser
 
     @staticmethod
@@ -115,13 +129,16 @@ class COCOCaptionsDataModule(MultiModalDataModule):
 
         self.datasets = {}
 
-        for split, filename, image_dir, transform in [
-                ("train", TRAIN_DATA_FILENAME, TRAIN_IMAGE_DIR, self.transform),
-                ("val", VAL_DATA_FILENAME, VAL_IMAGE_DIR, self.base_transform)]:
+        for split, filename, multiple_captions, transform in [
+                ("train", TRAIN_DATA_FILENAME, self.multiple_captions,
+                    self.transform),
+                ("val", VAL_DATA_FILENAME, False, self.base_transform),
+                ("test", TEST_DATA_FILENAME, False, self.base_transform)]:
             dataset = load_dataset(filename)
             dataset = COCOCaptionsDataset(
                 dataset,
-                image_dir=image_dir,
+                image_dir=IMAGE_DIR,
+                multiple_captions=multiple_captions,
                 transform=transform,
             )
             self.datasets[split] = dataset
@@ -147,6 +164,16 @@ class COCOCaptionsDataModule(MultiModalDataModule):
             pin_memory=False,
         )
 
+    def test_dataloader(self):
+        return DataLoader(
+            self.datasets['test'],
+            collate_fn=multiModalDataset_collate_fn,
+            shuffle=False,
+            batch_size=self.val_batch_size,
+            num_workers=self.num_workers,
+            pin_memory=False,
+        )
+
 
 def _prepare_data(count_threshold=5):
     """
@@ -162,6 +189,11 @@ def _prepare_data(count_threshold=5):
 
     with open(KARPATHY_CAPTION_DATASET_FILENAME, 'r') as f:
         karpathy_dataset = json.load(f)
+
+    id2img = {
+        img['imgid']: img
+        for img in karpathy_dataset['images']
+    }
 
     id2sent = {
         sentence['sentid']: sentence
@@ -218,27 +250,48 @@ def _prepare_data(count_threshold=5):
         sentence['token_ids'] = [
             token2idx.get(token, UNK_TOKEN_ID) for token in sentence['tokens']]
 
-    # preprocess data splits
-    for split, filename, raw_filename, image_dir in [
-            ('train', TRAIN_DATA_FILENAME, RAW_TRAIN_DATA_FILENAME, TRAIN_IMAGE_DIR),
-            ('val', VAL_DATA_FILENAME, RAW_VAL_DATA_FILENAME, VAL_IMAGE_DIR)]:
+    # here we do not use the data splits provided by Emin, but use them for sanity checks
+    split_mappings = set()
+    for split, raw_filename in [
+            ('train', RAW_TRAIN_DATA_FILENAME),
+            ('val', RAW_VAL_DATA_FILENAME)]:
         with open(raw_filename, 'r') as f:
             dataset = json.load(f)
 
         id2image = {image['id']: image for image in dataset['images']}
+        print(f"{split} 2017 images: {len(dataset['images'])}")
 
         for annotation in dataset['annotations']:
             # sanity checks
-            assert annotation['image_id'] in id2image, \
-                f"annotation id={annotation['id']} with image id={annotation['image_id']} not found in images"
-            assert annotation['id'] in id2sent, \
-                f"annotation id={annotation['id']} not found in Karpathy dataset"
+            image = id2image[annotation['image_id']]
             sentence = id2sent[annotation['id']]
             assert sentence['raw'] == annotation['caption'], \
                 f"id={annotation['id']}, raw sentence in Karpathy dataset \"{sentence['raw']}\" differs from caption in annotation \"{annotation['caption']}\""
-            # use the tokenized tokens and token_ids
-            annotation['tokens'] = sentence['tokens']
-            annotation['token_ids'] = sentence['token_ids']
+            img = id2img[sentence['imgid']]
+            assert img['cocoid'] == image['id'], f"cocoid={img['cocoid']} different from image['id']={image['id']}"
+            assert img['filename'][-16:] == image['file_name'], f"img filename={img['filename']} different from image file_name={image['file_name']}"
+            split_mappings.add((img['split'], split))
+    print('split mappings (karpathy, 2017):', split_mappings)
+
+    # check all images exist
+    for image in karpathy_dataset['images']:
+        image['filename'] = image['filename'][-16:]
+        image_path = DATA_DIR / "all_images" / image['filename']
+        assert image_path.exists(), f"{image['filename']} does not exist"
+
+    # save preprocessed splits
+    for split, karpathy_splits, filename in [
+            ('train', ('train', 'restval'), TRAIN_DATA_FILENAME),
+            ('val', ('val',), VAL_DATA_FILENAME),
+            ('test', ('test',), TEST_DATA_FILENAME)]:
+        images = list(filter(lambda image: image['split'] in karpathy_splits,
+                             karpathy_dataset['images']))
+        print(f"{split} images: {len(images)}")
+        dataset = {
+            key: value
+            for key, value in karpathy_dataset.items() if key != 'images'
+        }
+        dataset['images'] = images
 
         with open(filename, 'w') as f:
             json.dump(dataset, f)
