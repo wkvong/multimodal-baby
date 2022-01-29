@@ -280,6 +280,9 @@ class MultiModalDataModule(pl.LightningDataModule):
     def val_dataloader(self):
         raise NotImplementedError
 
+    def test_dataloader(self):
+        raise NotImplementedError
+
 
 class MultiModalSAYCamDataModule(MultiModalDataModule):
     """
@@ -357,18 +360,18 @@ class MultiModalSAYCamDataModule(MultiModalDataModule):
             pin_memory=False,
         )
 
-    def val_dataloader(self):
-        contrastive_val_dataloader = DataLoader(
-            self.val_dataset,
+    def val_test_dataloader(self, dataset, eval_dataset, batch_size):
+        dataloader = DataLoader(
+            dataset,
             collate_fn=multiModalDataset_collate_fn,
             shuffle=False,
-            batch_size=self.val_batch_size,
+            batch_size=batch_size,
             num_workers=self.num_workers,
             pin_memory=False,
         )
 
-        eval_dev_dataloader = DataLoader(
-            self.eval_dev_dataset,
+        eval_dataloader = DataLoader(
+            eval_dataset,
             collate_fn=multiModalDataset_collate_fn,
             shuffle=False,
             # batch_size=self.batch_size // 4,  # divide by 4 here since eval trials have 4 images
@@ -377,8 +380,17 @@ class MultiModalSAYCamDataModule(MultiModalDataModule):
             pin_memory=False
         )
 
-        return [contrastive_val_dataloader,
-                eval_dev_dataloader]
+        return [dataloader,
+                eval_dataloader]
+
+    def val_dataloader(self):
+        return self.val_test_dataloader(
+            self.val_dataset, self.eval_dev_dataset, self.val_batch_size)
+
+    def test_dataloader(self):
+        return self.val_test_dataloader(
+            self.test_dataset, self.eval_test_dataet, self.val_batch_size)
+
 
 def _download_transcripts():
     """Download SAYCam transcripts."""

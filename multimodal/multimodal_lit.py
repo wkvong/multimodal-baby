@@ -255,8 +255,7 @@ class MultiModalLitModel(pl.LightningModule):
             *args, **kwargs)
         return self.joint_loss_epoch_end(outputs, 'train', log)
 
-    def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        stage = 'val'
+    def validation_test_step(self, stage, batch, batch_idx, dataloader_idx=0):
         log = functools.partial(self.log, on_step=False, on_epoch=True)
 
         ret = {}
@@ -299,12 +298,28 @@ class MultiModalLitModel(pl.LightningModule):
 
         return ret
 
-    def validation_epoch_end(self, outputs):
+    def validation_test_epoch_end(self, stage, outputs):
         # only deal with outputs of the first dataset
         log = functools.partial(self.log, on_step=False, on_epoch=True)
         if len(outputs) == 2 and isinstance(outputs[0], list):  # multiple val dataloaders
             outputs = outputs[0]
-        return self.joint_loss_epoch_end(outputs, 'val', log)
+        return self.joint_loss_epoch_end(outputs, stage, log)
+
+    def validation_step(self, batch, batch_idx, dataloader_idx=0):
+        return self.validation_test_step(
+            'val', batch, batch_idx, dataloader_idx=dataloader_idx)
+
+    def validation_epoch_end(self, outputs):
+        return self.validation_test_epoch_end(
+            'val', outputs)
+
+    def test_step(self, batch, batch_idx, dataloader_idx=0):
+        return self.validation_test_step(
+            'test', batch, batch_idx, dataloader_idx=dataloader_idx)
+
+    def test_epoch_end(self, outputs):
+        return self.validation_test_epoch_end(
+            'test', outputs)
 
     # def update_teacher(self):
     #     for teacher, student in zip(self.teacher.parameters(), self.model.parameters()):
