@@ -80,7 +80,7 @@ IMAGE_W = 224
 # normalizer for images
 normalizer = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
-def read_vocab(vocab_filename=VOCAB_FILENAME):
+def read_vocab(vocab_filename):
     with open(vocab_filename) as f:
         return json.load(f)
 
@@ -274,14 +274,79 @@ class MultiModalDataModule(pl.LightningDataModule):
     def setup(self, *args, **kwargs) -> None:
         print("Calling setup!")
 
-    def train_dataloader(self):
+        # read vocab
+        vocab = self.read_vocab()
+
+        # read and create image-text data splits (train/val/test)
+        self.datasets = self.create_datasets(vocab)
+
+        # read and create eval data splits (val/test)
+        self.eval_datasets = self.create_eval_datasets(vocab)
+
+    def read_vocab(self):
         raise NotImplementedError
+
+    def create_datasets(self, vocab):
+        raise NotImplementedError
+
+    def create_eval_datasets(self, vocab):
+        eval_datasets = {}
+
+        for split, filename in [
+                ("val", EVAL_DEV_METADATA_FILENAME),
+                ("test", EVAL_TEST_METADATA_FILENAME)]:
+            data = load_data(filename)
+            dataset = LabeledSEvalDataset(data, vocab)
+            eval_datasets[split] = dataset
+
+        return eval_datasets
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.datasets['train'],
+            collate_fn=multiModalDataset_collate_fn,
+            shuffle=True,
+            batch_size=self.batch_size,
+            drop_last=self.drop_last,
+            num_workers=self.num_workers,
+            pin_memory=False,
+        )
+
+    def val_test_dataloader(self, dataset, eval_dataset, batch_size):
+        dataloader = DataLoader(
+            dataset,
+            collate_fn=multiModalDataset_collate_fn,
+            shuffle=False,
+            batch_size=batch_size,
+            num_workers=self.num_workers,
+            pin_memory=False,
+        )
+
+        eval_dataloader = DataLoader(
+            eval_dataset,
+            collate_fn=multiModalDataset_collate_fn,
+            shuffle=False,
+            # batch_size=self.batch_size // 4,  # divide by 4 here since eval trials have 4 images
+            batch_size=1,
+            num_workers=self.num_workers,
+            pin_memory=False,
+        )
+
+        return [dataloader, eval_dataloader]
 
     def val_dataloader(self):
-        raise NotImplementedError
+        return self.val_test_dataloader(
+            self.datasets['val'],
+            self.eval_datasets['val'],
+            self.val_batch_size,
+        )
 
     def test_dataloader(self):
-        raise NotImplementedError
+        return self.val_test_dataloader(
+            self.datasets['test'],
+            self.eval_datasets['test'],
+            self.val_batch_size,
+        )
 
 
 class MultiModalSAYCamDataModule(MultiModalDataModule):
@@ -320,76 +385,27 @@ class MultiModalSAYCamDataModule(MultiModalDataModule):
         _create_vocab()
         # _create_animations()  # TODO: add extra argument to generate this?
 
-    def setup(self, *args, **kwargs) -> None:
-        super().setup(*args, **kwargs)
-        # read image-text data splits
-        train_data = load_data(TRAIN_METADATA_FILENAME)
-        val_data = load_data(VAL_METADATA_FILENAME)
-        test_data = load_data(TEST_METADATA_FILENAME)
+    def read_vocab(self):
+        return read_vocab(VOCAB_FILENAME)
 
-        # read eval data splits
-        eval_dev_data = load_data(EVAL_DEV_METADATA_FILENAME)
-        eval_test_data = load_data(EVAL_TEST_METADATA_FILENAME)
+    def create_datasets(self, vocab):
+        datasets = {}
 
-        # read vocab
-        vocab = read_vocab()
+        for split, filename, multiple_frames, transform in [
+                ("train", TRAIN_METADATA_FILENAME, self.multiple_frames,
+                 self.transform),
+                ("val", VAL_METADATA_FILENAME, False, self.base_transform),
+                ("test", TEST_METADATA_FILENAME, False, self.base_transform)]:
+            data = load_data(filename)
+            dataset = MultiModalSAYCamDataset(
+                data,
+                vocab,
+                multiple_frames=multiple_frames,
+                transform=transform,
+            )
+            datasets[split] = dataset
 
-        # create image-text datasets
-        self.train_dataset = MultiModalSAYCamDataset(train_data, vocab,
-                                                     multiple_frames=self.multiple_frames,
-                                                     transform=self.transform)
-        self.val_dataset = MultiModalSAYCamDataset(val_data, vocab,
-                                                   multiple_frames=False,
-                                                   transform=self.base_transform)
-        self.test_dataset = MultiModalSAYCamDataset(test_data, vocab,
-                                                    multiple_frames=False,
-                                                    transform=self.base_transform)
-
-        # create eval datasets
-        self.eval_dev_dataset = LabeledSEvalDataset(eval_dev_data, vocab)
-        self.eval_test_dataset = LabeledSEvalDataset(eval_test_data, vocab)
-
-    def train_dataloader(self):
-        return DataLoader(
-            self.train_dataset,
-            collate_fn=multiModalDataset_collate_fn,
-            shuffle=True,
-            batch_size=self.batch_size,
-            drop_last=self.drop_last,
-            num_workers=self.num_workers,
-            pin_memory=False,
-        )
-
-    def val_test_dataloader(self, dataset, eval_dataset, batch_size):
-        dataloader = DataLoader(
-            dataset,
-            collate_fn=multiModalDataset_collate_fn,
-            shuffle=False,
-            batch_size=batch_size,
-            num_workers=self.num_workers,
-            pin_memory=False,
-        )
-
-        eval_dataloader = DataLoader(
-            eval_dataset,
-            collate_fn=multiModalDataset_collate_fn,
-            shuffle=False,
-            # batch_size=self.batch_size // 4,  # divide by 4 here since eval trials have 4 images
-            batch_size=1,
-            num_workers=self.num_workers,
-            pin_memory=False
-        )
-
-        return [dataloader,
-                eval_dataloader]
-
-    def val_dataloader(self):
-        return self.val_test_dataloader(
-            self.val_dataset, self.eval_dev_dataset, self.val_batch_size)
-
-    def test_dataloader(self):
-        return self.val_test_dataloader(
-            self.test_dataset, self.eval_test_dataet, self.val_batch_size)
+        return datasets
 
 
 def _download_transcripts():

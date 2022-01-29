@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from multimodal.multimodal_data_module import MultiModalDataset, \
-    multiModalDataset_collate_fn, MultiModalDataModule, \
+    multiModalDataset_collate_fn, MultiModalDataModule, read_vocab, \
     PAD_TOKEN, UNK_TOKEN, SOS_TOKEN, EOS_TOKEN, \
     PAD_TOKEN_ID, UNK_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID, \
     IMAGE_H, IMAGE_W
@@ -124,14 +124,15 @@ class COCOCaptionsDataModule(MultiModalDataModule):
         super().prepare_data(*args, **kwargs)
         _prepare_data()
 
-    def setup(self, *args, **kwargs) -> None:
-        super().setup(*args, **kwargs)
+    def read_vocab(self):
+        return read_vocab(VOCAB_FILENAME)
 
-        self.datasets = {}
+    def create_datasets(self, vocab):
+        datasets = {}
 
         for split, filename, multiple_captions, transform in [
                 ("train", TRAIN_DATA_FILENAME, self.multiple_captions,
-                    self.transform),
+                 self.transform),
                 ("val", VAL_DATA_FILENAME, False, self.base_transform),
                 ("test", TEST_DATA_FILENAME, False, self.base_transform)]:
             dataset = load_dataset(filename)
@@ -141,38 +142,9 @@ class COCOCaptionsDataModule(MultiModalDataModule):
                 multiple_captions=multiple_captions,
                 transform=transform,
             )
-            self.datasets[split] = dataset
+            datasets[split] = dataset
 
-    def train_dataloader(self):
-        return DataLoader(
-            self.datasets['train'],
-            collate_fn=multiModalDataset_collate_fn,
-            shuffle=True,
-            batch_size=self.batch_size,
-            drop_last=self.drop_last,
-            num_workers=self.num_workers,
-            pin_memory=False,
-        )
-
-    def val_dataloader(self):
-        return DataLoader(
-            self.datasets['val'],
-            collate_fn=multiModalDataset_collate_fn,
-            shuffle=False,
-            batch_size=self.val_batch_size,
-            num_workers=self.num_workers,
-            pin_memory=False,
-        )
-
-    def test_dataloader(self):
-        return DataLoader(
-            self.datasets['test'],
-            collate_fn=multiModalDataset_collate_fn,
-            shuffle=False,
-            batch_size=self.val_batch_size,
-            num_workers=self.num_workers,
-            pin_memory=False,
-        )
+        return datasets
 
 
 def _prepare_data(count_threshold=5):
