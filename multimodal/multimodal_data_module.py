@@ -106,22 +106,26 @@ class MultiModalDataset(Dataset):
         """Returns the length of the dataset."""
         raise NotImplementedError
 
-    def __getitem__(self, idx: int) -> Tuple[Any, Any, Any]:
+    def __getitem__(self, idx: int) -> Tuple[Any, Any, Any, Any]:
         """
-        Returns an image-utterance pair in tuple (img, utterance_idxs, utterance_length).
+        Returns an image-utterance pair in tuple
+        (img, utterance_idxs, utterance_length, raw_utterances).
+        raw_utterances: a list of str, each of which is a sentence with
+        space-separated tokens.
         """
         raise NotImplementedError
 
 
 def multiModalDataset_collate_fn(batch):
-    img, utterance_idxs, utterance_length = zip(*batch)
+    img, utterance_idxs, utterance_length, raw_utterance = zip(*batch)
     img = torch.stack(img, 0)
     utterance_idxs = pad_sequence(utterance_idxs, batch_first=True, padding_value=PAD_TOKEN_ID)
     utterance_length = torch.tensor(utterance_length, dtype=torch.long)
     if utterance_idxs.size(1) > MAX_LEN_UTTERANCE:
         utterance_idxs = utterance_idxs[:, :MAX_LEN_UTTERANCE]
         utterance_length = torch.minimum(utterance_length, torch.tensor(MAX_LEN_UTTERANCE, dtype=torch.long))
-    return img, utterance_idxs, utterance_length
+    raw_utterance = list(raw_utterance)
+    return img, utterance_idxs, utterance_length, raw_utterance
 
 
 class MultiModalSAYCamDataset(MultiModalDataset):
@@ -140,9 +144,10 @@ class MultiModalSAYCamDataset(MultiModalDataset):
         """Returns the length of the dataset."""
         return len(self.data)
 
-    def __getitem__(self, idx: int) -> Tuple[Any, Any, Any]:
+    def __getitem__(self, idx: int) -> Tuple[Any, Any, Any, Any]:
         """
-        Returns an image-utterance pair in tuple (img, utterance_idxs, utterance_length)
+        Returns an image-utterance pair in tuple
+        (img, utterance_idxs, utterance_length, raw_utterances)
         """
 
         # get utterance and convert to indices
@@ -168,7 +173,7 @@ class MultiModalSAYCamDataset(MultiModalDataset):
         if self.transform is not None:
             img = self.transform(img)
 
-        return img, utterance_idxs, utterance_length
+        return img, utterance_idxs, utterance_length, [utterance]
 
 
 class LabeledSEvalDataset(Dataset):
@@ -198,11 +203,12 @@ class LabeledSEvalDataset(Dataset):
             imgs[i+1] = self.transform(Image.open(foil_img_filename).convert("RGB"))
 
         # get target category index from vocab as a single utterance
-        label = self.vocab[trial["target_category"]]
+        raw_label = trial["target_category"]
+        label = self.vocab[raw_label]
         label = torch.LongTensor([label])
         label_len = len(label)
 
-        return imgs, label, label_len
+        return imgs, label, label_len, [raw_label]
 
     def __len__(self):
         return len(self.data)

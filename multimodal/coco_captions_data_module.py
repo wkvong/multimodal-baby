@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from multimodal.multimodal_data_module import MultiModalDataset, \
-    multiModalDataset_collate_fn, MultiModalDataModule, read_vocab, \
+    MultiModalDataModule, read_vocab, \
     PAD_TOKEN, UNK_TOKEN, SOS_TOKEN, EOS_TOKEN, \
     PAD_TOKEN_ID, UNK_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID, \
     IMAGE_H, IMAGE_W
@@ -56,15 +56,18 @@ class COCOCaptionsDataset(MultiModalDataset):
         """Returns the length of the dataset."""
         return len(self.dataset['images'])
 
-    def __getitem__(self, idx: int) -> Tuple[Any, Any, Any]:
+    def __getitem__(self, idx: int) -> Tuple[Any, Any, Any, Any]:
         """
-        Returns an image-caption pair in tuple (image, caption_idxs, caption_length)
+        Returns an image-caption pair in tuple
+        (image, caption_idxs, caption_length, raw_captions)
         """
 
         image = self.dataset['images'][idx]
 
         # get caption
         captions = image['sentences']
+        # not using 'raw' because that is untokenized and contains punctuations
+        raw_captions = [" ".join(caption['tokens']) for caption in captions]
         caption = random.choice(captions) if self.multiple_captions else \
                   captions[0]
         caption_idxs = caption['token_ids']
@@ -80,7 +83,7 @@ class COCOCaptionsDataset(MultiModalDataset):
         if self.transform is not None:
             image = self.transform(image)
 
-        return image, caption_idxs, caption_length
+        return image, caption_idxs, caption_length, raw_captions
 
 
 class COCOCaptionsDataModule(MultiModalDataModule):

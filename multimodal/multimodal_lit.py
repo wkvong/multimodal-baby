@@ -102,7 +102,7 @@ class MultiModalLitModel(pl.LightningModule):
 
     def calculate_joint_loss(self, batch, stage, log):
         # batch of image-text pairs
-        x, y, y_len = batch
+        x, y, y_len, raw_y = batch
 
         # dict of results to return
         ret = {
@@ -269,7 +269,7 @@ class MultiModalLitModel(pl.LightningModule):
             # TODO: check whether adding special tokens will make a difference
 
             # batch of evaluation trials (only one trial at a time)
-            x, y, y_len = batch
+            x, y, y_len, raw_y = batch
 
             if self.lambda_mm or not self.optimize_unused:
                 # resize x so images from the same trial are in the batch dim
