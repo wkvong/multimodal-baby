@@ -55,6 +55,10 @@ NUM_WORKERS = 4
 TRAIN_FRAC = 0.9
 VAL_FRAC = 0.05
 
+# evaluation arguments
+N_VAL_DATALOADERS_PER_SPLIT = 2
+TEST_WHILE_VAL = True
+
 # sampling arguments
 MAX_FRAMES_PER_UTTERANCE = 32
 MAX_LEN_UTTERANCE = 25
@@ -335,11 +339,16 @@ class MultiModalDataModule(pl.LightningDataModule):
         return [dataloader, eval_dataloader]
 
     def val_dataloader(self):
-        return self.val_test_dataloader(
+        dataloaders = self.val_test_dataloader(
             self.datasets['val'],
             self.eval_datasets['val'],
             self.val_batch_size,
         )
+
+        if TEST_WHILE_VAL:
+            dataloaders += self.test_dataloader()
+
+        return dataloaders
 
     def test_dataloader(self):
         return self.val_test_dataloader(

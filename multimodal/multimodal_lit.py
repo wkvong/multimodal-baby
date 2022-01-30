@@ -10,6 +10,7 @@ from multimodal.multimodal import MultiModalModel, LanguageModel
 from multimodal.utils import get_entropy
 from multimodal.multimodal_data_module import \
     PAD_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID
+from multimodal.multimodal_data_module import N_VAL_DATALOADERS_PER_SPLIT
 
 OPTIMIZER = torch.optim.AdamW
 LR = 3e-4
@@ -301,17 +302,22 @@ class MultiModalLitModel(pl.LightningModule):
     def validation_test_epoch_end(self, stage, outputs):
         # only deal with outputs of the first dataset
         log = functools.partial(self.log, on_step=False, on_epoch=True)
-        if len(outputs) == 2 and isinstance(outputs[0], list):  # multiple val dataloaders
-            outputs = outputs[0]
-        return self.joint_loss_epoch_end(outputs, stage, log)
+        return self.joint_loss_epoch_end(outputs[0], stage, log)
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        return self.validation_test_step(
-            'val', batch, batch_idx, dataloader_idx=dataloader_idx)
+        if dataloader_idx < N_VAL_DATALOADERS_PER_SPLIT:  # as normal
+            return self.validation_test_step(
+                'val', batch, batch_idx, dataloader_idx=dataloader_idx)
+        else:  # actually a test_step
+            return self.test_step(
+                batch, batch_idx,
+                dataloader_idx=dataloader_idx - N_VAL_DATALOADERS_PER_SPLIT)
 
     def validation_epoch_end(self, outputs):
-        return self.validation_test_epoch_end(
-            'val', outputs)
+        self.validation_test_epoch_end(
+            'val', outputs[:N_VAL_DATALOADERS_PER_SPLIT])
+        if len(outputs) > N_VAL_DATALOADERS_PER_SPLIT:
+            self.test_epoch_end(outputs[N_VAL_DATALOADERS_PER_SPLIT:])
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
         return self.validation_test_step(
