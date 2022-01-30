@@ -104,3 +104,31 @@ class GaussianBlur(object):
 def get_entropy(logits, dim=-1):
     log_p = F.log_softmax(logits, dim=dim)
     return (F.softmax(log_p, dim=dim) * -log_p).sum(dim=dim) # E[- log p] = sum - p log p
+
+
+def map_structure(fn, obj):
+    r"""Map a function over all elements in a (possibly nested) collection.
+
+    Args:
+        fn (callable): The function to call on elements.
+        obj: The collection to map function over.
+
+    Returns:
+        The collection in the same structure, with elements mapped.
+    """
+    if hasattr(obj, "--no-map--"):
+        return fn(obj)
+    if isinstance(obj, list):
+        return [map_structure(fn, x) for x in obj]
+    if isinstance(obj, tuple):
+        if isinstance(obj, torch.Size):
+            return fn(obj)
+        if hasattr(obj, '_fields'):  # namedtuple
+            return type(obj)(*[map_structure(fn, x) for x in obj])
+        else:
+            return tuple(map_structure(fn, x) for x in obj)
+    if isinstance(obj, dict):
+        return {k: map_structure(fn, v) for k, v in obj.items()}
+    if isinstance(obj, set):
+        return {map_structure(fn, x) for x in obj}
+    return fn(obj)

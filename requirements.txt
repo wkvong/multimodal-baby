@@ -8,3 +8,4 @@ pytorch-lightning
 torchinfo
 gsheets
 wandb
+pycocoevalcap

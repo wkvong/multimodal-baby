@@ -6,8 +6,10 @@ import torch.nn.functional as F
 import torchvision
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 # from locked_dropout import LockedDropout
-from multimodal.multimodal_data_module import PAD_TOKEN_ID
-from multimodal.utils import get_entropy
+from multimodal.multimodal_data_module import \
+    PAD_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID
+from multimodal.beam_search import beam_search
+from multimodal.utils import get_entropy, map_structure
 
 TEXT_ENCODER = "embedding"
 EMBEDDING_TYPE = "spatial"
@@ -504,3 +506,53 @@ class LanguageModel(nn.Module):
         loss = F.cross_entropy(logits.transpose(-2, -1), labels, ignore_index=PAD_TOKEN_ID, reduction="none" if tokenwise else "mean")
 
         return loss, outputs, logits, labels
+
+    def beam_search_decode(self, batch_size, beam_width, decode_length, length_penalty_alpha, image_features=None):
+        """Beam search decoding.
+
+        Args:
+            batch_size: the batch size.
+            beam_width: the beam width.
+            decode_length: the maximum decode length.
+            length_penalty_alpha: the length penalty alpha.
+            image_features: if it is image captioning, use these image_features
+                to get the initial states.
+        Returns:
+            Tuple of
+
+            beam_seq: a [batch_size, beam_width, sequence_length] tensor
+                containing the sequence ids.
+            log_prob: a [batch_size, beam_width] tensor containing the log
+                probabilities of the corresponding sequences.
+        """
+
+        assert self.text_encoder.regressional
+
+        start_tokens = torch.full(
+            (batch_size,), SOS_TOKEN_ID,
+            dtype=torch.int, device=self.text_encoder.device)
+        init_states = self.text_encoder.init_hidden(
+            batch_size, image_features=image_features)
+        init_states = map_structure(lambda t: t.transpose(0, 1), init_states)
+
+        def _symbols_to_logits_fn(ids, states):
+            batch_size = ids.size(0)
+            embedding = self.text_encoder.embedding(ids[:, -1])
+            embedding = embedding.unsqueeze(0)
+            states = map_structure(lambda t: t.transpose(0, 1), states)
+            outputs, states = self.text_encoder.lstm(embedding, states)
+            states = map_structure(lambda t: t.transpose(0, 1), states)
+            logits = self.output_layer(outputs)
+            logits = logits.squeeze(0)
+            return logits, states
+
+        return beam_search(
+            _symbols_to_logits_fn,
+            start_tokens,
+            beam_width,
+            decode_length,
+            self.text_encoder.vocab_size,
+            length_penalty_alpha,
+            states=init_states,
+            eos_id=EOS_TOKEN_ID,
+        )

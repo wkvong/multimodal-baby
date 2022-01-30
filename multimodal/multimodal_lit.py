@@ -8,15 +8,21 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 from multimodal.multimodal import MultiModalModel, LanguageModel
 from multimodal.utils import get_entropy
+from multimodal.textgen_eval import evaluate as textgen_eval
 from multimodal.multimodal_data_module import \
+    N_VAL_DATALOADERS_PER_SPLIT, MAX_LEN_UTTERANCE, \
     PAD_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID
-from multimodal.multimodal_data_module import N_VAL_DATALOADERS_PER_SPLIT
 
 OPTIMIZER = torch.optim.AdamW
 LR = 3e-4
 WEIGHT_DECAY = 0.01
 # SELF_DISTILLATION = False
 # ALPHA = 1
+
+# text generation evaluation arguments
+BEAM_WIDTH = 5
+DECODE_LENGTH = MAX_LEN_UTTERANCE
+LENGTH_PENALTY_ALPHA = 0.6
 
 
 class MultiModalLitModel(pl.LightningModule):
@@ -35,6 +41,11 @@ class MultiModalLitModel(pl.LightningModule):
         self.lambda_mm = self.args.get("lambda_mm", 1.)
         self.lambda_lm = self.args.get("lambda_lm", 0.)
         self.optimize_unused = self.args.get("optimize_unused", False)
+        self.eval_textgen = self.args.get("eval_textgen", False)
+        self.beam_width = self.args.get("beam_width", BEAM_WIDTH)
+        self.decode_length = self.args.get("decode_length", DECODE_LENGTH)
+        self.length_penalty_alpha = self.args.get(
+            "length_penalty_alpha", LENGTH_PENALTY_ALPHA)
 
         self.vision_encoder = vision_encoder
         self.text_encoder = text_encoder
@@ -71,6 +82,16 @@ class MultiModalLitModel(pl.LightningModule):
                             help="lm loss *= lambda_lm")
         parser.add_argument("--optimize_unused", action="store_true",
                             help="optimize the computation for unused loss")
+        parser.add_argument("--eval_textgen", action="store_true",
+                            help="evaluate text generation")
+        parser.add_argument("--beam_width", type=int, default=BEAM_WIDTH,
+                            help="beam width in beam search text generation")
+        parser.add_argument("--decode_length", type=int, default=DECODE_LENGTH,
+                            help="beam search maximum decode length")
+        parser.add_argument("--length_penalty_alpha", type=float,
+                            default=LENGTH_PENALTY_ALPHA,
+                            help="beam search length penalty (alpha);"
+                                 "0 for no length penalty.")
         # parser.add_argument("--self_distillation", action='store_true',
         #                     help="include self-distillation loss during training")
         # parser.add_argument("--alpha", type=float, default=1.0,
@@ -100,7 +121,7 @@ class MultiModalLitModel(pl.LightningModule):
 
     #     return kl_loss
 
-    def calculate_joint_loss(self, batch, stage, log):
+    def calculate_joint_loss(self, batch, stage, log, eval_textgen=False):
         # batch of image-text pairs
         x, y, y_len, raw_y = batch
 
@@ -188,6 +209,39 @@ class MultiModalLitModel(pl.LightningModule):
                 'n_tokens_wo_sos_eos': n_tokens_wo_sos_eos,
             })
 
+            if eval_textgen:
+                beam_seq, log_prob = self.language_model.beam_search_decode(
+                    batch_size=ret['batch_size'],
+                    beam_width=self.beam_width,
+                    decode_length=self.decode_length,
+                    length_penalty_alpha=self.length_penalty_alpha,
+                    image_features=image_features
+                        if self.language_model.text_encoder.captioning else
+                        None,
+                )
+
+                def ids_to_sentence(y):
+                    if y.dim() > 1:
+                        return [ids_to_sentence(y_) for y_ in y]
+                    y = y.tolist()
+                    y_len = 0
+                    while y_len < len(y) and y[y_len] != PAD_TOKEN_ID:
+                        y_len += 1
+                    y = y[:y_len]
+                    if len(y) > 0 and y[-1] == EOS_TOKEN_ID:
+                        y = y[:-1]
+                    if len(y) > 0 and y[0] == SOS_TOKEN_ID:
+                        y = y[1:]
+                    return ' '.join(
+                        self.text_encoder.idx2word[idx] for idx in y)
+
+                gen_text = ids_to_sentence(beam_seq[:, 0])
+
+                ret.update({
+                    'raw_y': raw_y,
+                    'gen_text': gen_text,
+                })
+
         else:
             lm_ce_loss = 0.
 
@@ -203,7 +257,7 @@ class MultiModalLitModel(pl.LightningModule):
 
         return ret
 
-    def joint_loss_epoch_end(self, outputs, stage, log):
+    def joint_loss_epoch_end(self, outputs, stage, log, eval_textgen=False):
         def mean_over_examples(name):
             # mean over examples
             n_examples = 0
@@ -244,17 +298,36 @@ class MultiModalLitModel(pl.LightningModule):
                 perplexity = np.exp(value_mean)
                 log(f"{stage}_perplexity{suffix}", perplexity)
 
+            if eval_textgen:
+                list_of_references, hypotheses = [], []
+                for output in outputs:
+                    list_of_references += output['raw_y']
+                    hypotheses += output['gen_text']
+
+                for references, hypothesis in list(zip(list_of_references, hypotheses))[:20]:
+                    print('references:')
+                    print('\n'.join(references))
+                    print('hypothesis:')
+                    print(hypothesis)
+
+                score_dict = textgen_eval(list_of_references, hypotheses)
+
+                for metric, score in score_dict.items():
+                    log(f"{stage}_{metric}", score)
+
         for name in ('loss',):
             log(f"{stage}_{name}", mean_over_examples(name))
 
     def training_step(self, batch, batch_idx):
-        return self.calculate_joint_loss(batch, 'train', self.log)
+        return self.calculate_joint_loss(
+            batch, 'train', self.log, eval_textgen=False)
 
     def training_epoch_end(self, outputs):
         log = lambda name, value, *args, **kwargs: self.log(
             f'{name}_epoch', value, on_step=False, on_epoch=True,
             *args, **kwargs)
-        return self.joint_loss_epoch_end(outputs, 'train', log)
+        return self.joint_loss_epoch_end(
+            outputs, 'train', log, eval_textgen=False)
 
     def validation_test_step(self, stage, batch, batch_idx, dataloader_idx=0):
         log = functools.partial(self.log, on_step=False, on_epoch=True)
@@ -263,7 +336,8 @@ class MultiModalLitModel(pl.LightningModule):
 
         if dataloader_idx == 0:
             empty_log = lambda *args, **kwargs: None
-            ret.update(self.calculate_joint_loss(batch, stage, empty_log))
+            ret.update(self.calculate_joint_loss(
+                batch, stage, empty_log, eval_textgen=self.eval_textgen))
 
         elif dataloader_idx == 1:
             # TODO: check whether adding special tokens will make a difference
@@ -302,7 +376,8 @@ class MultiModalLitModel(pl.LightningModule):
     def validation_test_epoch_end(self, stage, outputs):
         # only deal with outputs of the first dataset
         log = functools.partial(self.log, on_step=False, on_epoch=True)
-        return self.joint_loss_epoch_end(outputs[0], stage, log)
+        return self.joint_loss_epoch_end(
+            outputs[0], stage, log, eval_textgen=self.eval_textgen)
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         if dataloader_idx < N_VAL_DATALOADERS_PER_SPLIT:  # as normal
