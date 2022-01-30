@@ -304,12 +304,6 @@ class MultiModalLitModel(pl.LightningModule):
                     list_of_references += output['raw_y']
                     hypotheses += output['gen_text']
 
-                for references, hypothesis in list(zip(list_of_references, hypotheses))[:20]:
-                    print('references:')
-                    print('\n'.join(references))
-                    print('hypothesis:')
-                    print(hypothesis)
-
                 score_dict = textgen_eval(list_of_references, hypotheses)
 
                 for metric, score in score_dict.items():
