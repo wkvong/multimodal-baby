@@ -52,6 +52,11 @@ class COCOCaptionsDataset(MultiModalDataset):
         self.multiple_captions = multiple_captions
         self.transform = transform
 
+        for image in self.dataset['images']:
+            captions = image['sentences']
+            image['tokenized_captions'] = [
+                ' '.join(caption['tokens']) for caption in captions]
+
     def __len__(self) -> int:
         """Returns the length of the dataset."""
         return len(self.dataset['images'])
@@ -67,7 +72,7 @@ class COCOCaptionsDataset(MultiModalDataset):
         # get caption
         captions = image['sentences']
         # not using 'raw' because that is untokenized and contains punctuations
-        raw_captions = [" ".join(caption['tokens']) for caption in captions]
+        raw_captions = image['tokenized_captions']
         caption = random.choice(captions) if self.multiple_captions else \
                   captions[0]
         caption_idxs = caption['token_ids']

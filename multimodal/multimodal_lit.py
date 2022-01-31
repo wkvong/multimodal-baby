@@ -221,8 +221,6 @@ class MultiModalLitModel(pl.LightningModule):
                 )
 
                 def ids_to_sentence(y):
-                    if y.dim() > 1:
-                        return [ids_to_sentence(y_) for y_ in y]
                     y = y.tolist()
                     y_len = 0
                     while y_len < len(y) and y[y_len] != PAD_TOKEN_ID:
@@ -235,7 +233,8 @@ class MultiModalLitModel(pl.LightningModule):
                     return ' '.join(
                         self.text_encoder.idx2word[idx] for idx in y)
 
-                gen_text = ids_to_sentence(beam_seq[:, 0])
+                gen_text_ids = beam_seq[:, 0]
+                gen_text = [ids_to_sentence(y) for y in gen_text_ids]
 
                 ret.update({
                     'raw_y': raw_y,
