@@ -20,10 +20,11 @@ WEIGHT_DECAY = 0.01
 # ALPHA = 1
 
 # text generation evaluation arguments
-BEAM_WIDTH = 5
+BEAM_WIDTH = 3
 DECODE_LENGTH = MAX_LEN_UTTERANCE
-LENGTH_PENALTY_ALPHA = 0.6
-
+LENGTH_PENALTY_ALPHA = 0.0
+# print arguments
+PRINT_EVAL_TEXTGEN_EXAMPLE_IDS = range(10)
 
 class MultiModalLitModel(pl.LightningModule):
     """
@@ -302,6 +303,15 @@ class MultiModalLitModel(pl.LightningModule):
                 for output in outputs:
                     list_of_references += output['raw_y']
                     hypotheses += output['gen_text']
+
+                for example_id in PRINT_EVAL_TEXTGEN_EXAMPLE_IDS:
+                    print(f"example #{example_id}:")
+                    references = list_of_references[example_id]
+                    hypothesis = hypotheses[example_id]
+                    print("references:")
+                    print("\n".join(references))
+                    print("hypothesis:")
+                    print(hypothesis)
 
                 score_dict = textgen_eval(list_of_references, hypotheses)
 
