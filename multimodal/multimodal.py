@@ -25,6 +25,9 @@ TEMPERATURE = 0.07
 # KL_TEMPERATURE = 0.07
 FIX_TEMPERATURE = False
 
+# vision encoder arguments
+PRETRAINED_CNN_MODEL = "models/TC-S-resnext.tar"
+
 
 def set_parameter_requires_grad(model, feature_extracting=True):
     '''Helper function for setting body to non-trainable'''
@@ -55,6 +58,8 @@ class VisionEncoder(nn.Module):
         self.embedding_type = self.args.get("embedding_type")
         self.embedding_dim = self.args.get("embedding_dim")
         self.pretrained_cnn = self.args.get("pretrained_cnn")
+        self.pretrained_cnn_model = self.args.get(
+            "pretrained_cnn_model", PRETRAINED_CNN_MODEL)
         self.finetune_cnn = self.args.get("finetune_cnn")
         self.model = self._load_pretrained_cnn()
 
@@ -62,6 +67,10 @@ class VisionEncoder(nn.Module):
     def add_to_argparse(parser):
         parser.add_argument("--pretrained_cnn", action="store_true",
                             help="use pretrained CNN")
+        parser.add_argument("--pretrained_cnn_model", type=str,
+                            default=PRETRAINED_CNN_MODEL,
+                            help="the torchvision.models name of or the path "
+                                 "to the pretrained cnn model checkpoint")
         parser.add_argument("--finetune_cnn", action="store_true",
                             help="finetune CNN (frozen by default)")
 
@@ -79,17 +88,34 @@ class VisionEncoder(nn.Module):
         return outputs
 
     def _load_pretrained_cnn(self):
-        # initialize resnext model and replace fc layer to match pretrained model
-        model = torchvision.models.resnext50_32x4d(pretrained=False)
+        # get the model name and checkpoint path
+        model_name = self.pretrained_cnn_model
+        checkpoint_path = None
+        if not hasattr(torchvision.models, model_name):
+            checkpoint_path = self.pretrained_cnn_model
+            name_to_model_name = {
+                'resnext': 'resnext50_32x4d',
+            }
+            for name, model_name_ in name_to_model_name.items():
+                if name in model_name:
+                    model_name = model_name_
+                    break
+            else:
+                assert False, \
+                    f"Unable to recognize the model name of {model_name}"
+
+        # initialize model and replace fc layer to match pretrained model
+        model = getattr(torchvision.models, model_name)(
+            pretrained=self.pretrained_cnn and not checkpoint_path)
         model.fc = torch.nn.Linear(
             in_features=2048, out_features=2765, bias=True)
 
         # load checkpoint
-        if self.pretrained_cnn:
+        if self.pretrained_cnn and checkpoint_path:
             # rename checkpoint keys since we are not using DataParallel
             print('Loading pretrained CNN!')
 
-            checkpoint = torch.load('models/TC-S-resnext.tar',
+            checkpoint = torch.load(checkpoint_path,
                                     map_location=torch.device("cpu"))
 
             prefix = 'module.'
