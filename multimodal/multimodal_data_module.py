@@ -311,22 +311,30 @@ class MultiModalDataModule(pl.LightningDataModule):
 
         return eval_datasets
 
-    def train_dataloader(self):
+    def train_dataloader(self, batch_size=None, shuffle=True, drop_last=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        if drop_last is None:
+            drop_last = self.drop_last
+
         return DataLoader(
             self.datasets['train'],
             collate_fn=multiModalDataset_collate_fn,
-            shuffle=True,
-            batch_size=self.batch_size,
-            drop_last=self.drop_last,
+            shuffle=shuffle,
+            batch_size=batch_size,
+            drop_last=drop_last,
             num_workers=self.num_workers,
             pin_memory=False,
         )
 
-    def val_test_dataloader(self, dataset, eval_dataset, batch_size):
+    def val_test_dataloader(self, dataset, eval_dataset, batch_size=None, shuffle=False):
+        if batch_size is None:
+            batch_size = self.val_batch_size
+
         dataloader = DataLoader(
             dataset,
             collate_fn=multiModalDataset_collate_fn,
-            shuffle=False,
+            shuffle=shuffle,
             batch_size=batch_size,
             num_workers=self.num_workers,
             pin_memory=False,
@@ -335,7 +343,7 @@ class MultiModalDataModule(pl.LightningDataModule):
         eval_dataloader = DataLoader(
             eval_dataset,
             collate_fn=multiModalDataset_collate_fn,
-            shuffle=False,
+            shuffle=shuffle,
             # batch_size=self.batch_size // 4,  # divide by 4 here since eval trials have 4 images
             batch_size=1,
             num_workers=self.num_workers,
@@ -344,11 +352,12 @@ class MultiModalDataModule(pl.LightningDataModule):
 
         return [dataloader, eval_dataloader]
 
-    def val_dataloader(self):
+    def val_dataloader(self, batch_size=None, shuffle=False):
         dataloaders = self.val_test_dataloader(
             self.datasets['val'],
             self.eval_datasets['val'],
-            self.val_batch_size,
+            batch_size=batch_size,
+            shuffle=shuffle,
         )
 
         if TEST_WHILE_VAL:
@@ -356,11 +365,12 @@ class MultiModalDataModule(pl.LightningDataModule):
 
         return dataloaders
 
-    def test_dataloader(self):
+    def test_dataloader(self, batch_size=None, shuffle=False):
         return self.val_test_dataloader(
             self.datasets['test'],
             self.eval_datasets['test'],
-            self.val_batch_size,
+            batch_size=batch_size,
+            shuffle=shuffle,
         )
 
 
