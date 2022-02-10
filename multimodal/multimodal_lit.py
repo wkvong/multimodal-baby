@@ -15,6 +15,8 @@ from multimodal.multimodal_data_module import \
 
 OPTIMIZER = torch.optim.AdamW
 LR = 3e-4
+FACTOR = 0.1
+PATIENCE = 20
 WEIGHT_DECAY = 0.01
 # SELF_DISTILLATION = False
 # ALPHA = 1
@@ -37,6 +39,9 @@ class MultiModalLitModel(pl.LightningModule):
 
         self.optimizer_class = self.args.get("optimizer", OPTIMIZER)
         self.lr = self.args.get("lr", LR)
+        self.lr_scheduler = self.args.get("lr_scheduler", False)
+        self.factor = self.args.get("factor", FACTOR)
+        self.patience = self.args.get("patience", PATIENCE)
         self.weight_decay = self.args.get("weight_decay", WEIGHT_DECAY)
         # self.alpha = self.args.get("alpha", ALPHA)
         self.lambda_mm = self.args.get("lambda_mm", 1.)
@@ -75,6 +80,14 @@ class MultiModalLitModel(pl.LightningModule):
                             help="optimizer class under toch.optim")
         parser.add_argument("--lr", type=float, default=LR,
                             help="learning rate")
+        parser.add_argument("--lr_scheduler", action="store_true",
+                            help="use ReduceLROnPlateau lr scheduler")
+        parser.add_argument("--factor", type=float, default=FACTOR,
+                            help="factor by which the learning rate will be "
+                                 "reduced")
+        parser.add_argument("--patience", type=int, default=PATIENCE,
+                            help="number of epochs with no improvement after "
+                                 "which learning rate will be reduced")
         parser.add_argument("--weight_decay", type=float, default=WEIGHT_DECAY,
                             help="weight decay on all parameters")
         parser.add_argument("--lambda_mm", type=float, default=1.,
@@ -101,7 +114,20 @@ class MultiModalLitModel(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = self.optimizer_class(
             self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        return optimizer
+        if not self.lr_scheduler:
+            return optimizer
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            factor=self.factor,
+            patience=self.patience,
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": lr_scheduler,
+                "monitor": "val_loss",
+            }
+        }
 
     def forward(self, x, y, y_len):
         return self.model(x, y, y_len)
