@@ -14,7 +14,8 @@ The original data is on [Databrary](https://nyu.databrary.org/volume/564).
 - [multimodal/](multimodal): modules for models, data preprocessing and loading, and other utilities.
   - [multimodal_lit.py](multimodal/multimodal_lit.py): the overarching PyTorch Lightning model `MultiModalLitModel`, which contains main code for building the model, configuring the optimizer, computing the loss, training and validation.
   - [multimodal.py](multimodal/multimodal.py): model components (`VisionEncoder`, `TextEncoder`) and sub-models (`MultiModalModel`, `LanguageModel`).
-  - [multimodal_data_module.py](multimodal/multimodal_data_module.py): abstract code for loading datasets and code for preprocessing and loading SAYCam dataset.
+  - [multimodal_data_module.py](multimodal/multimodal_data_module.py): abstract code for loading datasets.
+  - [multimodal_saycam_data_module.py](multimodal/multimodal_saycam_data_module.py): code for preprocessing and loading SAYCam dataset.
   - [coco_captions_data_module.py](multimodal/coco_captions_data_module.py): code for preprocessing and loading COCO Captions dataset.
   - [utils.py](multimodal/utils.py): miscellaneous utilities.
   - [beam_search.py](multimodal/beam_search.py): beam search.

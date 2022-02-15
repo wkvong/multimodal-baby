@@ -1,17 +1,15 @@
 from typing import Any, Tuple
 from pathlib import Path
 import json
-import argparse
 from collections import Counter
 import random
 
 from PIL import Image
 from torchvision import transforms
 import torch
-from torch.utils.data import DataLoader
 
 from multimodal.multimodal_data_module import MultiModalDataset, \
-    MultiModalDataModule, read_vocab, \
+    MultiModalDataModule, read_vocab, load_and_print_info, \
     PAD_TOKEN, UNK_TOKEN, SOS_TOKEN, EOS_TOKEN, \
     PAD_TOKEN_ID, UNK_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID, \
     IMAGE_H, IMAGE_W
@@ -279,11 +277,4 @@ def _prepare_data(count_threshold=5):
 
 
 if __name__ == "__main__":
-    # parse args
-    parser = argparse.ArgumentParser()
-    COCOCaptionsDataModule.add_to_argparse(parser)
-    args = parser.parse_args()
-
-    # set up data module
-    _prepare_data()
-    data = COCOCaptionsDataModule(args)
+    load_and_print_info(COCOCaptionsDataModule)

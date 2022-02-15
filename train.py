@@ -8,9 +8,10 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from torchinfo import summary
 
-from multimodal.multimodal_data_module import MultiModalDataModule, MultiModalSAYCamDataModule, read_vocab
+from multimodal.multimodal_data_module import MultiModalDataModule, read_vocab
+from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule
+from multimodal.multimodal_saycam_data_module import VOCAB_FILENAME as SAYCAM_VOCAB_FILENAME
 from multimodal.coco_captions_data_module import COCOCaptionsDataModule
-from multimodal.multimodal_data_module import VOCAB_FILENAME as SAYCAM_VOCAB_FILENAME
 from multimodal.coco_captions_data_module import VOCAB_FILENAME as COCO_VOCAB_FILENAME
 from multimodal.multimodal import VisionEncoder, TextEncoder, MultiModalModel, LanguageModel
 from multimodal.multimodal_lit import MultiModalLitModel
