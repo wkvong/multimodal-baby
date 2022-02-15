@@ -36,7 +36,7 @@ For the SAYCam dataset, we use pre-trained self-supervised ResNeXt CNN from [Orh
 For the COCO Captioning dataset, we use pre-trained ResNeXt (by `--pretrained_cnn --cnn_model resnext50_32x4d`). Using the aforementioned pre-trained model results in significantly inferior performance.
 
 ### TextEncoder
-The text encoder for text. Currently supported architectures are LSTM, bi-LSTM, CBOW, simple embedding (by `--text_encoder <model>` and optionally `--bidirectional`).
+The text encoder for text. Currently supported architectures are LSTM, bi-LSTM, CBOW, simple embedding (by `--text_encoder <model>`).
 To generate text (captions), the text encoder must be uni-diretional. The uni-directional model can condition on the image features so that it turns into an image-captioning model (`--captioning`).
 
 ### MultimodalModel
