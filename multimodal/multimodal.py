@@ -26,7 +26,7 @@ TEMPERATURE = 0.07
 FIX_TEMPERATURE = False
 
 # vision encoder arguments
-PRETRAINED_CNN_MODEL = "models/TC-S-resnext.tar"
+CNN_MODEL = "models/TC-S-resnext.tar"
 
 
 def set_parameter_requires_grad(model, feature_extracting=True):
@@ -58,8 +58,7 @@ class VisionEncoder(nn.Module):
         self.embedding_type = self.args.get("embedding_type")
         self.embedding_dim = self.args.get("embedding_dim")
         self.pretrained_cnn = self.args.get("pretrained_cnn")
-        self.pretrained_cnn_model = self.args.get(
-            "pretrained_cnn_model", PRETRAINED_CNN_MODEL)
+        self.cnn_model = self.args.get("cnn_model", CNN_MODEL)
         self.finetune_cnn = self.args.get("finetune_cnn")
         self.model = self._load_pretrained_cnn()
 
@@ -67,10 +66,9 @@ class VisionEncoder(nn.Module):
     def add_to_argparse(parser):
         parser.add_argument("--pretrained_cnn", action="store_true",
                             help="use pretrained CNN")
-        parser.add_argument("--pretrained_cnn_model", type=str,
-                            default=PRETRAINED_CNN_MODEL,
-                            help="the torchvision.models name of or the path "
-                                 "to the pretrained cnn model checkpoint")
+        parser.add_argument("--cnn_model", type=str, default=CNN_MODEL,
+                            help="name in torchvision.models or "
+                                 "the path to the cnn model checkpoint")
         parser.add_argument("--finetune_cnn", action="store_true",
                             help="finetune CNN (frozen by default)")
 
@@ -89,10 +87,10 @@ class VisionEncoder(nn.Module):
 
     def _load_pretrained_cnn(self):
         # get the model name and checkpoint path
-        model_name = self.pretrained_cnn_model
+        model_name = self.cnn_model
         checkpoint_path = None
         if not hasattr(torchvision.models, model_name):
-            checkpoint_path = self.pretrained_cnn_model
+            checkpoint_path = self.cnn_model
             name_to_model_name = {
                 'resnext': 'resnext50_32x4d',
             }

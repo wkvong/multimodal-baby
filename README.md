@@ -28,11 +28,11 @@ The original data is on [Databrary](https://nyu.databrary.org/volume/564).
 
 ## Models and Objectives
 ### VisionEncoder
-The visual encoder for images. The architecture is based on ResNeXt ([Xie et al, 2017](https://arxiv.org/abs/1611.05431)), though other architectures in [torchvision.models](https://pytorch.org/vision/stable/models.html) are also possible (use any pre-trained model by `--pretrained_cnn_model <model>`).
+The visual encoder for images. The architecture is based on ResNeXt ([Xie et al, 2017](https://arxiv.org/abs/1611.05431)), though other architectures in [torchvision.models](https://pytorch.org/vision/stable/models.html) are also possible (`--cnn_model <model>`).
 
-For the SAYCam dataset, we use pre-trained self-supervised ResNeXt CNN from [Orhan et al. (2020)](https://arxiv.org/abs/2007.16189) (by `--pretrained_cnn`). You have to download this pre-trained model into `models/TC-S-resnext.tar` or designate the path to the model by `--pretrained_cnn_model <path>`.
+For the SAYCam dataset, we use pre-trained self-supervised ResNeXt CNN from [Orhan et al. (2020)](https://arxiv.org/abs/2007.16189) (by `--pretrained_cnn`). You have to download this pre-trained model into `models/TC-S-resnext.tar` or designate the path to the model by `--cnn_model <path>`.
 
-For the COCO Captioning dataset, we use pre-trained ResNeXt (by `--pretrained_cnn_model resnext50_32x4d`). Using the aforementioned pre-trained model results in significantly inferior performance.
+For the COCO Captioning dataset, we use pre-trained ResNeXt (by `--pretrained_cnn --cnn_model resnext50_32x4d`). Using the aforementioned pre-trained model results in significantly inferior performance.
 
 ### TextEncoder
 The text encoder for text. Currently supported architectures are LSTM, bi-LSTM, CBOW, simple embedding (by `--text_encoder <model>` and optionally `--bidirectional`).
