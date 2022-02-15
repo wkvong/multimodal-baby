@@ -21,7 +21,7 @@ EVAL_TEST_METADATA_FILENAME = EVAL_DATA_DIR / "eval_test.json"
 # default arguments
 # dataloader arguments
 BATCH_SIZE = 4
-VAL_BATCH_SIZE = 64
+VAL_BATCH_SIZE = 16
 NUM_WORKERS = 4
 
 # evaluation arguments
@@ -87,11 +87,13 @@ class MultiModalDataset(Dataset):
 def multiModalDataset_collate_fn(batch):
     img, utterance_idxs, utterance_length, raw_utterance = zip(*batch)
     img = torch.stack(img, 0)
-    utterance_idxs = pad_sequence(utterance_idxs, batch_first=True, padding_value=PAD_TOKEN_ID)
+    utterance_idxs = pad_sequence(
+        utterance_idxs, batch_first=True, padding_value=PAD_TOKEN_ID)
     utterance_length = torch.tensor(utterance_length, dtype=torch.long)
     if utterance_idxs.size(1) > MAX_LEN_UTTERANCE:
         utterance_idxs = utterance_idxs[:, :MAX_LEN_UTTERANCE]
-        utterance_length = torch.minimum(utterance_length, torch.tensor(MAX_LEN_UTTERANCE, dtype=torch.long))
+        utterance_length = torch.minimum(
+            utterance_length, torch.tensor(MAX_LEN_UTTERANCE, dtype=torch.long))
     raw_utterance = list(raw_utterance)
     return img, utterance_idxs, utterance_length, raw_utterance
 
@@ -117,10 +119,12 @@ class LabeledSEvalDataset(Dataset):
         # target image is always the first index
         imgs = torch.zeros((4, 3, IMAGE_H, IMAGE_W))
         target_img_filename = trial["target_img_filename"]
-        imgs[0] = self.transform(Image.open(target_img_filename).convert("RGB"))
+        imgs[0] = self.transform(Image.open(
+            target_img_filename).convert("RGB"))
 
         for i, foil_img_filename in enumerate(trial["foil_img_filenames"]):
-            imgs[i+1] = self.transform(Image.open(foil_img_filename).convert("RGB"))
+            imgs[i +
+                 1] = self.transform(Image.open(foil_img_filename).convert("RGB"))
 
         # get target category index from vocab as a single utterance
         raw_label = trial["target_category"]
@@ -170,14 +174,14 @@ class MultiModalDataModule(pl.LightningDataModule):
 
         # keep base transform for val and test
         self.base_transform = transforms.Compose([
-                transforms.ToTensor(),
-                normalizer,
-            ])
+            transforms.ToTensor(),
+            normalizer,
+        ])
 
     @staticmethod
     def add_to_argparse(parser):
         parser.add_argument(
-            "--batch_size", type=int, default=BATCH_SIZE, help="Number of examples to operate on per forward step."
+            "--batch_size", type=int, default=BATCH_SIZE, help="Number of examples to operate on per train step."
         )
         parser.add_argument(
             "--drop_last", action="store_true", help="Drop the last not full batch."
