@@ -6,19 +6,40 @@ import sys
 import itertools
 import argparse
 from pathlib import Path
+import copy
+import importlib
 
-argparser = argparse.ArgumentParser()
-argparser.add_argument("--basename", default="multimodal")
-argparser.add_argument("--main-file", default="train")
-argparser.add_argument("--logs", type=Path, default=Path("slurm_logs"))
-argparser.add_argument("--scripts", type=Path, default=Path("slurm_scripts"))
-argparser.add_argument("--code-dir", type=Path, default=Path())
-argparser.add_argument("--checkpoints", type=Path, default=Path("checkpoints"))
-argparser.add_argument("--mail-type", default="BEGIN,END,FAIL")
-argparser.add_argument("--mail-user", default="waikeenvong@gmail.com")
-argparser.add_argument("--python", default="python")
-argparser.add_argument("--conda", type=Path, default=Path("/home/wv9/code/WaiKeen/miniconda3/etc/profile.d/conda.sh"))
-argparser.add_argument("--dry-run", action="store_true")
+argparser = argparse.ArgumentParser(
+    description="Generate and optionally submit slurm jobs. runner_config.py is the configuration file.")
+argparser.add_argument("--basename", default="multimodal",
+                       help="The basename of jobs. All jobnames will start with this basename.")
+argparser.add_argument("--config", default="runner_config",
+                       help="The config module to import. To make command line inputs easier, I allow .py suffix.")
+argparser.add_argument("--scripts", type=Path, default=Path("scripts"),
+                       help="The directory of scripts.")
+argparser.add_argument("--logs", type=Path, default=Path("logs"),
+                       help="The directory of logs.")
+argparser.add_argument("--checkpoints", type=Path, default=Path("checkpoints"),
+                       help="The directory of checkpoints.")
+argparser.add_argument("--code-dir", type=Path, default=Path(),
+                       help="The working directory of the jobs.")
+argparser.add_argument("--time", default="6:00:00",
+                       help="The time limit of the jobs.")
+argparser.add_argument("--mem", default="32GB",
+                       help="The memory limit of the jobs.")
+argparser.add_argument("--mail-type", default="END,FAIL",
+                       help="What types of mails to send to the mail user.")
+argparser.add_argument("--mail-user", default="waikeenvong@gmail.com",
+                       help="The mail user to send mails to.")
+argparser.add_argument("--python", default="python",
+                       help="The python to run with; e.g., python3.")
+argparser.add_argument("--conda", type=Path,
+                       default=Path("/home/wv9/code/WaiKeen/miniconda3/etc/profile.d/conda.sh"),
+                       help="The path to the conda.sh; ignored if failed to access.")
+argparser.add_argument("--dry-run", action="store_true",
+                       help="Do not start jobs when running. Without this flag, jobs will be immediately submitted.")
+argparser.add_argument("--auto-flag", action="store_true",
+                       help="Automatically find varying flags and display them in job names; if not set, use designated ordered list of flags.")
 args = argparser.parse_args()
 
 # create slurm directories
@@ -34,35 +55,11 @@ if not conda_avail:
     args.conda = None
 
 # config
-grids = [
-    {
-        "main_file": [args.main_file],
-        "embedding_type": ["spatial"],
-        "text_encoder": ["embedding", "cbow", "lstm"],
-        "embedding_dim": [32, 16],
-        "tie": ["True", "False"],
-        "bias": ["True", "False"],
-        "lr": [3e-1, 1e-1, 3e-2],
-        "crange": [1, 2, 3, 4],
-        "dropout_i": [.0, .1],
-        "dropout_o": [.0, .1, .3, .5],
-        "sim": ["mean"],
-        "pretrained_cnn": [True],
-        "multiple_frames": [True],
-        "augment_frames": [True],
-        # "normalize_features": [True, False],
-        # self distillation?
-        "gpus": [1],
-        "num_workers": [4],
-        "batch_size": [128, 256],
-        "max_epochs": [100],
-        # learning rate?
-        # weight decay?
-        # seed?
-        "checkpoint_callback": ["True"],
-        "logger": ["True"]
-    },
-]
+py_suffix = '.py'
+if args.config.endswith(py_suffix):
+    args.config = args.config[:-len(py_suffix)]
+config = importlib.import_module(args.config)
+grids, flags = config.grids, config.flags
 
 jobs = []
 for grid in grids:
@@ -81,31 +78,51 @@ all_keys = set().union(*[g.keys() for g in grids])
 merged = {k: set() for k in all_keys}
 for grid in grids:
     for key in all_keys:
-        grid_key_value = grid[key] if key in grid else ["<<NONE>>"]
+        grid_key_value = grid.get(key, [])
         merged[key] = merged[key].union(grid_key_value)
 varying_keys = {key for key in merged if len(merged[key]) > 1}
+
+if args.auto_flag:
+    # display all varying keys in jobname
+    flags = list(varying_keys)
+else: # use flags
+    # check whether there are flags that are varying but omitted in flags
+    omitted_flags = [key for key in varying_keys if key not in flags]
+    if omitted_flags:
+        print(f"ERROR: {', '.join(omitted_flags)} are varying but omitted in flags")
+        sys.exit()
+
 
 excluded_flags = {'main_file'}
 
 for job in jobs:
+    # construct the job's name
     jobname = args.basename
+    for flag in flags:
+        value = job[flag]
+        jobname = jobname + f"_{flag}_{value}"
+
+    # construct the string of arguments to be passed to the script
     flagstring = ""
+
+    # use the order of flags first, then all other flags at the last
+    # this order is actually unimportant and simply for elegency
+    flags_order = copy.copy(flags)
     for flag in job:
+        if (flag not in flags_order) and (flag not in excluded_flags):
+            flags_order.append(flag)
 
-        # construct the string of arguments to be passed to the script
-        if not flag in excluded_flags:
-            if isinstance(job[flag], bool):
-                if job[flag]:
-                    flagstring = flagstring + " --" + flag
-                else:
-                    print("WARNING: Excluding 'False' flag " + flag)
+    for flag in flags_order:
+        value = job[flag]
+        if isinstance(value, bool):
+            if value:
+                flagstring = flagstring + f" --{flag}"
             else:
-                flagstring = flagstring + " --" + flag + " " + str(job[flag])
+                print("WARNING: Excluding 'False' flag " + flag)
+        else:
+            flagstring = flagstring + f" --{flag} {value}"
 
-        # construct the job's name
-        if flag in varying_keys:
-            jobname = jobname + "_" + flag + "_" + str(job[flag])
-    flagstring = flagstring + " --exp_name " + jobname
+    flagstring = flagstring + f" --exp_name {jobname}"
 
     # create slurm script, slurm log and checkpoint dirs
     slurm_script_path = args.scripts / (jobname + '.slurm')
@@ -132,8 +149,8 @@ for job in jobs:
         slurmfile.write(f"#SBATCH --output={(args.logs / (jobname + '.out')).absolute()}\n")
         slurmfile.write(f"#SBATCH --error={(args.logs / (jobname + '.err')).absolute()}\n")
         slurmfile.write("#SBATCH --export=ALL\n")
-        slurmfile.write("#SBATCH --time=6:00:00\n")
-        slurmfile.write("#SBATCH --mem=32GB\n")
+        slurmfile.write(f"#SBATCH --time={args.time}\n")
+        slurmfile.write(f"#SBATCH --mem={args.mem}\n")
         slurmfile.write("#SBATCH --cpus-per-task=4\n")
         slurmfile.write("#SBATCH --gres=gpu:1\n")
         slurmfile.write("#SBATCH --constraint=pascal|turing|volta\n")

@@ -1,5 +1,5 @@
 import argparse
-import os
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -8,7 +8,11 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from torchinfo import summary
 
-from multimodal.multimodal_data_module import MultiModalSAYCamDataModule, read_vocab
+from multimodal.multimodal_data_module import MultiModalDataModule, read_vocab
+from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule
+from multimodal.multimodal_saycam_data_module import VOCAB_FILENAME as SAYCAM_VOCAB_FILENAME
+from multimodal.coco_captions_data_module import COCOCaptionsDataModule
+from multimodal.coco_captions_data_module import VOCAB_FILENAME as COCO_VOCAB_FILENAME
 from multimodal.multimodal import VisionEncoder, TextEncoder, MultiModalModel, LanguageModel
 from multimodal.multimodal_lit import MultiModalLitModel
 
@@ -24,7 +28,9 @@ def _setup_parser():
 
     # get data, model and litmodel specific arguments
     data_group = parser.add_argument_group("Data Args")
-    MultiModalSAYCamDataModule.add_to_argparse(data_group)
+    MultiModalDataModule.add_to_argparse(data_group)
+    MultiModalSAYCamDataModule.add_additional_to_argparse(data_group)
+    COCOCaptionsDataModule.add_additional_to_argparse(data_group)
 
     model_group = parser.add_argument_group("Model Args")
     VisionEncoder.add_to_argparse(model_group)
@@ -37,10 +43,16 @@ def _setup_parser():
 
     parser.add_argument("--exp_name", type=str, default="multimodal_test",
                         help="experiment name for logging")
+    parser.add_argument("--dataset", type=str, choices=["saycam", "coco"],
+                        default="saycam",
+                        help="which dataset to use")
     parser.add_argument("--seed", type=int, default=0,
                         help="random seed for everything")
     parser.add_argument("--save_top_k", type=int, default=1,
                         help="saves best k models; 0 saves none; -1 saves all")
+    parser.add_argument("--resume_ckpt", type=Path, default=None,
+                        help="path to the checkpoint to resume from; if it's "
+                             "\"last\", resume from the last checkpoint.")
 
     return parser
 
@@ -49,22 +61,31 @@ def main():
     parser = _setup_parser()
     args = parser.parse_args()
 
+    # checkpoint paths
+    ckpt_dir = Path('checkpoints') / args.exp_name
+    if str(args.resume_ckpt) == "last":
+        args.resume_ckpt = ckpt_dir / 'last.ckpt'
+
     # set random seed
     pl.seed_everything(args.seed)
 
     # set up data module and models
-    data = MultiModalSAYCamDataModule(args)
-    vocab = read_vocab()
+    DataModuleClass, vocab_filename = {
+        "saycam": (MultiModalSAYCamDataModule, SAYCAM_VOCAB_FILENAME),
+        "coco": (COCOCaptionsDataModule, COCO_VOCAB_FILENAME),
+    }[args.dataset]
+    data = DataModuleClass(args)
+    vocab = read_vocab(vocab_filename)
     vision_encoder = VisionEncoder(args=args)
     text_encoder = TextEncoder(vocab, args=args)
     lit_model = MultiModalLitModel(vision_encoder, text_encoder, args)
 
     # setup checkpoint callback
     checkpoint_callback = ModelCheckpoint(
-        monitor='val_loss/dataloader_idx_0',
+        monitor='val_loss',
         save_last=True,
         save_top_k=args.save_top_k,
-        dirpath=os.path.join(os.getcwd(), f'checkpoints/{args.exp_name}/'),
+        dirpath=ckpt_dir,
         filename='{epoch}')
     
     # create trainer (with checkpoint and logger if specified)
@@ -82,7 +103,7 @@ def main():
     print(args)
 
     # fit model
-    trainer.fit(lit_model, data)
+    trainer.fit(lit_model, data, ckpt_path=args.resume_ckpt)
     
 if __name__ == "__main__":
     main()
