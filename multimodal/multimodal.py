@@ -68,7 +68,7 @@ class VisionEncoder(nn.Module):
                             help="use pretrained CNN")
         parser.add_argument("--cnn_model", type=str, default=CNN_MODEL,
                             help="name in torchvision.models or "
-                                 "the path to the cnn model checkpoint")
+                                 "the path to the CNN model checkpoint")
         parser.add_argument("--finetune_cnn", action="store_true",
                             help="finetune CNN (frozen by default)")
 
@@ -151,7 +151,6 @@ class TextEncoder(nn.Module):
 
         self.text_encoder = self.args.get("text_encoder")
         self._captioning = self.args.get("captioning", False)
-        self.bidirectional = self.args.get("bidirectional")
         self.embedding_type = self.args.get("embedding_type")
         self.embedding_dim = self.args.get("embedding_dim")
         # always match embedding and hidden dim for consistency
@@ -172,14 +171,14 @@ class TextEncoder(nn.Module):
                                       padding_idx=0)
 
         # build model
-        if self.text_encoder == "lstm":
+        if self.text_encoder in ["lstm", "bilstm"]:
             self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim,
-                                bidirectional=self.bidirectional)
+                                bidirectional= self.text_encoder == "bilstm")
 
         # build captioning related parts
         if self.captioning:
-            assert self.text_encoder == "lstm" and not self.bidirectional, \
-                "only unidirectional lstm supports captioning"
+            assert self.regressional, \
+                "only regressional text encoder supports captioning"
             self.connector = nn.Linear(
                 self.args.get("embedding_dim"),  # input image feature dim
                 2 * self.lstm.num_layers * self.hidden_dim,
@@ -190,12 +189,11 @@ class TextEncoder(nn.Module):
 
     @staticmethod
     def add_to_argparse(parser):
-        parser.add_argument("--text_encoder", type=str, default=TEXT_ENCODER, choices=["embedding", "cbow", "lstm"],
-                            help="type of text encoder to use (embedding only or LSTM)")
+        parser.add_argument("--text_encoder", type=str, default=TEXT_ENCODER,
+                            choices=["embedding", "cbow", "lstm", "bilstm"],
+                            help="text encoder architecture")
         parser.add_argument("--captioning", action="store_true",
                             help="whether to initialize the hidden states with the image features")
-        parser.add_argument("--bidirectional", action="store_true",
-                            help="set LSTM text encoder to bidirectional")
         parser.add_argument("--crange", type=int, default=CRANGE,
                             help="context range for cbow")
         parser.add_argument("--dropout_i", type=float, default=DROPOUT_I,
@@ -221,7 +219,7 @@ class TextEncoder(nn.Module):
                                                                    : - (2 * self.crange + 1)] - embedding) / (2 * self.crange)
             # raw_output = torch.stack([torch.cat([embedding[:, max(j - self.crange, 0) : j], embedding[:, j + 1 : j + self.crange + 1]], dim=1).sum(1) for j in range(embedding.size(1))], dim=1) / (2 * self.crange) # alternative way (brute force by definition)
 
-        elif self.text_encoder == "lstm":
+        elif self.text_encoder in ["lstm", "bilstm"]:
             # initialize hidden state
             batch_size = x.size(0)
             hidden = self.init_hidden(batch_size, image_features=image_features)
@@ -241,7 +239,7 @@ class TextEncoder(nn.Module):
             raw_output, _ = pad_packed_sequence(raw_output, batch_first=True)
 
             # average hidden states from forward and backward passes for bilstm
-            if self.bidirectional:
+            if self.text_encoder == "bilstm":
                 raw_output_fwd = raw_output[:, :,
                                             :self.embedding_dim]  # (B, L, E)
                 raw_output_bwd = raw_output[:, :,
@@ -278,7 +276,7 @@ class TextEncoder(nn.Module):
                 outputs.append(output)
             outputs = torch.stack(outputs)
             return outputs
-        elif self.text_encoder == "lstm":
+        elif self.text_encoder in ["lstm", "bilstm"]:
             outputs = []
             max_seq_len = torch.max(x_len)  # get max length for padding
             for i, i_len in zip(x, x_len):
@@ -306,7 +304,7 @@ class TextEncoder(nn.Module):
                     output, _ = pad_packed_sequence(output)
 
                     # average hidden states from forward and backward passes for bilstm
-                    if self.bidirectional:
+                    if self.text_encoder == "bilstm":
                         output_fwd = output[:, :,
                                             :self.embedding_dim]  # (L, B, E)
                         output_bwd = output[:, :,
@@ -333,14 +331,14 @@ class TextEncoder(nn.Module):
 
     @property
     def regressional(self):
-        return self.text_encoder == "lstm" and not self.bidirectional
+        return self.text_encoder == "lstm"
 
     @property
     def captioning(self):
         return getattr(self, '_captioning', False)  # for backward compatibility
 
     def init_hidden(self, batch_size, image_features=None):
-        d = 2 if self.bidirectional else 1
+        d = 2 if self.text_encoder == "bilstm" else 1
 
         # captioning: init by image_features
         if image_features is not None:
@@ -550,7 +548,8 @@ class LanguageModel(nn.Module):
                 probabilities of the corresponding sequences.
         """
 
-        assert self.text_encoder.regressional
+        assert self.text_encoder.regressional, \
+            "only regressional text encoder supports beam search decoding"
 
         start_tokens = torch.full(
             (batch_size,), SOS_TOKEN_ID,

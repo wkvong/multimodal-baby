@@ -77,7 +77,7 @@ class MultiModalLitModel(pl.LightningModule):
     @staticmethod
     def add_to_argparse(parser):
         parser.add_argument("--optimizer", type=lambda o: getattr(torch.optim, o), default=OPTIMIZER,
-                            help="optimizer class under toch.optim")
+                            help="optimizer class under torch.optim")
         parser.add_argument("--lr", type=float, default=LR,
                             help="learning rate")
         parser.add_argument("--lr_scheduler", action="store_true",
@@ -91,11 +91,12 @@ class MultiModalLitModel(pl.LightningModule):
         parser.add_argument("--weight_decay", type=float, default=WEIGHT_DECAY,
                             help="weight decay on all parameters")
         parser.add_argument("--lambda_mm", type=float, default=1.,
-                            help="multimodal loss *= lambda_mm")
+                            help="multimodal contrastive loss *= lambda_mm")
         parser.add_argument("--lambda_lm", type=float, default=0.,
-                            help="lm loss *= lambda_lm")
+                            help="language modeling loss *= lambda_lm")
         parser.add_argument("--optimize_unused", action="store_true",
-                            help="optimize the computation for unused loss")
+                            help="optimize the computation for unused loss "
+                                 "(i.e., lambda=0)")
         parser.add_argument("--eval_textgen", action="store_true",
                             help="evaluate text generation")
         parser.add_argument("--beam_width", type=int, default=BEAM_WIDTH,
@@ -104,7 +105,7 @@ class MultiModalLitModel(pl.LightningModule):
                             help="beam search maximum decode length")
         parser.add_argument("--length_penalty_alpha", type=float,
                             default=LENGTH_PENALTY_ALPHA,
-                            help="beam search length penalty (alpha);"
+                            help="beam search length penalty (alpha); "
                                  "0 for no length penalty.")
         # parser.add_argument("--self_distillation", action='store_true',
         #                     help="include self-distillation loss during training")
