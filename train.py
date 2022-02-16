@@ -10,9 +10,7 @@ from torchinfo import summary
 
 from multimodal.multimodal_data_module import MultiModalDataModule, read_vocab
 from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule
-from multimodal.multimodal_saycam_data_module import VOCAB_FILENAME as SAYCAM_VOCAB_FILENAME
 from multimodal.coco_captions_data_module import COCOCaptionsDataModule
-from multimodal.coco_captions_data_module import VOCAB_FILENAME as COCO_VOCAB_FILENAME
 from multimodal.multimodal import VisionEncoder, TextEncoder, MultiModalModel, LanguageModel
 from multimodal.multimodal_lit import MultiModalLitModel
 
@@ -70,12 +68,12 @@ def main():
     pl.seed_everything(args.seed)
 
     # set up data module and models
-    DataModuleClass, vocab_filename = {
-        "saycam": (MultiModalSAYCamDataModule, SAYCAM_VOCAB_FILENAME),
-        "coco": (COCOCaptionsDataModule, COCO_VOCAB_FILENAME),
+    DataModuleClass = {
+        "saycam": MultiModalSAYCamDataModule,
+        "coco": COCOCaptionsDataModule,
     }[args.dataset]
     data = DataModuleClass(args)
-    vocab = read_vocab(vocab_filename)
+    vocab = data.read_vocab()
     vision_encoder = VisionEncoder(args=args)
     text_encoder = TextEncoder(vocab, args=args)
     lit_model = MultiModalLitModel(vision_encoder, text_encoder, args)
