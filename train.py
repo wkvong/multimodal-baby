@@ -54,6 +54,7 @@ def _setup_parser():
 
     return parser
 
+
 def main():
     # parse args
     parser = _setup_parser()
@@ -85,15 +86,16 @@ def main():
         save_top_k=args.save_top_k,
         dirpath=ckpt_dir,
         filename='{epoch}')
-    
+
     # create trainer (with checkpoint and logger if specified)
     if args.logger:
         # add checkpoint callback and wandb logging
         wandb_logger = WandbLogger(project='multimodal-saycam', name=args.exp_name,
                                    log_model=True)
         trainer = pl.Trainer.from_argparse_args(args,
-                                                checkpoint_callback=args.checkpoint_callback,
-                                                callbacks=[checkpoint_callback],
+                                                enable_checkpointing=args.checkpoint_callback,
+                                                callbacks=[
+                                                    checkpoint_callback],
                                                 logger=wandb_logger)
     else:
         trainer = pl.Trainer.from_argparse_args(args)
@@ -102,6 +104,7 @@ def main():
 
     # fit model
     trainer.fit(lit_model, data, ckpt_path=args.resume_ckpt)
-    
+
+
 if __name__ == "__main__":
     main()
