@@ -23,6 +23,7 @@ EVAL_TEST_METADATA_FILENAME = EVAL_DATA_DIR / "eval_test.json"
 BATCH_SIZE = 4
 VAL_BATCH_SIZE = 16
 NUM_WORKERS = 4
+EVAL_INCLUDE_SOS_EOS = False
 
 # evaluation arguments
 N_VAL_DATALOADERS_PER_SPLIT = 2
@@ -55,6 +56,7 @@ normalizer = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 def read_vocab(vocab_filename):
     with open(vocab_filename) as f:
         return json.load(f)
+
 
 def load_data(filename):
     with open(filename) as f:
@@ -103,13 +105,14 @@ class LabeledSEvalDataset(Dataset):
     Dataset that returns a set of referents and a target word for evaluation
     """
 
-    def __init__(self, data, vocab):
+    def __init__(self, data, vocab, eval_include_sos_eos=False):
         self.data = data
         self.vocab = vocab
+        self.eval_include_sos_eos = eval_include_sos_eos
         self.transform = transforms.Compose([
-                transforms.ToTensor(),
-                normalizer,
-            ])
+            transforms.ToTensor(),
+            normalizer,
+        ])
 
     def __getitem__(self, idx):
         # read trial information
@@ -128,8 +131,16 @@ class LabeledSEvalDataset(Dataset):
 
         # get target category index from vocab as a single utterance
         raw_label = trial["target_category"]
-        label = self.vocab[raw_label]
-        label = torch.LongTensor([label])
+        if self.eval_include_sos_eos:
+            # label is [<sos>, label, <eos>] to match LSTM training
+            label = [self.vocab[SOS_TOKEN],
+                     self.vocab[raw_label],
+                     self.vocab[EOS_TOKEN]]
+        else:
+            # label is just the target category label
+            label = [self.vocab[raw_label]]
+
+        label = torch.LongTensor(label)
         label_len = len(label)
 
         return imgs, label, label_len, [raw_label]
@@ -153,11 +164,14 @@ class MultiModalDataModule(pl.LightningDataModule):
         self.num_workers = self.args.get("num_workers", NUM_WORKERS)
         self.on_gpu = isinstance(self.args.get("gpus", None), (str, int))
         self.augment_frames = self.args.get("augment_frames", AUGMENT_FRAMES)
+        self.eval_include_sos_eos = self.args.get("eval_include_sos_eos",
+                                                  EVAL_INCLUDE_SOS_EOS)
 
         if self.augment_frames:
             # add same augmentations as emin used
             self.transform = transforms.Compose([
-                transforms.RandomResizedCrop((IMAGE_H, IMAGE_W), scale=(0.2, 1.)),
+                transforms.RandomResizedCrop(
+                    (IMAGE_H, IMAGE_W), scale=(0.2, 1.)),
                 # transforms.RandomApply([transforms.ColorJitter(0.9, 0.9, 0.9, 0.5)], p=0.9),
                 # transforms.RandomGrayscale(p=0.2),
                 transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
@@ -195,6 +209,9 @@ class MultiModalDataModule(pl.LightningDataModule):
         parser.add_argument(
             "--augment_frames", action="store_true", help="Apply data augmentation to images."
         )
+        parser.add_argument(
+            "--eval_include_sos_eos", action="store_true", help="Add <sos> and <eos> tokens during evaluation"
+        )
         return parser
 
     # TODO: add relevant config details
@@ -230,7 +247,8 @@ class MultiModalDataModule(pl.LightningDataModule):
                 ("val", EVAL_DEV_METADATA_FILENAME),
                 ("test", EVAL_TEST_METADATA_FILENAME)]:
             data = load_data(filename)
-            dataset = LabeledSEvalDataset(data, vocab)
+            dataset = LabeledSEvalDataset(
+                data, vocab, self.eval_include_sos_eos)
             eval_datasets[split] = dataset
 
         return eval_datasets
