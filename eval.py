@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from torchvision import transforms
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 
@@ -14,6 +15,8 @@ from multimodal.multimodal_data_module import read_vocab, LabeledSEvalDataset, m
 from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule, MultiModalSAYCamDataset
 from multimodal.multimodal import MultiModalModel
 from multimodal.multimodal_lit import MultiModalLitModel
+from multimodal.attention_maps import gradCAM, viz_attn
+
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -81,48 +84,77 @@ def main(args):
 
     # get model predictions
     for i, batch in enumerate(eval_dataloader):
-        with torch.no_grad():
-            img, label, label_len, _ = batch
-            img = img.squeeze(0).to(device)  # remove outer batch
-            label = label.to(device)
-            label_len = label_len.to(device)
+        img, label, label_len, _ = batch
+        img = img.squeeze(0).to(device)  # remove outer batch
+        label = label.to(device)
+        label_len = label_len.to(device)
 
-            # get text category label
+        # get text category label
+        if args.eval_include_sos_eos:
+            class_label = label_to_category(label[0][1])
+        else:
+            class_label = label_to_category(label)
+
+        if args.use_kitty_label and class_label == "cat":
+            # use kitty for cat eval
             if args.eval_include_sos_eos:
-                class_label = label_to_category(label[0][1])
+                label = torch.LongTensor(
+                    [[vocab["<sos>"], vocab["kitty"], vocab["<eos>"]]]).to(device)
+                class_label = "kitty"
             else:
-                class_label = label_to_category(label)
+                label = torch.LongTensor([[vocab["kitty"]]]).to(device)
+                class_label = "kitty"
 
-            if args.use_kitty_label and class_label == "cat":
-                # use kitty for cat eval
-                if args.eval_include_sos_eos:
-                    label = torch.LongTensor(
-                        [[vocab["<sos>"], vocab["kitty"], vocab["<eos>"]]]).to(device)
-                    class_label = "kitty"
-                else:
-                    label = torch.LongTensor([[vocab["kitty"]]]).to(device)
-                    class_label = "kitty"
-
-            # calculate similarity between images
-            # first, get embeddings
+        # calculate similarity between images
+        # first, get embeddings
+        with torch.no_grad():
             _, logits_per_text = model(img, label, label_len)
             logits_list = torch.softmax(logits_per_text,
                                         dim=-1).detach().cpu().numpy().tolist()[0]
             pred = torch.argmax(logits_per_text, dim=-1).item()
             ground_truth = 0
 
-            # second, calculate if correct referent is predicted
-            correct = False
-            if pred == ground_truth:
-                correct = True
-                correct_pred[class_label] += 1
+        # second, calculate if correct referent is predicted
+        correct = False
+        if pred == ground_truth:
+            correct = True
+            correct_pred[class_label] += 1
 
-            total_pred[class_label] += 1
+        total_pred[class_label] += 1
 
-            # store results
-            curr_results = [checkpoint_name, i,
-                            class_label, correct] + logits_list
-            results.append(curr_results)
+        # store results
+        curr_results = [checkpoint_name, i,
+                        class_label, correct] + logits_list
+        results.append(curr_results)
+
+        # plot attention map
+        if args.plot_attention:
+            # determine saliency layer to use
+            saliency_layer = "layer4"
+
+            # create attention map for current target image
+            attn_map = gradCAM(
+                model.vision_encoder.model,
+                img[0].unsqueeze(0).to(device),
+                model.model.encode_text(label, label_len),
+                getattr(model.vision_encoder.model, saliency_layer)
+            )
+            attn_map = attn_map.squeeze().detach().cpu().numpy()
+
+            # get inverse image for plotting
+            n_inv = transforms.Normalize(
+                [-0.485/0.229, -0.546/0.224, -0.406/0.225],
+                [1/0.229, 1/0.224, 1/0.225])
+            inv_img = img.squeeze(0)
+            inv_img = n_inv(inv_img)
+            np_img = inv_img[0].permute((1, 2, 0)).cpu().numpy()
+
+            # save image
+            os.makedirs('results', exist_ok=True)
+            attention_map_filename = os.path.join(
+                'results', f'{args.model}_{class_label}_{i % 100}_attn_map.png')
+            print(f'saving attention map: {attention_map_filename}')
+            viz_attn(np_img, attn_map, attention_map_filename)
 
     # print accuracy for each class
     for classname, correct_count in correct_pred.items():
@@ -163,7 +195,7 @@ if __name__ == "__main__":
                         help="replaces cat label with kitty")
     parser.add_argument("--save_predictions", action="store_true",
                         help="save model predictions to CSV")
-    parser.add_argument("--plot_attention_maps", action="store_true",
+    parser.add_argument("--plot_attention", action="store_true",
                         help="plot attention maps for target images during eval")
     args = parser.parse_args()
 
