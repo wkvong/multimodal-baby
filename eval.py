@@ -1,67 +1,75 @@
 import argparse
 import glob
-import json
 import os
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from torchvision import transforms
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-from multimodal.multimodal_data_module import read_vocab, LabeledSEvalDataset, multiModalDataset_collate_fn
-from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule, MultiModalSAYCamDataset
+from multimodal.multimodal_data_module import EVAL_DATA_DIR, SOS_TOKEN_ID, EOS_TOKEN_ID
+from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule
+from multimodal.coco_captions_data_module import COCOCaptionsDataModule
 from multimodal.multimodal import MultiModalModel
 from multimodal.multimodal_lit import MultiModalLitModel
-from multimodal.attention_maps import gradCAM, viz_attn
+from multimodal.attention_maps import gradCAM, viz_attn, n_inv
+from train import _setup_parser
+
+EVAL_FRAMES_DIRNAME = EVAL_DATA_DIR / "eval"
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def main(args):
-    # directories and filenames
-    DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
-    EVAL_FRAMES_DIRNAME = DATA_DIR / "eval"
-    if args.dataset == "dev":
-        EVAL_METADATA_FILENAME = DATA_DIR / "eval_dev.json"
-    elif args.dataset == "test":
-        EVAL_METADATA_FILENAME = DATA_DIR / "eval_test.json"
-
-    VOCAB_FILENAME = DATA_DIR / "vocab.json"
-
-    # load eval data
-    with open(EVAL_METADATA_FILENAME) as f:
-        eval_data = json.load(f)
-        eval_data = eval_data["data"]
-
-    vocab = read_vocab(VOCAB_FILENAME)  # read vocab
-    vocab_idx2word = dict((v, k) for k, v in vocab.items())  # get mapping
-
-    def label_to_category(i):
-        """Returns category label for a given vocab index"""
-        return vocab_idx2word[i.item()]
-
-    # create dataloader
-    eval_dataset = LabeledSEvalDataset(
-        eval_data, vocab, eval_include_sos_eos=args.eval_include_sos_eos)
-    eval_dataloader = torch.utils.data.DataLoader(
-        eval_dataset, batch_size=1, shuffle=False)
-
     # get checkpoint
     if args.model == "embedding":
         checkpoint_name = "multimodal_text_encoder_embedding_lr_0.0001_weight_decay_0.1_fix_temperature_True_batch_size_16"
     elif args.model == "lstm":
         checkpoint_name = 'multimodal_text_encoder_lstm_lr_0.0001_weight_decay_0.2_fix_temperature_False_batch_size_8'
+    else:
+        checkpoint_name = args.model
+    if checkpoint_name.endswith(".ckpt"):
+        checkpoint = checkpoint_name
+    else:
+        checkpoint = glob.glob(
+            f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/*.ckpt")[0]
 
     # load model from checkpoint
-    checkpoint = glob.glob(
-        f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/*.ckpt")[0]
     model = MultiModalLitModel.load_from_checkpoint(
         checkpoint, map_location=device)
     model.eval()
+
+    # parse empty args
+    parser = _setup_parser()
+    data_args = parser.parse_args("")
+    # set args
+    for key, value in model.args.items():
+        setattr(data_args, key, value)
+    # make the train dataloader deterministic
+    data_args.augment_frames = False
+    data_args.eval_include_sos_eos = args.eval_include_sos_eos
+
+    # build data module
+    dataset_name = getattr(data_args, "dataset", "saycam")
+    DataModuleClass = {
+        "saycam": MultiModalSAYCamDataModule,
+        "coco": COCOCaptionsDataModule,
+    }[dataset_name]
+    data = DataModuleClass(data_args)
+    data.prepare_data()
+    data.setup()
+
+    vocab = data.read_vocab()
+
+    # create dataloader
+    eval_dataloader = {
+        "dev": data.val_dataloader,
+        "test": data.test_dataloader,
+    }[args.dataset]()[1]
 
     # get eval categories
     classes = sorted(os.listdir(EVAL_FRAMES_DIRNAME / "dev"))
@@ -84,26 +92,22 @@ def main(args):
 
     # get model predictions
     for i, batch in enumerate(eval_dataloader):
-        img, label, label_len, _ = batch
-        img = img.squeeze(0).to(device)  # remove outer batch
-        label = label.to(device)
-        label_len = label_len.to(device)
+        img, label, label_len, raw_label = batch
 
         # get text category label
-        if args.eval_include_sos_eos:
-            class_label = label_to_category(label[0][1])
-        else:
-            class_label = label_to_category(label)
+        class_label = raw_label[0][0]
 
         if args.use_kitty_label and class_label == "cat":
             # use kitty for cat eval
+            class_label = "kitty"
+            label = [vocab[class_label]]
             if args.eval_include_sos_eos:
-                label = torch.LongTensor(
-                    [[vocab["<sos>"], vocab["kitty"], vocab["<eos>"]]]).to(device)
-                class_label = "kitty"
-            else:
-                label = torch.LongTensor([[vocab["kitty"]]]).to(device)
-                class_label = "kitty"
+                label = [SOS_TOKEN_ID] + label + [EOS_TOKEN_ID]
+            label = torch.LongTensor([label])
+
+        img = img.squeeze(0).to(device)  # remove outer batch
+        label = label.to(device)
+        label_len = label_len.to(device)
 
         # calculate similarity between images
         # first, get embeddings
@@ -132,19 +136,22 @@ def main(args):
             # determine saliency layer to use
             saliency_layer = "layer4"
 
+            # get text features
+            text_features = model.model.encode_text(label, label_len)[0]
+            if model.model.normalize_features:
+                text_features = F.normalize(text_features, p=2, dim=1)
+
             # create attention map for current target image
             attn_map = gradCAM(
                 model.vision_encoder.model,
                 img[0].unsqueeze(0).to(device),
-                model.model.encode_text(label, label_len),
-                getattr(model.vision_encoder.model, saliency_layer)
+                text_features,
+                getattr(model.vision_encoder.model, saliency_layer),
+                normalize_features=model.model.normalize_features,
             )
             attn_map = attn_map.squeeze().detach().cpu().numpy()
 
             # get inverse image for plotting
-            n_inv = transforms.Normalize(
-                [-0.485/0.229, -0.546/0.224, -0.406/0.225],
-                [1/0.229, 1/0.224, 1/0.225])
             inv_img = img.squeeze(0)
             inv_img = n_inv(inv_img)
             np_img = inv_img[0].permute((1, 2, 0)).cpu().numpy()
@@ -158,14 +165,13 @@ def main(args):
 
     # print accuracy for each class
     for classname, correct_count in correct_pred.items():
-        accuracy = 100 * float(correct_count) / total_pred[classname]
-        print("Accuracy for class {:5s} is: {:.1f} %".format(classname,
-                                                             accuracy))
+        accuracy = float(correct_count) / total_pred[classname]
+        print(f"Accuracy for class {classname:8s} is: {accuracy:.1%}")
 
     # print total accuracy
     total_correct = sum(correct_pred.values())
     total = sum(total_pred.values())
-    print(f"Total accuracy: {total_correct / total}%")
+    print(f"Total accuracy: {total_correct / total:%}")
 
     # save results
     if args.save_predictions:
@@ -185,7 +191,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="lstm",
-                        choices=['embedding', 'lstm'],
+                        #choices=['embedding', 'lstm'],
                         help="which trained model to perform evaluations on")
     parser.add_argument("--dataset", type=str, default="dev", choices=["dev", "test"],
                         help="which evaluation dataset to use")

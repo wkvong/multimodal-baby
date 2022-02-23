@@ -115,7 +115,8 @@ class MultiModalLitModel(pl.LightningModule):
     def forward(self, x, y, y_len):
         return self.model(x, y, y_len)
 
-    def calculate_joint_loss(self, batch, stage, log, eval_textgen=False):
+    def calculate_joint_loss(self, batch, stage, log, eval_textgen=False,
+                             ce_weight=None):
         # batch of image-text pairs
         x, y, y_len, raw_y = batch
 
@@ -166,7 +167,7 @@ class MultiModalLitModel(pl.LightningModule):
             # calculate language model ce loss
             ce_loss, _, _, labels = self.language_model.calculate_ce_loss(
                 y, y_len, outputs=text_outputs, image_features=image_features,
-                tokenwise=True)
+                tokenwise=True, weight=ce_weight)
 
             # get all kinds of losses with/without special tokens
             # standard loss including all special tokens

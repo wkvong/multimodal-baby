@@ -2,8 +2,6 @@
 # Modified from: https://github.com/salesforce/ALBEF/blob/main/visualization.ipynb
 
 import glob
-import json
-from pathlib import Path
 
 import numpy as np
 from scipy.ndimage import filters
@@ -14,16 +12,23 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import transforms
 
-from multimodal.multimodal_data_module import read_vocab, LabeledSEvalDataset, multiModalDataset_collate_fn
-from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule, MultiModalSAYCamDataset
+from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule
+from multimodal.coco_captions_data_module import COCOCaptionsDataModule
 # from multimodal.multimodal import MultiModalModel
 from multimodal.multimodal_lit import MultiModalLitModel
+
+# inverse normalization step
+n_inv = transforms.Normalize(
+    [-0.485/0.229, -0.456/0.224, -0.406/0.225], [1/0.229, 1/0.224, 1/0.225])
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def normalize(x: np.ndarray) -> np.ndarray:
     # Normalize to [0, 1].
+    print("normalizing:")
+    print("min:", x.min())
+    print("max:", x.max())
     x = x - x.min()
     if x.max() > 0:
         x = x / x.max()
@@ -41,15 +46,27 @@ def getAttMap(img, attn_map, blur=True):
     return attn_map
 
 
-def viz_attn(img, attn_map, attn_map_filename, blur=True):
-    plt.figure()
-    plt.imshow(getAttMap(img, attn_map, blur))
-    plt.xticks([])
-    plt.yticks([])
+def viz_attn(img, attn_map, blur=True, with_img=False, attn_map_filename=None):
+    attn_map = getAttMap(img, attn_map, blur)
+    if with_img:
+        fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+        axes[0].imshow(img)
+        axes[1].imshow(attn_map)
+        for ax in axes:
+            ax.axis("off")
+    else:
+        plt.figure()
+        plt.imshow(attn_map)
+        plt.xticks([])
+        plt.yticks([])
 
-    # save attention map
-    plt.savefig(attn_map_filename, bbox_inches='tight')
-    plt.close()
+    if attn_map_filename is not None:
+        # save attention map
+        print("saving attention map!")
+        plt.savefig(attn_map_filename, bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
 
 
 class Hook:
@@ -78,14 +95,14 @@ class Hook:
     def gradient(self) -> torch.Tensor:
         return self.data.grad
 
+
 # Reference: https://arxiv.org/abs/1610.02391
-
-
 def gradCAM(
     model: nn.Module,
     input: torch.Tensor,
     target: torch.Tensor,
-    layer: nn.Module
+    layer: nn.Module,
+    normalize_features: bool = False,
 ) -> torch.Tensor:
     # Zero out any gradients at the input.
     if input.grad is not None:
@@ -102,6 +119,8 @@ def gradCAM(
     with Hook(layer) as hook:
         # Do a forward and backward pass.
         output = model(input)
+        if normalize_features:
+            output = F.normalize(output, p=2, dim=1)
         output.backward(target)
 
         grad = hook.gradient.float()
@@ -142,40 +161,38 @@ if __name__ == "__main__":
     model.eval()
 
     # get data
-# directories and filenames
-    DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
-    EVAL_DEV_METADATA_FILENAME = DATA_DIR / "eval_dev.json"
-    VOCAB_FILENAME = DATA_DIR / "vocab.json"
+    # parse empty args
+    parser = _setup_parser()
+    data_args = parser.parse_args("")
+    # set args
+    for key, value in model.args.items():
+        setattr(data_args, key, value)
+    # make the train dataloader deterministic
+    data_args.augment_frames = False
 
-    with open(EVAL_DEV_METADATA_FILENAME) as f:
-        eval_dev_data = json.load(f)
-        eval_dev_data = eval_dev_data["data"]
+    # build data module
+    dataset_name = getattr(data_args, "dataset", "saycam")
+    DataModuleClass = {
+        "saycam": MultiModalSAYCamDataModule,
+        "coco": COCOCaptionsDataModule,
+    }[dataset_name]
+    data = DataModuleClass(data_args)
+    data.prepare_data()
+    data.setup()
 
-    # read vocab
-    def read_vocab(vocab_filename=VOCAB_FILENAME):
-        with open(vocab_filename) as f:
-            return json.load(f)
+    vocab = data.read_vocab()
 
-    # get vocab and reverse
-    vocab = read_vocab()
-    vocab_idx2word = dict((v, k) for k, v in vocab.items())
+    # dataset
+    eval_dataset = data.eval_datasets["val"]
 
-    def label_to_category(i):
-        label_idx = i.item()
-        return vocab_idx2word[label_idx]
+    # dataloader
+    eval_dataloader = {
+        "dev": data.val_dataloader,
+        "test": data.test_dataloader,
+    }["dev"]()[1]
 
-    # create eval datasets
-    eval_dev_dataset = LabeledSEvalDataset(eval_dev_data, vocab)
-
-    # create dataloaders
-    eval_dev_dataloader = torch.utils.data.DataLoader(
-        eval_dev_dataset, batch_size=1, shuffle=False)
-
-    imgs, label, label_len, _ = eval_dev_dataset.__getitem__(29)
-    # inverse normalization step
-    from torchvision import transforms
-    n_inv = transforms.Normalize(
-        [-0.485/0.229, -0.546/0.224, -0.406/0.225], [1/0.229, 1/0.224, 1/0.225])
+    imgs, label, label_len, raw_label = eval_dataset[29]
+    label_len = torch.tensor(label_len)
 
     # display images
     inv_imgs = imgs.squeeze(0)
@@ -184,18 +201,23 @@ if __name__ == "__main__":
     # determine saliency layer to use
     saliency_layer = "layer4"
 
+    # get text features
+    text_features = model.model.encode_text(
+        label.unsqueeze(0).to(device), label_len.unsqueeze(0).to(device))[0]
+    if model.model.normalize_features:
+        text_features = F.normalize(text_features, p=2, dim=1)
+
     # create attention map
     attn_map = gradCAM(
         model.vision_encoder.model,
         imgs[0].unsqueeze(0).to(device),
-        model.model.encode_text(label.unsqueeze(0).to(
-            device), torch.Tensor([1]).to(device)),
-        getattr(model.vision_encoder.model, saliency_layer)
+        text_features,
+        getattr(model.vision_encoder.model, saliency_layer),
+        normalize_features=model.model.normalize_features,
     )
     attn_map = attn_map.squeeze().detach().cpu().numpy()
 
     np_img = inv_imgs[0].permute((1, 2, 0)).cpu().numpy()
     blur = True
 
-    print("saving attention map!")
-    viz_attn(np_img, attn_map, blur, filename)
+    viz_attn(np_img, attn_map, blur, attn_map_filename=filename)

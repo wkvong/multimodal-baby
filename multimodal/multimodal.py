@@ -520,7 +520,7 @@ class LanguageModel(nn.Module):
         logits = self.output_layer(outputs)
         return outputs, logits
 
-    def calculate_ce_loss(self, y, y_len, outputs=None, image_features=None, tokenwise=False):
+    def calculate_ce_loss(self, y, y_len, outputs=None, image_features=None, tokenwise=False, weight=None):
         outputs, logits = self(
             y, y_len, outputs=outputs, image_features=image_features)
 
@@ -529,8 +529,12 @@ class LanguageModel(nn.Module):
         else:
             logits = logits[:, :-1]
             labels = y[:, 1:1+logits.size(1)]
-        loss = F.cross_entropy(logits.transpose(-2, -1), labels,
-                               ignore_index=PAD_TOKEN_ID, reduction="none" if tokenwise else "mean")
+        loss = F.cross_entropy(
+            logits.transpose(-2, -1),
+            labels,
+            weight=weight,
+            ignore_index=PAD_TOKEN_ID,
+            reduction="none" if tokenwise else "mean")
 
         return loss, outputs, logits, labels
 
