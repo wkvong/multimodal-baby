@@ -58,6 +58,7 @@ if not conda_avail:
 py_suffix = '.py'
 if args.config.endswith(py_suffix):
     args.config = args.config[:-len(py_suffix)]
+args.config = args.config.replace("/", ".")
 config = importlib.import_module(args.config)
 grids, flags = config.grids, config.flags
 

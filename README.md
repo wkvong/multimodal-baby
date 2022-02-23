@@ -84,26 +84,7 @@ We prune the vocabulary by dropping any word that has count less than 5 and end 
 Similarly, since there are multiple captions paired with one image in each example of the COCO Captions dataset, we have to choose one to return every time. The default is to choose the first caption; adding `--multiple_captions` chooses a random caption when training.
 
 ## Training
-This is an example to train a joint objective model:
-```bash
-python train.py --dataset saycam \
---lambda_mm 0.5 --lambda_lm 0.5 \
---sim mean --embedding_type flat --normalize_features \
---pretrained_cnn --multiple_frames --augment_frames \
---text_encoder lstm --embedding_dim 512 --tie True --bias True --dropout_i 0.5 --dropout_o 0.0 \
---fix_temperature --temperature 0.07 \
---batch_size 8 --optimizer AdamW --lr 0.003 --lr_scheduler --weight_decay 0.05 --val_batch_size 16 --drop_last \
---seed 0 \
---optimize_unused \
---max_epochs 200 \
---gpus 1 --num_workers 8 \
---checkpoint_callback True --logger True \
---exp_name joint_dataset_saycam_lambda_mm_0.5_lambda_lm_0.5_sim_mean_embedding_type_flat_text_encoder_lstm_embedding_dim_512_dropout_i_0.5_dropout_o_0.0_batch_size_8_optimizer_AdamW_lr_0.003_lr_scheduler_True_weight_decay_0.05_val_batch_size_16_seed_0
-```
-
-For the detailed explanation of all arguments, run `python train.py -h`.
-
-## [runner.py](runner.py)
+### [runner.py](runner.py)
 This is to make running multiple experiments and writing Slurm scripts/submitting Slurm jobs easier.
 
 It takes a configuration file, generate Slurm scripts (and optionally submit as Slurm jobs) with organized names for all configurations designated by the configuration file.
@@ -121,4 +102,48 @@ The configuration file is a Python file containing two entities:
   The runner build the name in the form `{basename}_{flag1}_{value1}_{flag2}_{value2}...`.
   `flags` list designates which flags to include in the name and their orders.
   `flags` need not contain all flags. You may intentionally omit some flags in `flags` if they are unimportant for distinguishing runs, so the name is shorter and easier to read.
+
+Some configuration files are in [runner\_config/](runner_config).
+
+For detailed explanation of all arguments of `runner.py`, run `python runner.py -h`.
  
+#### Text-only Language Model and Captioning Model
+Run the following command will create Slurm scripts in `${SCRIPTS_DIR}` and submit them as Slurm jobs (add `--dry-run` to not submit them).
+```bash
+python runner.py --scripts ${SCRIPTS_DIR} --log ${LOG_DIR} --mail-type END,FAIL --mail-user ${EMAIL} --python python --time 1-0:00 --basename lm --config runner_config/saycam_lm.py
+```
+
+#### Multimodal Contrastive Model
+```bash
+python runner.py --scripts ${SCRIPTS_DIR} --log ${LOG_DIR} --mail-type END,FAIL --mail-user ${EMAIL} --python python --time 1-0:00 --basename multimodal --config runner_config/saycam_multimodal.py
+```
+Note that the checkpoint retained is chosen based on `val_loss`, but this is not optimal for accuracies. In this case, `last.ckpt` is better.
+
+#### Joint Objective Model
+```bash
+python runner.py --scripts ${SCRIPTS_DIR} --log ${LOG_DIR} --mail-type END,FAIL --mail-user ${EMAIL} --python python --time 1-0:00 --basename joint --config runner_config/saycam_joint.py
+```
+
+This is an equivalent command:
+```bash
+python train.py --dataset saycam \
+--lambda_mm 0.5 --lambda_lm 0.5 \
+--sim mean --embedding_type flat --normalize_features \
+--pretrained_cnn --multiple_frames --augment_frames \
+--text_encoder lstm --embedding_dim 512 --tie True --bias True --dropout_i 0.5 --dropout_o 0.0 \
+--fix_temperature --temperature 0.07 \
+--batch_size 8 --optimizer AdamW --lr 0.003 --lr_scheduler --weight_decay 0.05 --val_batch_size 16 --drop_last \
+--seed 0 \
+--optimize_unused \
+--max_epochs 200 \
+--gpus 1 --num_workers 8 \
+--checkpoint_callback True --logger True \
+--exp_name joint_dataset_saycam_lambda_mm_0.5_lambda_lm_0.5_sim_mean_embedding_type_flat_text_encoder_lstm_embedding_dim_512_batch_size_8_optimizer_AdamW_lr_0.003_lr_scheduler_True_weight_decay_0.05_val_batch_size_16_seed_0
+```
+
+For the detailed explanation of all arguments, run `python train.py -h`.
+
+#### CBOW Model
+```bash
+python runner.py --scripts ${SCRIPTS_DIR} --log ${LOG_DIR} --mail-type END,FAIL --mail-user ${EMAIL} --python python --time 1-0:00 --basename lm --config runner_config/saycam_cbow.py
+```
