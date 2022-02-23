@@ -29,7 +29,7 @@ grids = [
         "weight_decay": [0.05],
         "seed": [0],
         "optimize_unused": [True],
-        "eval_textgen": [True],
+        "eval_textgen": [False],
         "max_epochs": [100],
         "check_val_every_n_epoch": [1],
         "beam_width": [3],
