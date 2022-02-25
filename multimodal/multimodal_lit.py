@@ -330,8 +330,6 @@ class MultiModalLitModel(pl.LightningModule):
                 batch, stage, empty_log, eval_textgen=self.eval_textgen))
 
         elif dataloader_idx == 1:
-            # TODO: check whether adding special tokens will make a difference
-
             # batch of evaluation trials (only one trial at a time)
             x, y, y_len, raw_y = batch
 
@@ -353,7 +351,7 @@ class MultiModalLitModel(pl.LightningModule):
                 log(f"{stage}_entropy", entropy)
 
                 # log category-level evaluation accuracies as a separate metric
-                category_label = self.text_encoder.idx2word[y.item()]
+                category_label = raw_y[0][0]
                 log(f"{stage}_accuracy_{category_label}", accuracy)
 
                 ret.update({'accuracy': accuracy})
