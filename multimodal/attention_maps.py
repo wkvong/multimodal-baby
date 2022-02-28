@@ -41,32 +41,14 @@ def getAttMap(img, attn_map, blur=True):
     attn_map = normalize(attn_map)
     cmap = plt.get_cmap('jet')
     attn_map_c = np.delete(cmap(attn_map), 3, 2)
-    attn_map = 1*(1-attn_map**0.7).reshape(attn_map.shape + (1,))*img + \
-        (attn_map**0.7).reshape(attn_map.shape+(1,)) * attn_map_c
+    attn_map_weights = (attn_map ** 0.7).reshape(attn_map.shape + (1,))
+    attn_map = (1 - attn_map_weights) * img + attn_map_weights * attn_map_c
     return attn_map
 
 
-def viz_attn(img, attn_map, blur=True, with_img=False, attn_map_filename=None):
-    attn_map = getAttMap(img, attn_map, blur)
-    if with_img:
-        fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-        axes[0].imshow(img)
-        axes[1].imshow(attn_map)
-        for ax in axes:
-            ax.axis("off")
-    else:
-        plt.figure()
-        plt.imshow(attn_map)
-        plt.xticks([])
-        plt.yticks([])
-
-    if attn_map_filename is not None:
-        # save attention map
-        print("saving attention map!")
-        plt.savefig(attn_map_filename, bbox_inches='tight')
-        plt.close()
-    else:
-        plt.show()
+def imshow(ax, img: np.ndarray):
+    ax.imshow(img)
+    ax.axis("off")
 
 
 class Hook:
@@ -218,6 +200,9 @@ if __name__ == "__main__":
     attn_map = attn_map.squeeze().detach().cpu().numpy()
 
     np_img = inv_imgs[0].permute((1, 2, 0)).cpu().numpy()
-    blur = True
 
-    viz_attn(np_img, attn_map, blur, attn_map_filename=filename)
+    fig, ax = plt.subplots()
+    imshow(ax, getAttMap(np_img, attn_map))
+    # save attention map
+    plt.savefig(filename, bbox_inches='tight')
+    plt.close()

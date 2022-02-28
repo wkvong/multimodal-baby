@@ -15,7 +15,7 @@ from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule
 from multimodal.coco_captions_data_module import COCOCaptionsDataModule
 from multimodal.multimodal import MultiModalModel
 from multimodal.multimodal_lit import MultiModalLitModel
-from multimodal.attention_maps import gradCAM, viz_attn, n_inv
+from multimodal.attention_maps import gradCAM, getAttMap, n_inv, imshow
 from train import _setup_parser
 
 EVAL_FRAMES_DIRNAME = EVAL_DATA_DIR / "eval"
@@ -160,8 +160,11 @@ def main(args):
             os.makedirs('results', exist_ok=True)
             attention_map_filename = os.path.join(
                 'results', f'{args.model}_{class_label}_{i % 100}_attn_map.png')
+            fig, ax = plt.subplots()
+            imshow(ax, getAttMap(np_img, attn_map))
             print(f'saving attention map: {attention_map_filename}')
-            viz_attn(np_img, attn_map, attention_map_filename)
+            plt.savefig(attn_map_filename, bbox_inches='tight')
+            plt.close()
 
     # print accuracy for each class
     for classname, correct_count in correct_pred.items():

@@ -131,14 +131,10 @@ class LabeledSEvalDataset(Dataset):
 
         # get target category index from vocab as a single utterance
         raw_label = trial["target_category"]
+        label = [self.vocab[raw_label]]
         if self.eval_include_sos_eos:
-            # label is [<sos>, label, <eos>] to match LSTM training
-            label = [self.vocab[SOS_TOKEN],
-                     self.vocab[raw_label],
-                     self.vocab[EOS_TOKEN]]
-        else:
-            # label is just the target category label
-            label = [self.vocab[raw_label]]
+            # label is [<sos>, label, <eos>] to match LM training
+            label = [SOS_TOKEN_ID] + label + [EOS_TOKEN_ID]
 
         label = torch.LongTensor(label)
         label_len = len(label)
@@ -269,7 +265,8 @@ class MultiModalDataModule(pl.LightningDataModule):
             pin_memory=False,
         )
 
-    def val_test_dataloader(self, dataset, eval_dataset, batch_size=None, shuffle=False):
+    def val_test_dataloader(self, dataset, eval_dataset, batch_size=None,
+                            shuffle=False, drop_last=False):
         if batch_size is None:
             batch_size = self.val_batch_size
 
@@ -278,6 +275,7 @@ class MultiModalDataModule(pl.LightningDataModule):
             collate_fn=multiModalDataset_collate_fn,
             shuffle=shuffle,
             batch_size=batch_size,
+            drop_last=drop_last,
             num_workers=self.num_workers,
             pin_memory=False,
         )
@@ -294,25 +292,28 @@ class MultiModalDataModule(pl.LightningDataModule):
 
         return [dataloader, eval_dataloader]
 
-    def val_dataloader(self, batch_size=None, shuffle=False):
+    def val_dataloader(self, batch_size=None, shuffle=False, drop_last=False):
         dataloaders = self.val_test_dataloader(
             self.datasets['val'],
             self.eval_datasets['val'],
             batch_size=batch_size,
             shuffle=shuffle,
+            drop_last=drop_last,
         )
 
         if TEST_WHILE_VAL:
-            dataloaders += self.test_dataloader()
+            dataloaders += self.test_dataloader(
+                batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
 
         return dataloaders
 
-    def test_dataloader(self, batch_size=None, shuffle=False):
+    def test_dataloader(self, batch_size=None, shuffle=False, drop_last=False):
         return self.val_test_dataloader(
             self.datasets['test'],
             self.eval_datasets['test'],
             batch_size=batch_size,
             shuffle=shuffle,
+            drop_last=drop_last,
         )
 
 
