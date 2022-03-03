@@ -333,14 +333,37 @@ class MultiModalLitModel(pl.LightningModule):
             # batch of evaluation trials (only one trial at a time)
             x, y, y_len, raw_y = batch
 
-            if self.lambda_mm or not self.optimize_unused:
-                # resize x so images from the same trial are in the batch dim
-                # [B, N, C, H, W] -> [B*N, C, H, W]  (with B = 1)
-                x = x.view(-1, *x.shape[-3:])
+            # resize x so images from the same trial are in the batch dim
+            # [B, N, C, H, W] -> [B*N, C, H, W]  (with B = 1)
+            x = x.view(-1, *x.shape[-3:])
 
-                # calculate accuracy
+            if self.lambda_mm:
                 logits_per_image, logits_per_text = self.model(x, y, y_len)
                 logits = logits_per_text[0]  # get logits per trial
+
+            elif self.lambda_lm and self.language_model.text_encoder.captioning\
+                    and y[0, 0].item() == SOS_TOKEN_ID:
+                # tile y to match the batch size
+                y = y.expand(x.size(0), -1)
+                y_len = y_len.expand(x.size(0))
+
+                # get image_features
+                image_features = self.vision_encoder(x)
+                if self.model.normalize_features:
+                    image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
+
+                # calculate language model ce loss
+                ce_loss, _, _, labels = self.language_model.calculate_ce_loss(
+                    y, y_len, image_features=image_features, tokenwise=True)
+
+                # use - ce_loss on the word as logits
+                logits = - ce_loss[:, 0]
+
+            else:
+                logits = None
+
+            if logits is not None:
+                # calculate accuracy
                 pred = torch.argmax(logits).item()
                 label = 0  # correct answer is always the first item
                 accuracy = int(pred == label)
@@ -355,9 +378,6 @@ class MultiModalLitModel(pl.LightningModule):
                 log(f"{stage}_accuracy_{category_label}", accuracy)
 
                 ret.update({'accuracy': accuracy})
-
-            else:
-                accuracy = 0.
 
         return ret
 
