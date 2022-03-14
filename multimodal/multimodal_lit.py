@@ -156,7 +156,7 @@ class MultiModalLitModel(pl.LightningModule):
 
         if self.lambda_lm or not self.optimize_unused:
             if self.language_model.text_encoder.captioning or \
-                self.language_model.text_encoder._attention:
+                self.language_model.text_encoder.has_attention:
                 # get image_features if needed
                 if image_features is None:
                     image_features, image_feature_map = self.vision_encoder(x)
@@ -172,7 +172,7 @@ class MultiModalLitModel(pl.LightningModule):
                 image_features=image_features
                     if self.language_model.text_encoder.captioning else None,
                 image_feature_map=image_feature_map
-                    if self.language_model.text_encoder._attention else None,
+                    if self.language_model.text_encoder.has_attention else None,
                 tokenwise=True,
                 weight=ce_weight,
             )
@@ -215,7 +215,7 @@ class MultiModalLitModel(pl.LightningModule):
                         if self.language_model.text_encoder.captioning else
                         None,
                     image_feature_map=image_feature_map
-                        if self.language_model.text_encoder._attention else
+                        if self.language_model.text_encoder.has_attention else
                         None,
                 )
 
@@ -354,7 +354,7 @@ class MultiModalLitModel(pl.LightningModule):
 
             elif self.lambda_lm and (
                     self.language_model.text_encoder.captioning or
-                    self.language_model.text_encoder._attention) \
+                    self.language_model.text_encoder.has_attention) \
                     and y[0, 0].item() == SOS_TOKEN_ID:
                 # tile y to match the batch size
                 y = y.expand(x.size(0), -1)
@@ -371,7 +371,7 @@ class MultiModalLitModel(pl.LightningModule):
                     image_features=image_features
                         if self.language_model.text_encoder.captioning else None,
                     image_feature_map=image_feature_map
-                        if self.language_model.text_encoder._attention else None,
+                        if self.language_model.text_encoder.has_attention else None,
                     tokenwise=True,
                 )
 

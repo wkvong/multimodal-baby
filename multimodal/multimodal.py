@@ -434,7 +434,7 @@ class TextEncoder(nn.Module):
                 embedding, x_len.cpu(), batch_first=True, enforce_sorted=False)
 
             # pass through lstm
-            if self._attention:
+            if self.has_attention:
                 # teacher-forcing
                 raw_output, (hidden, cell), attns = self.train_greedy(
                     embedding, hidden, image_feature_map=image_feature_map)
@@ -546,6 +546,10 @@ class TextEncoder(nn.Module):
     @property
     def captioning(self):
         return getattr(self, '_captioning', False)  # for backward compatibility
+
+    @property
+    def has_attention(self):
+        return getattr(self, '_attention', False)  # for backward compatibility
 
     def init_hidden(self, batch_size, image_features=None):
         d = 2 if self.text_encoder == "bilstm" else 1
@@ -801,7 +805,7 @@ class LanguageModel(nn.Module):
         init_states = self.text_encoder.init_hidden(
             batch_size, image_features=image_features)
         init_states = map_structure(lambda t: t.transpose(0, 1), init_states)
-        if self.text_encoder._attention:
+        if self.text_encoder.has_attention:
             projected_image_feature_map = \
                 self.text_encoder.attention.project_encoder_features(
                     image_feature_map)
@@ -810,7 +814,7 @@ class LanguageModel(nn.Module):
                 image_feature_map, projected_image_feature_map
 
         def _symbols_to_logits_fn(ids, states):
-            if self.text_encoder._attention:
+            if self.text_encoder.has_attention:
                 # unpack states
                 states, image_feature_map, projected_image_feature_map = states
             states = map_structure(lambda t: t.transpose(0, 1), states)
@@ -820,7 +824,7 @@ class LanguageModel(nn.Module):
                 projected_image_feature_map=projected_image_feature_map)
             states = map_structure(lambda t: t.transpose(0, 1), states)
             logits = self.output_layer(outputs)
-            if self.text_encoder._attention:
+            if self.text_encoder.has_attention:
                 # pack states
                 states = states, image_feature_map, projected_image_feature_map
             return logits, states
