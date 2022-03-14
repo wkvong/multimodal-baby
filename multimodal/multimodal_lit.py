@@ -125,13 +125,13 @@ class MultiModalLitModel(pl.LightningModule):
             'batch_size': x.size(0),
         }
 
-        # reuse image_features and text_outputs if possible
-        image_features, text_outputs = None, None
+        # reuse image_features, image_feature_map and text_outputs if possible
+        image_features, image_feature_map, text_outputs = None, None, None
 
         if self.lambda_mm or not self.optimize_unused:
             infonce_loss, image_accuracy, text_accuracy, \
                 image_entropy, text_entropy, logits_per_image, logits_per_text, \
-                image_features, text_outputs = \
+                image_features, image_feature_map, text_outputs = \
                 self.model.calculate_contrastive_loss(x, y, y_len)
 
             # log
@@ -155,10 +155,11 @@ class MultiModalLitModel(pl.LightningModule):
             infonce_loss = 0.
 
         if self.lambda_lm or not self.optimize_unused:
-            if self.language_model.text_encoder.captioning:
+            if self.language_model.text_encoder.captioning or \
+                self.language_model.text_encoder._attention:
                 # get image_features if needed
                 if image_features is None:
-                    image_features = self.vision_encoder(x)
+                    image_features, image_feature_map = self.vision_encoder(x)
                     if self.model.normalize_features:
                         image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
                 # text_outputs is not reusable since it's not obtained from captioning in the contrastive module
@@ -166,8 +167,15 @@ class MultiModalLitModel(pl.LightningModule):
 
             # calculate language model ce loss
             ce_loss, _, _, labels = self.language_model.calculate_ce_loss(
-                y, y_len, outputs=text_outputs, image_features=image_features,
-                tokenwise=True, weight=ce_weight)
+                y, y_len,
+                outputs=text_outputs,
+                image_features=image_features
+                    if self.language_model.text_encoder.captioning else None,
+                image_feature_map=image_feature_map
+                    if self.language_model.text_encoder._attention else None,
+                tokenwise=True,
+                weight=ce_weight,
+            )
 
             # get all kinds of losses with/without special tokens
             # standard loss including all special tokens
@@ -205,6 +213,9 @@ class MultiModalLitModel(pl.LightningModule):
                     length_penalty_alpha=self.length_penalty_alpha,
                     image_features=image_features
                         if self.language_model.text_encoder.captioning else
+                        None,
+                    image_feature_map=image_feature_map
+                        if self.language_model.text_encoder._attention else
                         None,
                 )
 
@@ -341,20 +352,28 @@ class MultiModalLitModel(pl.LightningModule):
                 logits_per_image, logits_per_text = self.model(x, y, y_len)
                 logits = logits_per_text[0]  # get logits per trial
 
-            elif self.lambda_lm and self.language_model.text_encoder.captioning\
+            elif self.lambda_lm and (
+                    self.language_model.text_encoder.captioning or
+                    self.language_model.text_encoder._attention) \
                     and y[0, 0].item() == SOS_TOKEN_ID:
                 # tile y to match the batch size
                 y = y.expand(x.size(0), -1)
                 y_len = y_len.expand(x.size(0))
 
                 # get image_features
-                image_features = self.vision_encoder(x)
+                image_features, image_feature_map = self.vision_encoder(x)
                 if self.model.normalize_features:
                     image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
 
                 # calculate language model ce loss
                 ce_loss, _, _, labels = self.language_model.calculate_ce_loss(
-                    y, y_len, image_features=image_features, tokenwise=True)
+                    y, y_len,
+                    image_features=image_features
+                        if self.language_model.text_encoder.captioning else None,
+                    image_feature_map=image_feature_map
+                        if self.language_model.text_encoder._attention else None,
+                    tokenwise=True,
+                )
 
                 # use - ce_loss on the word as logits
                 logits = - ce_loss[:, 0]

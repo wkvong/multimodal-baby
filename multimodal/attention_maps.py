@@ -12,16 +12,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import transforms
 
-from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule
-from multimodal.coco_captions_data_module import COCOCaptionsDataModule
-# from multimodal.multimodal import MultiModalModel
-from multimodal.multimodal_lit import MultiModalLitModel
-
 # inverse normalization step
 n_inv = transforms.Normalize(
     [-0.485/0.229, -0.456/0.224, -0.406/0.225], [1/0.229, 1/0.224, 1/0.225])
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def normalize(x: np.ndarray) -> np.ndarray:
@@ -54,14 +47,16 @@ def imshow(ax, img: np.ndarray):
 class Hook:
     """Attaches to a module and records its activations and gradients."""
 
-    def __init__(self, module: nn.Module):
+    def __init__(self, module: nn.Module, requires_grad : bool = True):
         self.data = None
+        self.requires_grad = requires_grad
         self.hook = module.register_forward_hook(self.save_grad)
 
     def save_grad(self, module, input, output):
         self.data = output
-        output.requires_grad_(True)
-        output.retain_grad()
+        if self.requires_grad:
+            output.requires_grad_(True)
+            output.retain_grad()
 
     def __enter__(self):
         return self
@@ -133,6 +128,14 @@ def gradCAM(
 
 
 if __name__ == "__main__":
+    from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule
+    from multimodal.coco_captions_data_module import COCOCaptionsDataModule
+    # from multimodal.multimodal import MultiModalModel
+    from multimodal.multimodal_lit import MultiModalLitModel
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
     # load pretrained model
     model_checkpoint_name = "multimodal_text_encoder_lstm_lr_5e-05_weight_decay_0.1_fix_temperature_True_batch_size_8"
     model_checkpoint = glob.glob(
