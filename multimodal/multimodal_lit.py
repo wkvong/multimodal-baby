@@ -120,6 +120,7 @@ class MultiModalLitModel(pl.LightningModule):
         outputs=None,
         image_features=None,
         image_feature_map=None,
+        return_image_features=False,
         **kwargs
     ):
         """Wraps self.language_model.calculate_ce_loss
@@ -132,9 +133,11 @@ class MultiModalLitModel(pl.LightningModule):
             # text_outputs is not reusable since it's not obtained from
             # captioning in the contrastive module
             outputs = None
+        else:
+            image_features, image_feature_map = None, None
 
         # calculate language model ce loss
-        return self.language_model.calculate_ce_loss(
+        ret = self.language_model.calculate_ce_loss(
             y, y_len,
             outputs=outputs,
             image_features=image_features
@@ -143,6 +146,9 @@ class MultiModalLitModel(pl.LightningModule):
                 if self.language_model.text_encoder.has_attention else None,
             **kwargs
         )
+        if return_image_features:
+            ret = ret + (image_features, image_feature_map)
+        return ret
 
     def calculate_joint_loss(self, batch, stage, log, eval_textgen=False,
                              ce_weight=None):
@@ -185,11 +191,13 @@ class MultiModalLitModel(pl.LightningModule):
 
         if self.lambda_lm or not self.optimize_unused:
             # calculate language model ce loss
-            ce_loss, _, _, _, labels = self.calculate_ce_loss(
+            ce_loss, _, _, _, labels, image_features, image_feature_map = \
+            self.calculate_ce_loss(
                 y, y_len, x=x,
                 outputs=text_outputs,
                 image_features=image_features,
                 image_feature_map=image_feature_map,
+                return_image_features=True,
                 tokenwise=True,
                 weight=ce_weight,
             )

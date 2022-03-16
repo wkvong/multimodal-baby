@@ -817,6 +817,8 @@ class LanguageModel(nn.Module):
             if self.text_encoder.has_attention:
                 # unpack states
                 states, image_feature_map, projected_image_feature_map = states
+            else:
+                image_feature_map, projected_image_feature_map = None, None
             states = map_structure(lambda t: t.transpose(0, 1), states)
             outputs, states, attns = self.text_encoder.ids_to_outputs(
                 ids[:, -1], states,
