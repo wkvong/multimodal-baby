@@ -189,8 +189,6 @@ if __name__ == "__main__":
     # get text features
     text_features = model.model.encode_text(
         label.unsqueeze(0).to(device), label_len.unsqueeze(0).to(device))[0]
-    if model.model.normalize_features:
-        text_features = F.normalize(text_features, p=2, dim=1)
 
     # create attention map
     attn_map = gradCAM(

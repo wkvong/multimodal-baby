@@ -469,7 +469,7 @@ class TextEncoder(nn.Module):
         elif self.embedding_type == "spatial":
             ret = output
 
-        return ret, output
+        return ret, output, attns
 
     def _forward_unbatched(self, x, x_len, image_features=None):
         if self.text_encoder == "embedding":
@@ -613,36 +613,32 @@ class MultiModalModel(nn.Module):
                             help="fix the temperature so it is not trained")
 
     def encode_image(self, image):
-        return self.image_embed(image)
+        image_features, image_feature_map = self.image_embed(image)
+        if self.normalize_features:
+            # normalize image features
+            image_features = F.normalize(image_features, p=2, dim=1)
+        return image_features, image_feature_map
 
     def encode_text(self, text, text_length):
-        return self.text_embed(text, text_length)
+        text_features, text_outputs, attns = self.text_embed(text, text_length)
+        if self.normalize_features:
+            # normalize text features
+            text_features = F.normalize(text_features, p=2, dim=-1)
+        return text_features, text_outputs
 
     def forward(self, image, text, text_length, return_image_features=False, return_text_outputs=False):
-        if self.embedding_type == "flat":
-            # encode image and text as flat embeddings
-            image_features, image_feature_map = self.encode_image(image)  # image_features: (B, E)
-            text_features, text_outputs = self.encode_text(text, text_length)  # text_features: (B, E)
+        # encode image and text
+        image_features, image_feature_map = self.encode_image(image)
+        text_features, text_outputs = self.encode_text(text, text_length)
 
-            if self.normalize_features:
-                # normalize image features
-                image_features = F.normalize(image_features, p=2, dim=1)
-                # normalize text features
-                text_features = F.normalize(text_features, p=2, dim=1)
+        if self.embedding_type == "flat":
+            # image_features: (B, E), text_features: (B, E)
 
             # calculate match similarity
             match = image_features @ text_features.T
 
         elif self.embedding_type == "spatial":
-            # encode image and text as spatial embeddings
-            image_features, image_feature_map = self.encode_image(image)  # image_features: (B, E, H, W)
-            text_features, text_outputs = self.encode_text(text, text_length)  # text_features: (B, L, E)
-
-            if self.normalize_features:
-                # normalize image features
-                image_features = F.normalize(image_features, p=2, dim=1)
-                # normalize text features
-                text_features = F.normalize(text_features, p=2, dim=2)
+            # image_features: (B, E, H, W), text_features: (B, L, E)
 
             # calculate batched similarity
             if self.sim == "mean":
@@ -736,13 +732,17 @@ class LanguageModel(nn.Module):
         image_feature_map=None,
     ):
         if outputs is None:
-            text_features, outputs = self.text_encoder(
+            text_features, outputs, attns = self.text_encoder(
                 y, y_len,
                 image_features=image_features,
                 image_feature_map=image_feature_map,
             )
+        else:
+            # in this case the outputs is reused, so it mustn't be an attention
+            # model.
+            attns = None
         logits = self.output_layer(outputs)
-        return outputs, logits
+        return outputs, logits, attns
 
     def calculate_ce_loss(
         self, y, y_len,
@@ -752,7 +752,7 @@ class LanguageModel(nn.Module):
         tokenwise=False,
         weight=None,
     ):
-        outputs, logits = self(
+        outputs, logits, attns = self(
             y, y_len,
             outputs=outputs,
             image_features=image_features,
@@ -771,7 +771,7 @@ class LanguageModel(nn.Module):
             ignore_index=PAD_TOKEN_ID,
             reduction="none" if tokenwise else "mean")
 
-        return loss, outputs, logits, labels
+        return loss, outputs, logits, attns, labels
 
     def beam_search_decode(
         self, batch_size, beam_width, decode_length, length_penalty_alpha,

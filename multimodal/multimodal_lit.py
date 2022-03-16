@@ -115,6 +115,35 @@ class MultiModalLitModel(pl.LightningModule):
     def forward(self, x, y, y_len):
         return self.model(x, y, y_len)
 
+    def calculate_ce_loss(
+        self, y, y_len, x=None,
+        outputs=None,
+        image_features=None,
+        image_feature_map=None,
+        **kwargs
+    ):
+        """Wraps self.language_model.calculate_ce_loss
+        """
+        if self.language_model.text_encoder.captioning or \
+            self.language_model.text_encoder.has_attention:
+            # get image_features and image_feature_map if needed
+            if image_features is None:
+                image_features, image_feature_map = self.model.encode_image(x)
+            # text_outputs is not reusable since it's not obtained from
+            # captioning in the contrastive module
+            outputs = None
+
+        # calculate language model ce loss
+        return self.language_model.calculate_ce_loss(
+            y, y_len,
+            outputs=outputs,
+            image_features=image_features
+                if self.language_model.text_encoder.captioning else None,
+            image_feature_map=image_feature_map
+                if self.language_model.text_encoder.has_attention else None,
+            **kwargs
+        )
+
     def calculate_joint_loss(self, batch, stage, log, eval_textgen=False,
                              ce_weight=None):
         # batch of image-text pairs
@@ -155,29 +184,21 @@ class MultiModalLitModel(pl.LightningModule):
             infonce_loss = 0.
 
         if self.lambda_lm or not self.optimize_unused:
-            if self.language_model.text_encoder.captioning or \
-                self.language_model.text_encoder.has_attention:
-                # get image_features if needed
-                if image_features is None:
-                    image_features, image_feature_map = self.vision_encoder(x)
-                    if self.model.normalize_features:
-                        image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
-                # text_outputs is not reusable since it's not obtained from captioning in the contrastive module
-                text_outputs = None
-
             # calculate language model ce loss
-            ce_loss, _, _, labels = self.language_model.calculate_ce_loss(
-                y, y_len,
+            ce_loss, _, _, _, labels = self.calculate_ce_loss(
+                y, y_len, x=x,
                 outputs=text_outputs,
-                image_features=image_features
-                    if self.language_model.text_encoder.captioning else None,
-                image_feature_map=image_feature_map
-                    if self.language_model.text_encoder.has_attention else None,
+                image_features=image_features,
+                image_feature_map=image_feature_map,
                 tokenwise=True,
                 weight=ce_weight,
             )
 
             # get all kinds of losses with/without special tokens
+            # Actually in torch.nn.CrossEntropyLoss the sum of loss should be
+            # divided by the sum of mask weighted by the weight. Here I ignored
+            # the weight for simplicity, since it is not used in the main code.
+
             # standard loss including all special tokens
             mask = (labels != PAD_TOKEN_ID)
             n_tokens = mask.sum()
@@ -360,20 +381,9 @@ class MultiModalLitModel(pl.LightningModule):
                 y = y.expand(x.size(0), -1)
                 y_len = y_len.expand(x.size(0))
 
-                # get image_features
-                image_features, image_feature_map = self.vision_encoder(x)
-                if self.model.normalize_features:
-                    image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
-
                 # calculate language model ce loss
-                ce_loss, _, _, labels = self.language_model.calculate_ce_loss(
-                    y, y_len,
-                    image_features=image_features
-                        if self.language_model.text_encoder.captioning else None,
-                    image_feature_map=image_feature_map
-                        if self.language_model.text_encoder.has_attention else None,
-                    tokenwise=True,
-                )
+                ce_loss, _, _, _, labels = self.calculate_ce_loss(
+                    y, y_len, x=x, tokenwise=True)
 
                 # use - ce_loss on the word as logits
                 logits = - ce_loss[:, 0]
