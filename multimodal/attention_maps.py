@@ -17,22 +17,30 @@ n_inv = transforms.Normalize(
     [-0.485/0.229, -0.456/0.224, -0.406/0.225], [1/0.229, 1/0.224, 1/0.225])
 
 
-def normalize(x: np.ndarray) -> np.ndarray:
-    # Normalize to [0, 1].
-    print("normalizing:")
-    print("min:", x.min())
-    print("max:", x.max())
-    x = x - x.min()
-    if x.max() > 0:
-        x = x / x.max()
+def normalize(x: np.ndarray, vmin=None, vmax=None) -> np.ndarray:
+    """Normalize to [0, 1].
+    """
+    if vmin is None:
+        vmin = x.min()
+    if vmax is None:
+        vmax = x.max()
+    print(f"normalizing: [vmin, vmax] = [{vmin}, {vmax}] to [0, 1]")
+    x = x - vmin
+    vmax = vmax - vmin
+    if vmax > 0:
+        x = x / vmax
     return x
 
 
-def getAttMap(img, attn_map, blur=True):
+def getAttMap(img, attn_map, blur=True, vmin=None, vmax=None, cmap='jet'):
+    if attn_map.shape != img.shape[:2]:
+        import cv2
+        attn_map = cv2.resize(
+            attn_map, img.shape[1::-1], interpolation=cv2.INTER_CUBIC)
     if blur:
         attn_map = filters.gaussian_filter(attn_map, 0.02*max(img.shape[:2]))
-    attn_map = normalize(attn_map)
-    cmap = plt.get_cmap('jet')
+    attn_map = normalize(attn_map, vmin=vmin, vmax=vmax)
+    cmap = plt.get_cmap(cmap)
     attn_map_c = np.delete(cmap(attn_map), 3, 2)
     attn_map_weights = (attn_map ** 0.7).reshape(attn_map.shape + (1,))
     attn_map = (1 - attn_map_weights) * img + attn_map_weights * attn_map_c
@@ -73,6 +81,19 @@ class Hook:
         return self.data.grad
 
 
+def gradCAM_with_act_and_grad(act, grad):
+    # Global average pool gradient across spatial dimension
+    # to obtain importance weights.
+    alpha = grad.mean(dim=(2, 3), keepdim=True)
+    # Weighted combination of activation maps over channel dimension.
+    gradcam = torch.sum(act * alpha, dim=1, keepdim=True)
+    # We only want neurons with positive influence
+    # so we clamp any negative ones.
+    gradcam = torch.clamp(gradcam, min=0)
+
+    return gradcam
+
+
 # Reference: https://arxiv.org/abs/1610.02391
 def gradCAM(
     model: nn.Module,
@@ -80,6 +101,7 @@ def gradCAM(
     target: torch.Tensor,
     layer: nn.Module,
     normalize_features: bool = False,
+    resize: bool = True,
 ) -> torch.Tensor:
     # Zero out any gradients at the input.
     if input.grad is not None:
@@ -103,26 +125,19 @@ def gradCAM(
         grad = hook.gradient.float()
         act = hook.activation.float()
 
-        # Global average pool gradient across spatial dimension
-        # to obtain importance weights.
-        alpha = grad.mean(dim=(2, 3), keepdim=True)
-        # Weighted combination of activation maps over channel
-        # dimension.
-        gradcam = torch.sum(act * alpha, dim=1, keepdim=True)
-        # We only want neurons with positive influence so we
-        # clamp any negative ones.
-        gradcam = torch.clamp(gradcam, min=0)
-
-    # Resize gradcam to input resolution.
-    gradcam = F.interpolate(
-        gradcam,
-        input.shape[2:],
-        mode='bicubic',
-        align_corners=False)
-
     # Restore gradient settings.
     for name, param in model.named_parameters():
         param.requires_grad_(requires_grad[name])
+
+    gradcam = gradCAM_with_act_and_grad(act, grad)
+
+    # Resize gradcam to input resolution.
+    if resize:
+        gradcam = F.interpolate(
+            gradcam,
+            input.shape[2:],
+            mode='bicubic',
+            align_corners=False)
 
     return gradcam
 
