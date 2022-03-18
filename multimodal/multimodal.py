@@ -74,7 +74,10 @@ class VisionEncoder(nn.Module):
                             help="finetune CNN (frozen by default)")
 
     def forward(self, x):
-        layer = self.model.layer4
+        if self.embedding_type == "spatial":
+            layer = self.model[-2]
+        else:
+            layer = self.model.layer4
         with Hook(layer, requires_grad=False) as hook:
             features = self.model(x)
             feature_map = hook.activation
