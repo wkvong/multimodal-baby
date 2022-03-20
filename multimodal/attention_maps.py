@@ -32,11 +32,13 @@ def normalize(x: np.ndarray, vmin=None, vmax=None) -> np.ndarray:
     return x
 
 
-def getAttMap(img, attn_map, blur=True, vmin=None, vmax=None, cmap='jet'):
+def getAttMap(img, attn_map, interpolation='cubic', blur=True,
+              vmin=None, vmax=None, cmap='jet'):
     if attn_map.shape != img.shape[:2]:
         import cv2
         attn_map = cv2.resize(
-            attn_map, img.shape[1::-1], interpolation=cv2.INTER_CUBIC)
+            attn_map, img.shape[1::-1],
+            interpolation=getattr(cv2, "INTER_" + interpolation.upper()))
     if blur:
         attn_map = filters.gaussian_filter(attn_map, 0.02*max(img.shape[:2]))
     attn_map = normalize(attn_map, vmin=vmin, vmax=vmax)
