@@ -246,6 +246,7 @@ class TextEncoder(nn.Module):
         self.text_encoder = self.args.get("text_encoder")
         self._captioning = self.args.get("captioning", False)
         self._attention = self.args.get("attention", False)
+        self._attention_gate = self.args.get("attention_gate", False)
         self.embedding_type = self.args.get("embedding_type")
         self.embedding_dim = self.args.get("embedding_dim")
         # always match embedding and hidden dim for consistency
@@ -286,6 +287,9 @@ class TextEncoder(nn.Module):
         if self._attention:
             self.attention = Attention(
                 image_feature_map_dim, self.hidden_dim, self.hidden_dim)
+            if self._attention_gate:
+                self.attention_gate_projection = nn.Linear(
+                    self.hidden_dim, image_feature_map_dim)
 
         self.lockdrop = LockedDropout()
         self.output_dropout = nn.Dropout(self.dropout_o)
@@ -299,6 +303,8 @@ class TextEncoder(nn.Module):
                             help="whether to initialize the hidden states with the image features")
         parser.add_argument("--attention", action="store_true",
                             help="whether to attend to the image feature map")
+        parser.add_argument("--attention_gate", action="store_true",
+                            help="whether to use attention gate")
         parser.add_argument("--crange", type=int, default=CRANGE,
                             help="context range for cbow")
         parser.add_argument("--dropout_i", type=float, default=DROPOUT_I,
@@ -319,8 +325,12 @@ class TextEncoder(nn.Module):
             (outputs, states, attns)
         """
         if image_feature_map is not None:
+            h = states[0][-1]
             attn_feature, attns = self.attention(
-                image_feature_map, projected_image_feature_map, states[0][-1])
+                image_feature_map, projected_image_feature_map, h)
+            if self._attention_gate:
+                gate = F.sigmoid(self.attention_gate_projection(h))
+                attn_feature = gate * attn_feature
             # concatenate attention features to inputs
             inputs = torch.cat([inputs, attn_feature], dim=1)
         else:
