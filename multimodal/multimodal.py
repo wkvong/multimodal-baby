@@ -287,7 +287,7 @@ class TextEncoder(nn.Module):
         if self._attention:
             self.attention = Attention(
                 image_feature_map_dim, self.hidden_dim, self.hidden_dim)
-            if self._attention_gate:
+            if self.has_attention_gate:
                 self.attention_gate_projection = nn.Linear(
                     self.hidden_dim, image_feature_map_dim)
 
@@ -328,7 +328,7 @@ class TextEncoder(nn.Module):
             h = states[0][-1]
             attn_feature, attns = self.attention(
                 image_feature_map, projected_image_feature_map, h)
-            if self._attention_gate:
+            if self.has_attention_gate:
                 gate = F.sigmoid(self.attention_gate_projection(h))
                 attn_feature = gate * attn_feature
             # concatenate attention features to inputs
@@ -556,13 +556,18 @@ class TextEncoder(nn.Module):
     def regressional(self):
         return self.text_encoder == "lstm"
 
+    # the following properties are for backward compatibility
     @property
     def captioning(self):
-        return getattr(self, '_captioning', False)  # for backward compatibility
+        return getattr(self, '_captioning', False)
 
     @property
     def has_attention(self):
-        return getattr(self, '_attention', False)  # for backward compatibility
+        return getattr(self, '_attention', False)
+
+    @property
+    def has_attention_gate(self):
+        return getattr(self, '_attention_gate', False)
 
     def init_hidden(self, batch_size, image_features=None):
         d = 2 if self.text_encoder == "bilstm" else 1
