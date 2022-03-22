@@ -14,6 +14,7 @@ from multimodal.utils import get_entropy, map_structure, apply_permutation
 from multimodal.attention_maps import Hook
 
 TEXT_ENCODER = "embedding"
+ATTENTION_ACTIVATION = "relu"
 EMBEDDING_TYPE = "spatial"
 EMBEDDING_DIM = 128
 CRANGE = 1
@@ -162,12 +163,17 @@ class Attention(nn.Module):
     """Attention
     """
 
-    def __init__(self, encoder_dim, decoder_dim, attn_dim):
+    def __init__(self, encoder_dim, decoder_dim, attn_dim,
+                 activation=ATTENTION_ACTIVATION):
         super().__init__()
         self.encoder_projection = nn.Linear(encoder_dim, attn_dim)
         self.decoder_projection = nn.Linear(decoder_dim, attn_dim)
         self.attn_layer = nn.Linear(attn_dim, 1)
-        self.activation_fn = nn.ReLU()
+        activation_mapping = {
+            'relu': 'ReLU',
+            'tanh': 'Tanh',
+        }
+        self.activation_fn = getattr(nn, activation_mapping[activation])()
 
     def permute(self, t):
         """Permute the tensor to move the feature dim from the second to the
@@ -303,6 +309,10 @@ class TextEncoder(nn.Module):
                             help="whether to initialize the hidden states with the image features")
         parser.add_argument("--attention", action="store_true",
                             help="whether to attend to the image feature map")
+        parser.add_argument("--attention_activation", type=str,
+                            default=ATTENTION_ACTIVATION,
+                            choices=["relu", "tanh"],
+                            help="activation in attention")
         parser.add_argument("--attention_gate", action="store_true",
                             help="whether to use attention gate")
         parser.add_argument("--crange", type=int, default=CRANGE,
