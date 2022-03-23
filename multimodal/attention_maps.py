@@ -24,7 +24,7 @@ def normalize(x: np.ndarray, vmin=None, vmax=None) -> np.ndarray:
         vmin = x.min()
     if vmax is None:
         vmax = x.max()
-    print(f"normalizing: [vmin, vmax] = [{vmin}, {vmax}] to [0, 1]")
+    print(f"normalizing: [vmin, vmax] = [{vmin:.6f}, {vmax:.6f}] to [0, 1]")
     x = x - vmin
     vmax = vmax - vmin
     if vmax > 0:
