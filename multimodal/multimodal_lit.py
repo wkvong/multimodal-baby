@@ -6,7 +6,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from multimodal.multimodal import MultiModalModel, LanguageModel
+from multimodal.multimodal import MultiModalModel, LanguageModel, \
+    calculate_attn_reg_loss
 from multimodal.utils import get_entropy
 from multimodal.textgen_eval import evaluate as textgen_eval
 from multimodal.multimodal_data_module import \
@@ -44,6 +45,7 @@ class MultiModalLitModel(pl.LightningModule):
         # self.alpha = self.args.get("alpha", ALPHA)
         self.lambda_mm = self.args.get("lambda_mm", 1.)
         self.lambda_lm = self.args.get("lambda_lm", 0.)
+        self.lambda_ar = self.args.get("lambda_ar", 0.)
         self.optimize_unused = self.args.get("optimize_unused", False)
         self.eval_textgen = self.args.get("eval_textgen", False)
         self.beam_width = self.args.get("beam_width", BEAM_WIDTH)
@@ -80,6 +82,8 @@ class MultiModalLitModel(pl.LightningModule):
                             help="multimodal contrastive loss *= lambda_mm")
         parser.add_argument("--lambda_lm", type=float, default=0.,
                             help="language modeling loss *= lambda_lm")
+        parser.add_argument("--lambda_ar", type=float, default=0.,
+                            help="attention regularization loss *= lambda_ar")
         parser.add_argument("--optimize_unused", action="store_true",
                             help="optimize the computation for unused loss "
                                  "(i.e., lambda=0)")
@@ -191,7 +195,7 @@ class MultiModalLitModel(pl.LightningModule):
 
         if self.lambda_lm or not self.optimize_unused:
             # calculate language model ce loss
-            ce_loss, _, _, _, labels, image_features, image_feature_map = \
+            ce_loss, _, _, attns, labels, image_features, image_feature_map = \
             self.calculate_ce_loss(
                 y, y_len, x=x,
                 outputs=text_outputs,
@@ -234,6 +238,21 @@ class MultiModalLitModel(pl.LightningModule):
                 'n_tokens_wo_sos_eos': n_tokens_wo_sos_eos,
             })
 
+            # attention regularization loss
+            if (self.lambda_ar or not self.optimize_unused) and \
+                attns is not None:
+                attn_reg_loss = calculate_attn_reg_loss(attns)
+
+                # log
+                log(f"{stage}_attn_reg_loss", attn_reg_loss)
+
+                ret.update({
+                    'attn_reg_loss': attn_reg_loss.detach(),
+                })
+
+            else:
+                attn_reg_loss = 0.
+
             if eval_textgen:
                 beam_seq, log_prob = self.language_model.beam_search_decode(
                     batch_size=ret['batch_size'],
@@ -271,9 +290,11 @@ class MultiModalLitModel(pl.LightningModule):
 
         else:
             lm_ce_loss = 0.
+            attn_reg_loss = 0.
 
         # calculate joint loss
-        loss = self.lambda_mm * infonce_loss + self.lambda_lm * lm_ce_loss
+        loss = self.lambda_mm * infonce_loss + self.lambda_lm * lm_ce_loss \
+            + self.lambda_ar * attn_reg_loss
 
         # log
         log(f"{stage}_loss", loss)

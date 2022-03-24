@@ -869,3 +869,7 @@ class LanguageModel(nn.Module):
             states=init_states,
             eos_id=EOS_TOKEN_ID,
         )
+
+
+def calculate_attn_reg_loss(attns):
+    return ((attns.sum(dim=1) - 1.) ** 2).mean()
