@@ -32,18 +32,27 @@ def normalize(x: np.ndarray, vmin=None, vmax=None) -> np.ndarray:
     return x
 
 
-def getAttMap(img, attn_map, interpolation='cubic', blur=True,
-              vmin=None, vmax=None, cmap='jet'):
-    if attn_map.shape != img.shape[:2]:
+def preprocess_attn_map(attn_map, shape, interpolation='cubic', blur=False,
+                        vmin=None, vmax=None, cmap=None, **kwargs):
+    if attn_map.shape != shape:
         import cv2
         attn_map = cv2.resize(
-            attn_map, img.shape[1::-1],
+            attn_map, shape[::-1],
             interpolation=getattr(cv2, "INTER_" + interpolation.upper()))
     if blur:
-        attn_map = filters.gaussian_filter(attn_map, 0.02*max(img.shape[:2]))
+        attn_map = filters.gaussian_filter(attn_map, 0.02*max(shape))
     attn_map = normalize(attn_map, vmin=vmin, vmax=vmax)
-    cmap = plt.get_cmap(cmap)
-    attn_map_c = np.delete(cmap(attn_map), 3, 2)
+    if cmap is not None:
+        cmap = plt.get_cmap(cmap)
+        attn_map_c = np.delete(cmap(attn_map), 3, 2)
+    else:
+        attn_map_c = None
+    return attn_map, attn_map_c
+
+
+def getAttMap(img, attn_map, blur=True, cmap='jet', **kwargs):
+    attn_map, attn_map_c = preprocess_attn_map(
+        attn_map, img.shape[:2], blur=blur, cmap=cmap, **kwargs)
     attn_map_weights = (attn_map ** 0.7).reshape(attn_map.shape + (1,))
     attn_map = (1 - attn_map_weights) * img + attn_map_weights * attn_map_c
     return attn_map
@@ -52,6 +61,23 @@ def getAttMap(img, attn_map, interpolation='cubic', blur=True,
 def imshow(ax, img: np.ndarray):
     ax.imshow(img)
     ax.axis("off")
+
+
+def plot_image(ax, img, attn_map=None, text=None, overlying=True,
+               alpha=0.8, cmap='Greys_r', **kwargs):
+    if overlying:
+        imshow(ax, img)
+        if attn_map is not None:
+            attn_map, _ = preprocess_attn_map(
+                attn_map, img.shape[:2], cmap=None, **kwargs)
+            ax.imshow(attn_map, alpha=alpha, cmap=cmap)
+    else:
+        if attn_map is not None:
+            img = getAttMap(img, attn_map, cmap=cmap, **kwargs)
+        imshow(ax, img)
+
+    if text is not None:
+        ax.text(0, 1, text, color='black', backgroundcolor='white')
 
 
 class Hook:
