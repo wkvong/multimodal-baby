@@ -239,8 +239,7 @@ class MultiModalLitModel(pl.LightningModule):
             })
 
             # attention regularization loss
-            if (self.lambda_ar or not self.optimize_unused) and \
-                attns is not None:
+            if self.language_model.text_encoder.has_attention:
                 attn_reg_loss = calculate_attn_reg_loss(attns)
 
                 # log
@@ -345,6 +344,10 @@ class MultiModalLitModel(pl.LightningModule):
                 # perplexity
                 perplexity = np.exp(value_mean)
                 log(f"{stage}_perplexity{suffix}", perplexity)
+
+            if self.language_model.text_encoder.has_attention:
+                for name in ('attn_reg_loss',):
+                    log(f"{stage}_{name}", mean_over_examples(name))
 
             if eval_textgen:
                 list_of_references, hypotheses = [], []
