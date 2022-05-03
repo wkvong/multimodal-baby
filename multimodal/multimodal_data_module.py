@@ -27,7 +27,7 @@ EVAL_INCLUDE_SOS_EOS = False
 
 # evaluation arguments
 N_VAL_DATALOADERS_PER_SPLIT = 2
-TEST_WHILE_VAL = True
+TEST_WHILE_VAL = False
 
 # sampling arguments
 MAX_LEN_UTTERANCE = 25
@@ -162,6 +162,7 @@ class MultiModalDataModule(pl.LightningDataModule):
         self.augment_frames = self.args.get("augment_frames", AUGMENT_FRAMES)
         self.eval_include_sos_eos = self.args.get("eval_include_sos_eos",
                                                   EVAL_INCLUDE_SOS_EOS)
+        self.test_while_val = self.args.get("test_while_val", TEST_WHILE_VAL)
 
         if self.augment_frames:
             # add same augmentations as emin used
@@ -208,6 +209,8 @@ class MultiModalDataModule(pl.LightningDataModule):
         parser.add_argument(
             "--eval_include_sos_eos", action="store_true", help="Add <sos> and <eos> tokens during evaluation"
         )
+        parser.add_argument("--test_while_val", action="store_true",
+                            help="Evaluate test set during validation (for COCO only!)")
         return parser
 
     # TODO: add relevant config details
@@ -301,7 +304,7 @@ class MultiModalDataModule(pl.LightningDataModule):
             drop_last=drop_last,
         )
 
-        if TEST_WHILE_VAL:
+        if self.test_while_val:
             dataloaders += self.test_dataloader(
                 batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
 
