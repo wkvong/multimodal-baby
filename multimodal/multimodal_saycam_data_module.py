@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any, Tuple
 import os
 import glob
+import itertools
 import json
 import random
 import re
@@ -86,14 +87,16 @@ class MultiModalSAYCamDataset(MultiModalDataset):
         utterance_words = utterance.split(" ")
         utterance_words = [SOS_TOKEN] + utterance_words + [EOS_TOKEN]
         utterance_length = len(utterance_words)
-        utterance_idxs = torch.tensor([self.vocab.get(word, UNK_TOKEN_ID) for word in utterance_words], dtype=torch.long)
+        utterance_idxs = torch.tensor([self.vocab.get(
+            word, UNK_TOKEN_ID) for word in utterance_words], dtype=torch.long)
 
         # get image
         img_filenames = self.data[idx]["frame_filenames"]
 
         if self.multiple_frames:
             # sample a random image associated with this utterance
-            img_filename = Path(EXTRACTED_FRAMES_DIRNAME, random.choice(img_filenames))
+            img_filename = Path(EXTRACTED_FRAMES_DIRNAME,
+                                random.choice(img_filenames))
         else:
             # otherwise, sample the first frame
             img_filename = Path(EXTRACTED_FRAMES_DIRNAME, img_filenames[0])
@@ -116,7 +119,8 @@ class MultiModalSAYCamDataModule(MultiModalDataModule):
     def __init__(self, args=None) -> None:
         super().__init__(args)
 
-        self.multiple_frames = self.args.get("multiple_frames", MULTIPLE_FRAMES)
+        self.multiple_frames = self.args.get(
+            "multiple_frames", MULTIPLE_FRAMES)
 
     @staticmethod
     def add_additional_to_argparse(parser):
@@ -127,7 +131,8 @@ class MultiModalSAYCamDataModule(MultiModalDataModule):
 
     @staticmethod
     def add_to_argparse(parser):
-        parser = super(MultiModalSAYCamDataModule, MultiModalSAYCamDataModule).add_to_argparse(parser)
+        parser = super(MultiModalSAYCamDataModule,
+                       MultiModalSAYCamDataModule).add_to_argparse(parser)
         parser = MultiModalSAYCamDataModule.add_additional_to_argparse(parser)
         return parser
 
@@ -140,6 +145,7 @@ class MultiModalSAYCamDataModule(MultiModalDataModule):
         _create_train_metadata()
         _extract_eval_frames()
         _create_eval_metadata()
+        _create_extra_eval_metadata()
         _create_vocab()
         # _create_animations()  # TODO: add extra argument to generate this?
 
@@ -196,14 +202,17 @@ def _download_transcripts():
             for j in range(1, len(s.sheets)):
                 try:
                     # try and parse this sheet as a data frame
-                    df = s.sheets[j].to_frame()  # convert worksheet to data frame
-                    filename = f"{TRANSCRIPTS_DIRNAME}/{title}_{s.sheets[j].title}.csv"  # get filename of dataframe
+                    # convert worksheet to data frame
+                    df = s.sheets[j].to_frame()
+                    # get filename of dataframe
+                    filename = f"{TRANSCRIPTS_DIRNAME}/{title}_{s.sheets[j].title}.csv"
                     df.to_csv(filename, index=False)  # save as CSV
                 except pd.errors.ParserError:
                     continue  # move onto the next file
 
             # sleep for 30 seconds to prevent rate limiting
             time.sleep(30)
+
 
 def _rename_transcripts():
     """Manually rename a few of the transcripts that don't match naming scheme."""
@@ -230,6 +239,7 @@ def _rename_transcripts():
     else:
         print("Transcripts have already been renamed. Skipping this step.")
 
+
 def _preprocess_transcripts():
     """Preprocess transcripts by cleaning the text and extracting frame timings."""
 
@@ -245,16 +255,19 @@ def _preprocess_transcripts():
 
         # get all transcripts and allowed speakers
         transcripts = sorted(Path(TRANSCRIPTS_DIRNAME).glob("*.csv"))
-        allowed_speakers = ["M", "Mom", "mom", "m", "mother", "Mother", "papa", "the mom"]
+        allowed_speakers = ["M", "Mom", "mom", "m",
+                            "mother", "Mother", "papa", "the mom"]
 
         # preprocess each transcript
         for transcript_idx, transcript_filename in enumerate(transcripts):
             # empty list to store processed transcript information
             preprocessed_transcript = []
-            preprocessed_transcript_filename = PREPROCESSED_TRANSCRIPTS_DIRNAME / transcript_filename.name
+            preprocessed_transcript_filename = PREPROCESSED_TRANSCRIPTS_DIRNAME / \
+                transcript_filename.name
 
             # read transcript CSV
-            print(f"Preprocessing transcript: {transcript_filename.name} ({transcript_idx+1}/{len(transcripts)})")
+            print(
+                f"Preprocessing transcript: {transcript_filename.name} ({transcript_idx+1}/{len(transcripts)})")
             transcript = pd.read_csv(transcript_filename)
 
             # skip empty transcripts
@@ -298,7 +311,8 @@ def _preprocess_transcripts():
                 if transcript_row_idx < len(transcript) - 1:
                     end_timestamp = transcript["Time (Seconds)"][transcript_row_idx+1]
                 else:
-                    end_timestamp = start_timestamp  # this will sample a single frame for the last utterance
+                    # this will sample a single frame for the last utterance
+                    end_timestamp = start_timestamp
 
                 # skip processing utterance if start or end timestamps are null,
                 # or if speaker is not in the list of allowed speakers
@@ -319,18 +333,19 @@ def _preprocess_transcripts():
                     for frame_num, curr_timestamp in enumerate(curr_timestamps):
                         frame_filename = f"{video_filename.stem}_{utterance_num:03}_{frame_num:02}.jpg"
                         preprocessed_transcript.append([transcript_filename.name,
-                            video_filename.name, curr_utterance, curr_timestamp,
-                            utterance_num, frame_num, frame_filename])
+                                                        video_filename.name, curr_utterance, curr_timestamp,
+                                                        utterance_num, frame_num, frame_filename])
 
                     utterance_num += 1
 
             # save preprocessed transcript as CSV
             if len(preprocessed_transcript) > 0:
                 preprocessed_transcript_columns = ["transcript_filename", "video_filename",
-                    "utterance", "timestamp", "utterance_num", "frame_num", "frame_filename"]
+                                                   "utterance", "timestamp", "utterance_num", "frame_num", "frame_filename"]
                 preprocessed_transcript_df = pd.DataFrame(preprocessed_transcript,
                                                           columns=preprocessed_transcript_columns)
-                preprocessed_transcript_df.to_csv(preprocessed_transcript_filename, index=False)
+                preprocessed_transcript_df.to_csv(
+                    preprocessed_transcript_filename, index=False)
 
 
 def _preprocess_utterance(utterance, start_timestamp, end_timestamp):
@@ -355,18 +370,21 @@ def _preprocess_utterance(utterance, start_timestamp, end_timestamp):
 
     # split utterance based on certain delimeters, strip and remove empty utterances
     utterances = msplit(utterance, (".", "?", "!"))
-    utterances = [utterance.strip() for utterance in utterances if len(utterance) > 0]
+    utterances = [utterance.strip()
+                  for utterance in utterances if len(utterance) > 0]
 
     if len(utterances) > 0:
         # get interpolated timestamps, including end timestamp (which we remove later)
-        timestamps = np.linspace(start_timestamp, end_timestamp, len(utterances)+1, endpoint=True)
+        timestamps = np.linspace(
+            start_timestamp, end_timestamp, len(utterances)+1, endpoint=True)
         timestamps = [int(timestamp) for timestamp in timestamps]
         all_timestamps = []
         num_frames = []
 
         # calculate number of frames to extract per utterance (max: 32 frames at 5fps)
         for i in range(len(timestamps)-1):
-            curr_num_frames = max(min(int((timestamps[i+1] - timestamps[i]) / 0.2), MAX_FRAMES_PER_UTTERANCE), 1)
+            curr_num_frames = max(
+                min(int((timestamps[i+1] - timestamps[i]) / 0.2), MAX_FRAMES_PER_UTTERANCE), 1)
             curr_timestamps = np.linspace(timestamps[i], timestamps[i] + (curr_num_frames / 5),
                                           curr_num_frames, endpoint=False)
             # check same length
@@ -387,6 +405,7 @@ def _preprocess_utterance(utterance, start_timestamp, end_timestamp):
 
     return utterances, all_timestamps, num_frames
 
+
 def _extract_train_frames():
     """Extract aligned frames from SAYCam videos"""
 
@@ -400,12 +419,14 @@ def _extract_train_frames():
             os.makedirs(EXTRACTED_FRAMES_DIRNAME)
 
         # get all preprocessed transcripts
-        transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))
+        transcripts = sorted(
+            Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))
 
         for idx, transcript in enumerate(transcripts):
             # get video filename associated with this transcript
             transcript_df = pd.read_csv(transcript)
-            video_filename = Path(RAW_VIDEO_DIRNAME, pd.unique(transcript_df["video_filename"]).item())
+            video_filename = Path(RAW_VIDEO_DIRNAME, pd.unique(
+                transcript_df["video_filename"]).item())
 
             # skip if video doesn"t exist
             if not video_filename.exists():
@@ -413,7 +434,8 @@ def _extract_train_frames():
                 continue
 
             # otherwise continue extraction process
-            print(f"Extracting frames: {video_filename.name} ({idx+1}/{len(transcripts)})")
+            print(
+                f"Extracting frames: {video_filename.name} ({idx+1}/{len(transcripts)})")
 
             # read in video and get information
             cap = cv.VideoCapture(str(video_filename))
@@ -422,7 +444,8 @@ def _extract_train_frames():
 
             for transcript_row_idx, row in transcript_df.iterrows():
                 # get information for frame extraction
-                frame_filename = Path(EXTRACTED_FRAMES_DIRNAME, str(row["frame_filename"]))
+                frame_filename = Path(
+                    EXTRACTED_FRAMES_DIRNAME, str(row["frame_filename"]))
                 timestamp = float(row["timestamp"])  # keep as float
                 framestamp = int(timestamp * frame_rate)
 
@@ -434,6 +457,7 @@ def _extract_train_frames():
                 # save frame
                 if frame is not None:
                     cv.imwrite(str(frame_filename), frame)
+
 
 def _get_video_info(cap):
     """Returns video information"""
@@ -450,12 +474,15 @@ def _extract_frame(frame, frame_height, frame_width):
 
     # settings for frame extraction
     resized_minor_length = 256
-    new_height = frame_height * resized_minor_length // min(frame_height, frame_width)
-    new_width = frame_width * resized_minor_length // min(frame_height, frame_width)
+    new_height = frame_height * \
+        resized_minor_length // min(frame_height, frame_width)
+    new_width = frame_width * \
+        resized_minor_length // min(frame_height, frame_width)
 
     # function to resize frame and recolor
     try:
-        resized_frame = cv.resize(frame, (new_width, new_height), interpolation=cv.INTER_CUBIC)
+        resized_frame = cv.resize(
+            frame, (new_width, new_height), interpolation=cv.INTER_CUBIC)
     except Exception as e:
         print(str(e))
         return None
@@ -464,7 +491,8 @@ def _extract_frame(frame, frame_height, frame_width):
     height, width, _ = resized_frame.shape
     startx = width // 2 - (IMAGE_W // 2)
     starty = height // 2 - (IMAGE_H // 2) - 16
-    cropped_frame = resized_frame[starty:starty + IMAGE_H, startx:startx + IMAGE_W]
+    cropped_frame = resized_frame[starty:starty +
+                                  IMAGE_H, startx:startx + IMAGE_W]
     assert cropped_frame.shape[0] == IMAGE_H and cropped_frame.shape[1] == IMAGE_W, \
         (cropped_frame.shape, height, width)
 
@@ -492,7 +520,8 @@ def _extract_eval_frames():
         # get original set of evaluation categories
         eval_categories = os.listdir(LABELED_S_DIRNAME)
         for eval_category in eval_categories:
-            eval_category_dirname = os.path.join(LABELED_S_DIRNAME, eval_category)
+            eval_category_dirname = os.path.join(
+                LABELED_S_DIRNAME, eval_category)
             eval_category_frames = sorted(os.listdir(eval_category_dirname))
 
             # get indices to split original labeled s dataset into dev and test
@@ -509,40 +538,47 @@ def _extract_eval_frames():
 
             # check if directory exists, and if not, create it
             if not os.path.exists(os.path.join(EVAL_FRAMES_DIRNAME, "dev", eval_category)):
-                os.makedirs(os.path.join(EVAL_FRAMES_DIRNAME, "dev", eval_category))
+                os.makedirs(os.path.join(
+                    EVAL_FRAMES_DIRNAME, "dev", eval_category))
 
             for dev_idx in dev_idxs:
                 # get path to original frame
-                original_filename = os.path.join(LABELED_S_DIRNAME, eval_category, eval_category_frames[dev_idx])
+                original_filename = os.path.join(
+                    LABELED_S_DIRNAME, eval_category, eval_category_frames[dev_idx])
 
                 # copy frame
-                shutil.copyfile(original_filename, os.path.join(EVAL_FRAMES_DIRNAME, "dev", eval_category, eval_category_frames[dev_idx]))
+                shutil.copyfile(original_filename, os.path.join(
+                    EVAL_FRAMES_DIRNAME, "dev", eval_category, eval_category_frames[dev_idx]))
 
             # copy over test frames into a new directory
             print(f"copying {eval_category} frames for test set")
 
             # check if directory exists, and if not, create it
             if not os.path.exists(os.path.join(EVAL_FRAMES_DIRNAME, "test", eval_category)):
-                os.makedirs(os.path.join(EVAL_FRAMES_DIRNAME, "test", eval_category))
+                os.makedirs(os.path.join(
+                    EVAL_FRAMES_DIRNAME, "test", eval_category))
 
             for test_idx in test_idxs:
                 # get path to original frame
-                original_filename = os.path.join(LABELED_S_DIRNAME, eval_category, eval_category_frames[test_idx])
+                original_filename = os.path.join(
+                    LABELED_S_DIRNAME, eval_category, eval_category_frames[test_idx])
 
                 # copy frame
-                shutil.copyfile(original_filename, os.path.join(EVAL_FRAMES_DIRNAME, "test", eval_category, eval_category_frames[test_idx]))
+                shutil.copyfile(original_filename, os.path.join(
+                    EVAL_FRAMES_DIRNAME, "test", eval_category, eval_category_frames[test_idx]))
 
 
 def _create_train_metadata():
     """Creates JSON files with image-utterance information"""
 
     if os.path.exists(TRAIN_METADATA_FILENAME) and os.path.exists(VAL_METADATA_FILENAME) and os.path.exists(TEST_METADATA_FILENAME):
-        print("Training metadata files have already been created . Skipping this step.")
+        print("Training metadata files have already been created. Skipping this step.")
     else:
         print("Creating metadata files for train, validation and test.")
 
         # get all preprocessed transcripts
-        transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))
+        transcripts = sorted(
+            Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))
 
         utterances = []
 
@@ -555,16 +591,23 @@ def _create_train_metadata():
             for utterance, utterance_group in utterance_groups:
                 # extract relevant information
                 curr_utterance = {}
-                curr_utterance["utterance"] = pd.unique(utterance_group["utterance"]).item()
-                curr_utterance["transcript_filename"] = pd.unique(utterance_group["transcript_filename"]).item()
-                curr_utterance["video_filename"] = pd.unique(utterance_group["video_filename"]).item()
-                curr_utterance["utterance_num"] = pd.unique(utterance_group["utterance_num"]).item()
+                curr_utterance["utterance"] = pd.unique(
+                    utterance_group["utterance"]).item()
+                curr_utterance["transcript_filename"] = pd.unique(
+                    utterance_group["transcript_filename"]).item()
+                curr_utterance["video_filename"] = pd.unique(
+                    utterance_group["video_filename"]).item()
+                curr_utterance["utterance_num"] = pd.unique(
+                    utterance_group["utterance_num"]).item()
                 curr_utterance["num_frames"] = len(utterance_group)
-                curr_utterance["timestamps"] = list(utterance_group["timestamp"])
+                curr_utterance["timestamps"] = list(
+                    utterance_group["timestamp"])
 
                 # extract filenames separately
-                curr_utterance["frame_filenames"] = []  # initialize as empty list
-                curr_utterance_filenames = sorted(list(utterance_group["frame_filename"]))
+                # initialize as empty list
+                curr_utterance["frame_filenames"] = []
+                curr_utterance_filenames = sorted(
+                    list(utterance_group["frame_filename"]))
 
                 # skip over any nan utterances
                 if not isinstance(curr_utterance["utterance"], str):
@@ -573,9 +616,11 @@ def _create_train_metadata():
                 # check frame filenames and append all frames that exist
                 for frame_filename in curr_utterance_filenames:
                     if (EXTRACTED_FRAMES_DIRNAME / frame_filename).exists():
-                        curr_utterance["frame_filenames"].append(frame_filename)
+                        curr_utterance["frame_filenames"].append(
+                            frame_filename)
                     else:
-                        print(f"{frame_filename} does not exist, removing it from this list")
+                        print(
+                            f"{frame_filename} does not exist, removing it from this list")
 
                 # skip utterance completely if no frames were extracted
                 if len(curr_utterance["frame_filenames"]) == 0:
@@ -615,11 +660,12 @@ def _create_train_metadata():
         with open(TEST_METADATA_FILENAME, "w") as f:
             json.dump(test_dict, f)
 
+
 def _create_eval_metadata():
     """Creates files for evaluating multimodal SAYCam model"""
 
     if os.path.exists(EVAL_DEV_METADATA_FILENAME) and os.path.exists(EVAL_TEST_METADATA_FILENAME):
-        print("Evaluation metadata files have already been created . Skipping this step.")
+        print("Evaluation metadata files have already been created. Skipping this step.")
     else:
         print("Creating metadata files for evaluation.")
 
@@ -641,19 +687,22 @@ def _create_eval_metadata():
         for target_category in eval_categories:
             for i in range(n_evaluations):
                 # sample item from target category
-                target_category_dirname = os.path.join(eval_dev_dirname, target_category)
+                target_category_dirname = os.path.join(
+                    eval_dev_dirname, target_category)
                 target_img_filename = os.path.join(target_category_dirname,
                                                    np.random.choice(os.listdir(target_category_dirname)))
 
                 foil_categories = eval_categories.copy()
                 foil_categories.remove(target_category)
-                foil_categories = np.random.choice(foil_categories, size=n_foils, replace=False)
+                foil_categories = np.random.choice(
+                    foil_categories, size=n_foils, replace=False)
                 foil_img_filenames = []
 
                 for j in range(n_foils):
-                    foil_category_dirname = os.path.join(eval_dev_dirname, foil_categories[j])
+                    foil_category_dirname = os.path.join(
+                        eval_dev_dirname, foil_categories[j])
                     foil_img_filename = os.path.join(foil_category_dirname,
-                                                 np.random.choice(os.listdir(foil_category_dirname)))
+                                                     np.random.choice(os.listdir(foil_category_dirname)))
                     foil_img_filenames.append(foil_img_filename)
 
                 # save trial info as a dict
@@ -669,19 +718,22 @@ def _create_eval_metadata():
         for target_category in eval_categories:
             for i in range(n_evaluations):
                 # sample item from target category
-                target_category_dirname = os.path.join(eval_test_dirname, target_category)
+                target_category_dirname = os.path.join(
+                    eval_test_dirname, target_category)
                 target_img_filename = os.path.join(target_category_dirname,
                                                    np.random.choice(os.listdir(target_category_dirname)))
 
                 foil_categories = eval_categories.copy()
                 foil_categories.remove(target_category)
-                foil_categories = np.random.choice(foil_categories, size=n_foils, replace=False)
+                foil_categories = np.random.choice(
+                    foil_categories, size=n_foils, replace=False)
                 foil_img_filenames = []
 
                 for j in range(n_foils):
-                    foil_category_dirname = os.path.join(eval_test_dirname, foil_categories[j])
+                    foil_category_dirname = os.path.join(
+                        eval_test_dirname, foil_categories[j])
                     foil_img_filename = os.path.join(foil_category_dirname,
-                                                 np.random.choice(os.listdir(foil_category_dirname)))
+                                                     np.random.choice(os.listdir(foil_category_dirname)))
                     foil_img_filenames.append(foil_img_filename)
 
                 # save trial info as a dict
@@ -703,6 +755,81 @@ def _create_eval_metadata():
 
         with open(EVAL_TEST_METADATA_FILENAME, "w") as f:
             json.dump(eval_test_dict, f)
+
+
+def _generate_eval_trial(idx, stage, target_category, n_foils, eval_categories):
+    """Generate a single evaluation trial with one category label and N images"""
+    eval_dirname = EVAL_FRAMES_DIRNAME / f"{stage}"  # get directories
+
+    # sample item from target category
+    target_category_dirname = os.path.join(eval_dirname, target_category)
+    target_img_filename = os.path.join(target_category_dirname,
+                                       np.random.choice(os.listdir(target_category_dirname)))
+
+    # randomly sample foil categories
+    foil_categories = eval_categories.copy()
+    foil_categories.remove(target_category)  # remove target category from list
+    foil_categories = np.random.choice(
+        foil_categories, size=n_foils, replace=False)
+    foil_img_filenames = []
+
+    # randomly sample foil items
+    for i in range(n_foils):
+        foil_category_dirname = os.path.join(eval_dirname, foil_categories[i])
+        foil_img_filename = os.path.join(foil_category_dirname,
+                                         np.random.choice(os.listdir(foil_category_dirname)))
+        foil_img_filenames.append(foil_img_filename)
+
+    # save trial info as a dict
+    eval_trial = {}
+    eval_trial["trial_num"] = idx
+    eval_trial["target_category"] = target_category
+    eval_trial["target_img_filename"] = target_img_filename
+    eval_trial["foil_categories"] = list(foil_categories)
+    eval_trial["foil_img_filenames"] = foil_img_filenames
+    return eval_trial
+
+
+def _create_extra_eval_metadata():
+    """Create extra splits for evaluating Multimodal SAYCam models using 10 or 22 possible images per trial"""
+    if os.path.exists(EVAL_DEV_METADATA_FILENAME) and os.path.exists(EVAL_TEST_METADATA_FILENAME):
+        print(
+            "Extra evaluation metadata files have already been created. Skipping this step.")
+    else:
+        print("Creating extra metadata files for evaluation.")
+
+        stages = ["dev", "test"]
+        n_foils = [9, 21]  # number of foil referents
+        conds = itertools.product(stages, n_foils)
+        n_evaluations = 100  # number of evaluations per category
+
+        # get evaluation categories and remove ones not in vocab
+        eval_dev_dirname = EVAL_FRAMES_DIRNAME / "dev"
+        eval_categories = sorted(os.listdir(eval_dev_dirname))
+        eval_categories.remove("carseat")
+        eval_categories.remove("couch")
+        eval_categories.remove("greenery")
+        eval_categories.remove("plushanimal")
+
+        for cond in conds:
+            # initialize condition
+            stage = cond[0]
+            n_foil = cond[1]
+            eval_dataset = []
+
+            # generate trials
+            for target_category in eval_categories:
+                for i in range(n_evaluations):
+                    eval_trial = _generate_eval_trial(
+                        i, stage, target_category, n_foil, eval_categories)
+                    eval_dataset.append(eval_trial)
+
+            # put dataset into dictionary
+            eval_dict = {"data": eval_dataset}
+
+            # save as JSON
+            with open(DATA_DIR / f"eval_{stage}_{n_foil}_foils.json", "w") as f:
+                json.dump(eval_dict, f)
 
 
 def _create_vocab():
@@ -753,10 +880,12 @@ def _create_animations():
             os.makedirs(ANIMATED_FRAMES_DIRNAME)
 
         # get list of preprocessed transcripts
-        transcripts = sorted(Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))[:5]
+        transcripts = sorted(
+            Path(PREPROCESSED_TRANSCRIPTS_DIRNAME).glob("*.csv"))[:5]
 
         for idx, transcript in enumerate(transcripts):
-            print(f"Creating animated gifs: {transcript} ({idx+1}/{len(transcripts)})")
+            print(
+                f"Creating animated gifs: {transcript} ({idx+1}/{len(transcripts)})")
 
             # read in preprocessed transcript
             transcript_df = pd.read_csv(transcript)
@@ -766,7 +895,8 @@ def _create_animations():
 
             # create gif
             for utterance, utterance_group in utterance_groups:
-                utterance_num = pd.unique(utterance_group["utterance_num"]).item()
+                utterance_num = pd.unique(
+                    utterance_group["utterance_num"]).item()
                 gif_filename = f"{pd.unique(utterance_group['transcript_filename']).item()[:-4]}_{utterance_num:03}.gif"
                 gif_filepath = Path(ANIMATED_FRAMES_DIRNAME, gif_filename)
                 frame_filenames = utterance_group["frame_filename"]
