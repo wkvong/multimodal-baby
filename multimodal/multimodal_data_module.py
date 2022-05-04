@@ -301,20 +301,15 @@ class MultiModalDataModule(pl.LightningDataModule):
         eval_test_metadata_filename = EVAL_DATA_DIR / \
             self.eval_metadata_filename.replace("dev", "test")
 
-        print(eval_dev_metadata_filename)
-        print(eval_test_metadata_filename)
-
         for split, filename in [
                 ("val", eval_dev_metadata_filename),
                 ("test", eval_test_metadata_filename)]:
             data = load_data(filename)
 
             if self.eval_type == "image":
-                print("Running image evaluation!")
                 dataset = LabeledSEvalDataset(
                     data, vocab, self.eval_include_sos_eos)
             elif self.eval_type == "text":
-                print("Running text evaluation!")
                 dataset = LabeledSTextEvalDataset(
                     data, vocab, self.eval_include_sos_eos)
 

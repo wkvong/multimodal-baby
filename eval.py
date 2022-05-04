@@ -1,5 +1,6 @@
 import argparse
 import glob
+import json
 import os
 
 import numpy as np
@@ -10,7 +11,7 @@ from torchvision import transforms
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-from multimodal.multimodal_data_module import EVAL_DATA_DIR, SOS_TOKEN_ID, EOS_TOKEN_ID
+from multimodal.multimodal_data_module import EVAL_DATA_DIR, SOS_TOKEN_ID, EOS_TOKEN_ID, load_data
 from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule
 from multimodal.multimodal import MultiModalModel
 from multimodal.multimodal_lit import MultiModalLitModel
@@ -58,13 +59,15 @@ def main(args):
     data.prepare_data()
     data.setup()
 
+    # load vocab and metadata
     vocab = data.read_vocab()
+    eval_data = load_data(EVAL_DATA_DIR / args.eval_metadata_filename)
 
     # create dataloader
     eval_dataloader = {
         "dev": data.val_dataloader,
         "test": data.test_dataloader,
-    }[args.stage]()[1]
+    }[args.stage]()[1]  # second dataloader contains eval data
 
     # get eval categories
     classes = sorted(os.listdir(EVAL_FRAMES_DIRNAME / "dev"))
@@ -137,16 +140,21 @@ def main(args):
 
         total_pred[class_label] += 1
 
+        # get categories
+        curr_trial = eval_data[i]
+        curr_target_category = curr_trial["target_category"]
+        curr_foil_categories = curr_trial["foil_categories"]
+        curr_eval_categories = [curr_target_category] + curr_foil_categories
+
         # store results
         curr_results = {
             "checkpoint": checkpoint_name,
             "trial_idx": i,
+            "categories": curr_eval_categories,
+            "logits": logits_list,
             "pred": pred,
             "correct": correct,
-            "logits": logits_list
         }
-        curr_results = [checkpoint_name, i,
-                        class_label, correct] + logits_list
         results.append(curr_results)
 
         # plot attention map
@@ -196,17 +204,20 @@ def main(args):
 
     # save results
     if args.save_predictions:
+        # put results into a dictionary
+        results_dict = {"data": results}
+
         # create dir
         os.makedirs('results', exist_ok=True)
 
-        # convert results to data frame
-        columns = ['model_checkpoint', 'trial', 'category_label', 'correct',
-                   'target_prob', 'foil_one_prob', 'foil_two_prob',
-                   'foil_three_prob']
-        results_df = pd.DataFrame(results, columns=columns)
-        results_filename = os.path.join(
-            "results", f"{args.model}_eval_predictions.csv")
-        results_df.to_csv(results_filename, index=False)
+        # get filename
+        results_filename = f'results/{args.model}_{args.eval_type}_{args.eval_metadata_filename.replace(".json", "_predictions.json")}'
+        print(results_filename)
+
+        # save to JSON
+        print(f"Saving predictions to {results_filename}")
+        with open(results_filename, "w") as f:
+            json.dump(results_dict, f)
 
 
 if __name__ == "__main__":
