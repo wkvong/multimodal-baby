@@ -12,15 +12,12 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 
 from multimodal.multimodal_data_module import EVAL_DATA_DIR, SOS_TOKEN_ID, EOS_TOKEN_ID
 from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule
-from multimodal.coco_captions_data_module import COCOCaptionsDataModule
 from multimodal.multimodal import MultiModalModel
 from multimodal.multimodal_lit import MultiModalLitModel
 from multimodal.attention_maps import gradCAM, getAttMap, n_inv, imshow
 from train import _setup_parser
 
 EVAL_FRAMES_DIRNAME = EVAL_DATA_DIR / "eval"
-
-
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
@@ -52,14 +49,12 @@ def main(args):
     # make the train dataloader deterministic
     data_args.augment_frames = False
     data_args.eval_include_sos_eos = args.eval_include_sos_eos
+    data_args.eval_type = args.eval_type
+    data_args.eval_metadata_filename = args.eval_metadata_filename
 
     # build data module
-    dataset_name = getattr(data_args, "dataset", "saycam")
-    DataModuleClass = {
-        "saycam": MultiModalSAYCamDataModule,
-        "coco": COCOCaptionsDataModule,
-    }[dataset_name]
-    data = DataModuleClass(data_args)
+    stage = getattr(data_args, "stage", "saycam")
+    data = MultiModalSAYCamDataModule(data_args)
     data.prepare_data()
     data.setup()
 
@@ -69,7 +64,7 @@ def main(args):
     eval_dataloader = {
         "dev": data.val_dataloader,
         "test": data.test_dataloader,
-    }[args.dataset]()[1]
+    }[args.stage]()[1]
 
     # get eval categories
     classes = sorted(os.listdir(EVAL_FRAMES_DIRNAME / "dev"))
@@ -105,18 +100,34 @@ def main(args):
                 label = [SOS_TOKEN_ID] + label + [EOS_TOKEN_ID]
             label = torch.LongTensor([label])
 
-        img = img.squeeze(0).to(device)  # remove outer batch
-        label = label.to(device)
-        label_len = label_len.to(device)
+        if args.eval_type == "image":
+            # perform evaluation using single category label with multiple images
+            img = img.squeeze(0).to(device)  # remove outer batch
+            label = label.to(device)
+            label_len = label_len.to(device)
 
-        # calculate similarity between images
-        # first, get embeddings
-        with torch.no_grad():
-            _, logits_per_text = model(img, label, label_len)
-            logits_list = torch.softmax(logits_per_text,
-                                        dim=-1).detach().cpu().numpy().tolist()[0]
-            pred = torch.argmax(logits_per_text, dim=-1).item()
-            ground_truth = 0
+            # calculate similarity between images
+            # first, get embeddings
+            with torch.no_grad():
+                _, logits_per_text = model(img, label, label_len)
+                logits_list = torch.softmax(logits_per_text,
+                                            dim=-1).detach().cpu().numpy().tolist()[0]
+                pred = torch.argmax(logits_per_text, dim=-1).item()
+                ground_truth = 0
+        elif args.eval_type == "text":
+            # perform evaluation using single image with multiple category labels
+            img = img.squeeze(0).to(device)
+            label = label.squeeze(0).to(device)
+            label_len = label_len.squeeze(0).to(device)
+
+            # calculate similarity between images
+            # first, get embeddings
+            with torch.no_grad():
+                logits_per_image, _ = model(img, label, label_len)
+                logits_list = torch.softmax(logits_per_image,
+                                            dim=-1).detach().cpu().numpy().tolist()[0]
+                pred = torch.argmax(logits_per_image, dim=-1).item()
+                ground_truth = 0
 
         # second, calculate if correct referent is predicted
         correct = False
@@ -127,6 +138,13 @@ def main(args):
         total_pred[class_label] += 1
 
         # store results
+        curr_results = {
+            "checkpoint": checkpoint_name,
+            "trial_idx": i,
+            "pred": pred,
+            "correct": correct,
+            "logits": logits_list
+        }
         curr_results = [checkpoint_name, i,
                         class_label, correct] + logits_list
         results.append(curr_results)
@@ -196,10 +214,15 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default="lstm",
                         #choices=['embedding', 'lstm'],
                         help="which trained model to perform evaluations on")
-    parser.add_argument("--dataset", type=str, default="dev", choices=["dev", "test"],
-                        help="which evaluation dataset to use")
+    parser.add_argument("--stage", type=str, default="dev", choices=["dev", "test"],
+                        help="which evaluation stage to use")
     parser.add_argument("--eval_include_sos_eos", action="store_true",
                         help="include SOS/EOS tokens for eval labels")
+    parser.add_argument("--eval_type", type=str, default="image", choices=[
+        "image", "text"], help="Run evaluation using multiple images or multiple labels")
+    parser.add_argument("--eval_metadata_filename", type=str,
+                        default="eval_dev.json",
+                        help="JSON file with metadata for (dev) evaluation split to use")
     parser.add_argument("--use_kitty_label", action="store_true",
                         help="replaces cat label with kitty")
     parser.add_argument("--save_predictions", action="store_true",

@@ -15,8 +15,9 @@ from multimodal.utils import GaussianBlur
 # directories and filenames
 # must be consistent with multimodal_saycam_data_module
 EVAL_DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
-EVAL_DEV_METADATA_FILENAME = EVAL_DATA_DIR / "eval_dev.json"
-EVAL_TEST_METADATA_FILENAME = EVAL_DATA_DIR / "eval_test.json"
+EVAL_METADATA_FILENAME = "eval_dev.json"
+# EVAL_DEV_METADATA_FILENAME = EVAL_DATA_DIR / "eval_dev.json"
+# EVAL_TEST_METADATA_FILENAME = EVAL_DATA_DIR / "eval_test.json"
 
 # default arguments
 # dataloader arguments
@@ -28,6 +29,7 @@ EVAL_INCLUDE_SOS_EOS = False
 # evaluation arguments
 N_VAL_DATALOADERS_PER_SPLIT = 2
 TEST_WHILE_VAL = False
+EVAL_TYPE = "image"
 
 # sampling arguments
 MAX_LEN_UTTERANCE = 25
@@ -120,7 +122,8 @@ class LabeledSEvalDataset(Dataset):
 
         # read in images (target and foils)
         # target image is always the first index
-        imgs = torch.zeros((4, 3, IMAGE_H, IMAGE_W))
+        n_imgs = len(trial["foil_img_filenames"]) + 1
+        imgs = torch.zeros((n_imgs, 3, IMAGE_H, IMAGE_W))
         target_img_filename = trial["target_img_filename"]
         imgs[0] = self.transform(Image.open(
             target_img_filename).convert("RGB"))
@@ -145,6 +148,50 @@ class LabeledSEvalDataset(Dataset):
         return len(self.data)
 
 
+class LabeledSTextEvalDataset(Dataset):
+    """
+    Dataset that returns a single referent and multiple target words for evaluation
+    """
+
+    def __init__(self, data, vocab, eval_include_sos_eos=False):
+        self.data = data
+        self.vocab = vocab
+        self.eval_include_sos_eos = eval_include_sos_eos
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+            normalizer,
+        ])
+
+    def __getitem__(self, idx):
+        # read trial information
+        trial = self.data[idx]
+
+        # read in target image
+        img = torch.zeros((1, 3, IMAGE_H, IMAGE_W))
+        target_img_filename = trial["target_img_filename"]
+        img[0] = self.transform(Image.open(target_img_filename).convert("RGB"))
+
+        # get target category and foil categories
+        raw_target_label = trial["target_category"]
+        raw_foil_labels = trial["foil_categories"]
+        raw_labels = [raw_target_label] + raw_foil_labels
+        labels = []
+        labels_len = []
+        for raw_label in raw_labels:
+            label = [self.vocab[raw_label]]
+            if self.eval_include_sos_eos:
+                label = [SOS_TOKEN_ID] + label + [EOS_TOKEN_ID]
+            labels.append(label)
+            labels_len.append(len(label))
+
+        labels = torch.LongTensor(labels)
+
+        return img, labels, labels_len, [raw_target_label]
+
+    def __len__(self):
+        return len(self.data)
+
+
 class MultiModalDataModule(pl.LightningDataModule):
     """
     The abstract data module consisting of images and the associated utterances.
@@ -163,6 +210,9 @@ class MultiModalDataModule(pl.LightningDataModule):
         self.eval_include_sos_eos = self.args.get("eval_include_sos_eos",
                                                   EVAL_INCLUDE_SOS_EOS)
         self.test_while_val = self.args.get("test_while_val", TEST_WHILE_VAL)
+        self.eval_type = self.args.get("eval_type", EVAL_TYPE)
+        self.eval_metadata_filename = self.args.get(
+            "eval_metadata_filename", EVAL_METADATA_FILENAME)
 
         if self.augment_frames:
             # add same augmentations as emin used
@@ -211,6 +261,11 @@ class MultiModalDataModule(pl.LightningDataModule):
         )
         parser.add_argument("--test_while_val", action="store_true",
                             help="Evaluate test set during validation (for COCO only!)")
+        parser.add_argument("--eval_type", type=str, default="image", choices=[
+                            "image", "text"], help="Run evaluation using multiple images or multiple labels")
+        parser.add_argument("--eval_metadata_filename", type=str,
+                            default="eval_dev.json",
+                            help="JSON file with metadata for (dev) evaluation split to use")
         return parser
 
     # TODO: add relevant config details
@@ -242,12 +297,27 @@ class MultiModalDataModule(pl.LightningDataModule):
     def create_eval_datasets(self, vocab):
         eval_datasets = {}
 
+        eval_dev_metadata_filename = EVAL_DATA_DIR / self.eval_metadata_filename
+        eval_test_metadata_filename = EVAL_DATA_DIR / \
+            self.eval_metadata_filename.replace("dev", "test")
+
+        print(eval_dev_metadata_filename)
+        print(eval_test_metadata_filename)
+
         for split, filename in [
-                ("val", EVAL_DEV_METADATA_FILENAME),
-                ("test", EVAL_TEST_METADATA_FILENAME)]:
+                ("val", eval_dev_metadata_filename),
+                ("test", eval_test_metadata_filename)]:
             data = load_data(filename)
-            dataset = LabeledSEvalDataset(
-                data, vocab, self.eval_include_sos_eos)
+
+            if self.eval_type == "image":
+                print("Running image evaluation!")
+                dataset = LabeledSEvalDataset(
+                    data, vocab, self.eval_include_sos_eos)
+            elif self.eval_type == "text":
+                print("Running text evaluation!")
+                dataset = LabeledSTextEvalDataset(
+                    data, vocab, self.eval_include_sos_eos)
+
             eval_datasets[split] = dataset
 
         return eval_datasets
