@@ -12,6 +12,8 @@ import pytorch_lightning as pl
 
 from multimodal.utils import GaussianBlur
 
+import clip
+
 # directories and filenames
 # must be consistent with multimodal_saycam_data_module
 EVAL_DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
@@ -53,6 +55,7 @@ IMAGE_W = 224
 
 # image transforms
 normalizer = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+CLIP_EVAL = False
 
 
 def read_vocab(vocab_filename):
@@ -64,6 +67,10 @@ def load_data(filename):
     with open(filename) as f:
         data = json.load(f)
         return data['data']
+
+
+def _convert_image_to_rgb(image):
+    return image.convert("RGB")
 
 
 class MultiModalDataset(Dataset):
@@ -107,14 +114,12 @@ class LabeledSEvalDataset(Dataset):
     Dataset that returns a set of referents and a target word for evaluation
     """
 
-    def __init__(self, data, vocab, eval_include_sos_eos=False):
+    def __init__(self, data, vocab, transform, eval_include_sos_eos=False, clip_eval=False):
         self.data = data
         self.vocab = vocab
+        self.transform = transform
         self.eval_include_sos_eos = eval_include_sos_eos
-        self.transform = transforms.Compose([
-            transforms.ToTensor(),
-            normalizer,
-        ])
+        self.clip_eval = clip_eval
 
     def __getitem__(self, idx):
         # read trial information
@@ -134,13 +139,20 @@ class LabeledSEvalDataset(Dataset):
 
         # get target category index from vocab as a single utterance
         raw_label = trial["target_category"]
-        label = [self.vocab[raw_label]]
-        if self.eval_include_sos_eos:
-            # label is [<sos>, label, <eos>] to match LM training
-            label = [SOS_TOKEN_ID] + label + [EOS_TOKEN_ID]
 
-        label = torch.LongTensor(label)
-        label_len = len(label)
+        if not self.clip_eval:
+            # use SAYCam vocab/tokenizer
+            label = [self.vocab[raw_label]]
+            if self.eval_include_sos_eos:
+                # label is [<sos>, label, <eos>] to match LM training
+                label = [SOS_TOKEN_ID] + label + [EOS_TOKEN_ID]
+
+            label = torch.LongTensor(label)
+            label_len = len(label)
+        else:
+            # use CLIP tokenizer
+            label = clip.tokenize(raw_label)
+            label_len = len(label)
 
         return imgs, label, label_len, [raw_label]
 
@@ -153,14 +165,12 @@ class LabeledSTextEvalDataset(Dataset):
     Dataset that returns a single referent and multiple target words for evaluation
     """
 
-    def __init__(self, data, vocab, eval_include_sos_eos=False):
+    def __init__(self, data, vocab, transform, eval_include_sos_eos=False, clip_eval=False):
         self.data = data
         self.vocab = vocab
+        self.transform = transform
         self.eval_include_sos_eos = eval_include_sos_eos
-        self.transform = transforms.Compose([
-            transforms.ToTensor(),
-            normalizer,
-        ])
+        self.clip_eval = clip_eval
 
     def __getitem__(self, idx):
         # read trial information
@@ -178,13 +188,25 @@ class LabeledSTextEvalDataset(Dataset):
         labels = []
         labels_len = []
         for raw_label in raw_labels:
-            label = [self.vocab[raw_label]]
-            if self.eval_include_sos_eos:
-                label = [SOS_TOKEN_ID] + label + [EOS_TOKEN_ID]
-            labels.append(label)
-            labels_len.append(len(label))
+            if not self.clip_eval:
+                # use SAYCam vocab/tokenizer
+                label = [self.vocab[raw_label]]
+                if self.eval_include_sos_eos:
+                    label = [SOS_TOKEN_ID] + label + [EOS_TOKEN_ID]
+                labels.append(label)
+                labels_len.append(len(label))
+            else:
+                # use CLIP tokenizer
+                label = clip.tokenize(raw_label)
+                labels.append(label)
+                labels_len.append(len(label))
 
-        labels = torch.LongTensor(labels)
+        if not self.clip_eval:
+            # convert list of labels to tensor
+            labels = torch.LongTensor(labels)
+        else:
+            # labels are already tensors, so need to concatenate
+            labels = torch.cat(labels, dim=0)
 
         return img, labels, labels_len, [raw_target_label]
 
@@ -213,6 +235,8 @@ class MultiModalDataModule(pl.LightningDataModule):
         self.eval_type = self.args.get("eval_type", EVAL_TYPE)
         self.eval_metadata_filename = self.args.get(
             "eval_metadata_filename", EVAL_METADATA_FILENAME)
+        self.clip_eval = self.args.get(
+            "clip_eval", CLIP_EVAL)
 
         if self.augment_frames:
             # add same augmentations as emin used
@@ -226,7 +250,20 @@ class MultiModalDataModule(pl.LightningDataModule):
                 transforms.ToTensor(),
                 normalizer,
             ])
+        elif self.clip_eval:
+            print("Using CLIP transforms for evaluation")
+            # use CLIP transforms (for CLIP evaluation only)
+            self.transform = transforms.Compose([
+                transforms.Resize(
+                    IMAGE_H, interpolation=transforms.InterpolationMode.BICUBIC),
+                transforms.CenterCrop(IMAGE_H),
+                # _convert_image_to_rgb,  # commeting out since we convert to RGB
+                transforms.ToTensor(),
+                transforms.Normalize((0.48145466, 0.4578275, 0.40821073),
+                                     (0.26862954, 0.26130258, 0.27577711)),
+            ])
         else:
+            print("Using base transforms")
             # just convert to tensor and normalize
             self.transform = transforms.Compose([
                 transforms.ToTensor(),
@@ -266,6 +303,8 @@ class MultiModalDataModule(pl.LightningDataModule):
         parser.add_argument("--eval_metadata_filename", type=str,
                             default="eval_dev.json",
                             help="JSON file with metadata for (dev) evaluation split to use")
+        parser.add_argument("--clip_eval", action="store_true",
+                            help="Perform evaluation using CLIP")
         return parser
 
     # TODO: add relevant config details
@@ -308,10 +347,10 @@ class MultiModalDataModule(pl.LightningDataModule):
 
             if self.eval_type == "image":
                 dataset = LabeledSEvalDataset(
-                    data, vocab, self.eval_include_sos_eos)
+                    data, vocab, self.transform, self.eval_include_sos_eos, self.clip_eval)
             elif self.eval_type == "text":
                 dataset = LabeledSTextEvalDataset(
-                    data, vocab, self.eval_include_sos_eos)
+                    data, vocab, self.transform, self.eval_include_sos_eos, self.clip_eval)
 
             eval_datasets[split] = dataset
 

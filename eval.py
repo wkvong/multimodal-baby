@@ -18,40 +18,57 @@ from multimodal.multimodal_lit import MultiModalLitModel
 from multimodal.attention_maps import gradCAM, getAttMap, n_inv, imshow
 from train import _setup_parser
 
+import clip
+
 EVAL_FRAMES_DIRNAME = EVAL_DATA_DIR / "eval"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def main(args):
     # get checkpoint
-    if args.model == "embedding":
-        checkpoint_name = "multimodal_text_encoder_embedding_lr_0.0001_weight_decay_0.1_fix_temperature_True_batch_size_16"
-    elif args.model == "lstm":
-        checkpoint_name = 'multimodal_text_encoder_lstm_lr_0.0001_weight_decay_0.2_fix_temperature_False_batch_size_8'
-    else:
-        checkpoint_name = args.model
-    if checkpoint_name.endswith(".ckpt"):
-        checkpoint = checkpoint_name
-    else:
-        checkpoint = glob.glob(
-            f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/*.ckpt")[0]
+    if args.model == "clip":
+        print("Loading CLIP")
+        checkpoint_name = "clip_vitb16"
+        model, preprocess = clip.load("ViT-B/16", device=device)
+        model.eval()
 
-    # load model from checkpoint
-    model = MultiModalLitModel.load_from_checkpoint(
-        checkpoint, map_location=device)
-    model.eval()
+        # set up parser
+        parser = _setup_parser()
+        data_args = parser.parse_args("")
+    else:
+        if args.model == "embedding":
+            checkpoint_name = "multimodal_text_encoder_embedding_lr_0.0001_weight_decay_0.1_fix_temperature_True_batch_size_16"
+        elif args.model == "lstm":
+            checkpoint_name = 'multimodal_text_encoder_lstm_lr_0.0001_weight_decay_0.2_fix_temperature_False_batch_size_8'
 
-    # parse empty args
-    parser = _setup_parser()
-    data_args = parser.parse_args("")
-    # set args
-    for key, value in model.args.items():
-        setattr(data_args, key, value)
+        if checkpoint_name.endswith(".ckpt"):
+            checkpoint = checkpoint_name
+        else:
+            checkpoint = glob.glob(
+                f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/*.ckpt")[0]
+
+        # load model from checkpoint
+        model = MultiModalLitModel.load_from_checkpoint(
+            checkpoint, map_location=device)
+        model.eval()
+
+        # parse empty args
+        parser = _setup_parser()
+        data_args = parser.parse_args("")
+
+        # set args from checkpoint
+        for key, value in model.args.items():
+            setattr(data_args, key, value)
+
     # make the train dataloader deterministic
     data_args.augment_frames = False
     data_args.eval_include_sos_eos = args.eval_include_sos_eos
     data_args.eval_type = args.eval_type
     data_args.eval_metadata_filename = args.eval_metadata_filename
+
+    # use clip for evaluation
+    if args.model == "clip":
+        data_args.clip_eval = True
 
     # build data module
     stage = getattr(data_args, "stage", "saycam")
@@ -95,7 +112,7 @@ def main(args):
         # get text category label
         class_label = raw_label[0][0]
 
-        if args.use_kitty_label and class_label == "cat":
+        if args.use_kitty_label and class_label == "cat" and args.model != "clip":
             # use kitty for cat eval
             class_label = "kitty"
             label = [vocab[class_label]]
@@ -112,9 +129,15 @@ def main(args):
             # calculate similarity between images
             # first, get embeddings
             with torch.no_grad():
-                _, logits_per_text = model(img, label, label_len)
+                if args.model == "clip":
+                    label = label.squeeze(0)  # remove extra dim for CLIP
+                    _, logits_per_text = model(img, label)
+                else:
+                    _, logits_per_text = model(img, label, label_len)
+
                 logits_list = torch.softmax(logits_per_text,
                                             dim=-1).detach().cpu().numpy().tolist()[0]
+
                 pred = torch.argmax(logits_per_text, dim=-1).item()
                 ground_truth = 0
         elif args.eval_type == "text":
@@ -126,7 +149,11 @@ def main(args):
             # calculate similarity between images
             # first, get embeddings
             with torch.no_grad():
-                logits_per_image, _ = model(img, label, label_len)
+                if args.model == "clip":
+                    label = label.squeeze(0)  # remove extra dim for CLIP
+                    logits_per_image, _ = model(img, label)
+                else:
+                    logits_per_image, _ = model(img, label, label_len)
                 logits_list = torch.softmax(logits_per_image,
                                             dim=-1).detach().cpu().numpy().tolist()[0]
                 pred = torch.argmax(logits_per_image, dim=-1).item()
@@ -223,7 +250,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="lstm",
-                        #choices=['embedding', 'lstm'],
+                        choices=['embedding', 'lstm', 'clip'],
                         help="which trained model to perform evaluations on")
     parser.add_argument("--stage", type=str, default="dev", choices=["dev", "test"],
                         help="which evaluation stage to use")
