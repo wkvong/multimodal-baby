@@ -23,7 +23,7 @@ argparser.add_argument("--checkpoints", type=Path, default=Path("checkpoints"),
                        help="The directory of checkpoints.")
 argparser.add_argument("--code-dir", type=Path, default=Path(),
                        help="The working directory of the jobs.")
-argparser.add_argument("--time", default="6:00:00",
+argparser.add_argument("--time", default="48:00:00",
                        help="The time limit of the jobs.")
 argparser.add_argument("--mem", default="32GB",
                        help="The memory limit of the jobs.")
@@ -34,7 +34,8 @@ argparser.add_argument("--mail-user", default="waikeenvong@gmail.com",
 argparser.add_argument("--python", default="python",
                        help="The python to run with; e.g., python3.")
 argparser.add_argument("--conda", type=Path,
-                       default=Path("/home/wv9/code/WaiKeen/miniconda3/etc/profile.d/conda.sh"),
+                       default=Path(
+                           "/home/wv9/code/WaiKeen/miniconda3/etc/profile.d/conda.sh"),
                        help="The path to the conda.sh; ignored if failed to access.")
 argparser.add_argument("--dry-run", action="store_true",
                        help="Do not start jobs when running. Without this flag, jobs will be immediately submitted.")
@@ -86,11 +87,12 @@ varying_keys = {key for key in merged if len(merged[key]) > 1}
 if args.auto_flag:
     # display all varying keys in jobname
     flags = list(varying_keys)
-else: # use flags
+else:  # use flags
     # check whether there are flags that are varying but omitted in flags
     omitted_flags = [key for key in varying_keys if key not in flags]
     if omitted_flags:
-        print(f"ERROR: {', '.join(omitted_flags)} are varying but omitted in flags")
+        print(
+            f"ERROR: {', '.join(omitted_flags)} are varying but omitted in flags")
         sys.exit()
 
 
@@ -134,7 +136,7 @@ for job in jobs:
 
     checkpoint_dir = args.checkpoints / jobname
     checkpoint_dir.parent.mkdir(parents=True, exist_ok=True)
-    
+
     job_source_dir = args.code_dir
 
     # specify job command and create slurm file
@@ -147,8 +149,10 @@ for job in jobs:
         slurmfile.write("#!/bin/bash\n")
         slurmfile.write(f"#SBATCH --job-name={jobname}\n")
         slurmfile.write("#SBATCH --open-mode=append\n")
-        slurmfile.write(f"#SBATCH --output={(args.logs / (jobname + '.out')).absolute()}\n")
-        slurmfile.write(f"#SBATCH --error={(args.logs / (jobname + '.err')).absolute()}\n")
+        slurmfile.write(
+            f"#SBATCH --output={(args.logs / (jobname + '.out')).absolute()}\n")
+        slurmfile.write(
+            f"#SBATCH --error={(args.logs / (jobname + '.err')).absolute()}\n")
         slurmfile.write("#SBATCH --export=ALL\n")
         slurmfile.write(f"#SBATCH --time={args.time}\n")
         slurmfile.write(f"#SBATCH --mem={args.mem}\n")
