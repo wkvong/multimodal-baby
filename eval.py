@@ -20,7 +20,8 @@ from train import _setup_parser
 
 import clip
 
-EVAL_FRAMES_DIRNAME = EVAL_DATA_DIR / "eval"
+EVAL_FRAMES_DIRNAME = EVAL_DATA_DIR / "eval_filtered"
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
@@ -67,6 +68,7 @@ def main(args):
     data_args.augment_frames = False
     data_args.eval_include_sos_eos = args.eval_include_sos_eos
     data_args.eval_type = args.eval_type
+    # manually set to be filtered set
     data_args.eval_metadata_filename = args.eval_metadata_filename
 
     # get seed
@@ -84,7 +86,7 @@ def main(args):
 
     # load vocab and metadata
     vocab = data.read_vocab()
-    eval_data = load_data(EVAL_DATA_DIR / args.eval_metadata_filename)
+    eval_data = load_data(EVAL_DATA_DIR / data_args.eval_metadata_filename)
 
     # create dataloader
     eval_dataloader = {
@@ -94,10 +96,6 @@ def main(args):
 
     # get eval categories
     classes = sorted(os.listdir(EVAL_FRAMES_DIRNAME / "dev"))
-    classes.remove("carseat")
-    classes.remove("couch")
-    classes.remove("greenery")
-    classes.remove("plushanimal")
 
     # replace cat with kitty
     if args.use_kitty_label:
@@ -121,10 +119,17 @@ def main(args):
         if args.use_kitty_label and class_label == "cat" and args.model != "clip":
             # use kitty for cat eval
             class_label = "kitty"
-            label = [vocab[class_label]]
-            if args.eval_include_sos_eos:
-                label = [SOS_TOKEN_ID] + label + [EOS_TOKEN_ID]
-            label = torch.LongTensor([label])
+
+            if args.eval_type == "image":
+                # replace single label
+                label = [vocab[class_label]]
+                if args.eval_include_sos_eos:
+                    label = [SOS_TOKEN_ID] + label + [EOS_TOKEN_ID]
+                label = torch.LongTensor([label])
+            elif args.eval_type == "text":
+                # replace true class label only
+                label[0][0] = vocab[class_label]
+                # ignoring SOS/EOS option for now...
 
         if args.eval_type == "image":
             # perform evaluation using single category label with multiple images
@@ -268,7 +273,7 @@ if __name__ == "__main__":
     parser.add_argument("--eval_type", type=str, default="image", choices=[
         "image", "text"], help="Run evaluation using multiple images or multiple labels")
     parser.add_argument("--eval_metadata_filename", type=str,
-                        default="eval_dev.json",
+                        default="eval_filtered_dev.json",
                         help="JSON file with metadata for (dev) evaluation split to use")
     parser.add_argument("--use_kitty_label", action="store_true",
                         help="replaces cat label with kitty")

@@ -17,7 +17,7 @@ import clip
 # directories and filenames
 # must be consistent with multimodal_saycam_data_module
 EVAL_DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
-EVAL_METADATA_FILENAME = "eval_dev.json"
+EVAL_METADATA_FILENAME = "eval_filtered_dev.json"
 # EVAL_DEV_METADATA_FILENAME = EVAL_DATA_DIR / "eval_dev.json"
 # EVAL_TEST_METADATA_FILENAME = EVAL_DATA_DIR / "eval_test.json"
 
@@ -301,7 +301,7 @@ class MultiModalDataModule(pl.LightningDataModule):
         parser.add_argument("--eval_type", type=str, default="image", choices=[
                             "image", "text"], help="Run evaluation using multiple images or multiple labels")
         parser.add_argument("--eval_metadata_filename", type=str,
-                            default="eval_dev.json",
+                            default="eval_filtered_dev.json",
                             help="JSON file with metadata for (dev) evaluation split to use")
         parser.add_argument("--clip_eval", action="store_true",
                             help="Perform evaluation using CLIP")
