@@ -11,6 +11,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 import pytorch_lightning as pl
+import clip
 
 from multimodal.multimodal_data_module import MAX_LEN_UTTERANCE, PAD_TOKEN, UNK_TOKEN, SOS_TOKEN, EOS_TOKEN, PAD_TOKEN_ID, UNK_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID, IMAGE_H, IMAGE_W, normalizer, multiModalDataset_collate_fn
 from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule, DATA_DIR, TRAIN_METADATA_FILENAME
@@ -23,10 +24,11 @@ OBJECT_CATEGORIES_EVAL_METADATA_FILENAME = DATA_DIR / \
 
 
 class ObjectCategoriesEvalDataset(Dataset):
-    def __init__(self, data, vocab, eval_include_sos_eos=False):
+    def __init__(self, data, vocab, eval_include_sos_eos=False, clip_eval=False):
         self.data = data
         self.vocab = vocab
         self.eval_include_sos_eos = eval_include_sos_eos
+        self.clip_eval = clip_eval
 
         self.transform = transforms.Compose([
             transforms.Resize((IMAGE_H, IMAGE_W),
@@ -55,14 +57,19 @@ class ObjectCategoriesEvalDataset(Dataset):
         # get target category index from vocab as a single utterance
         raw_label = trial["target_category"]
 
-        # use SAYCam vocab/tokenizer
-        label = [self.vocab[raw_label]]
-        if self.eval_include_sos_eos:
-            # label is [<sos>, label, <eos>] to match LM training
-            label = [SOS_TOKEN_ID] + label + [EOS_TOKEN_ID]
+        if not self.clip_eval:
+            # use SAYCam vocab/tokenizer
+            label = [self.vocab[raw_label]]
+            if self.eval_include_sos_eos:
+                # label is [<sos>, label, <eos>] to match LM training
+                label = [SOS_TOKEN_ID] + label + [EOS_TOKEN_ID]
 
-        label = torch.LongTensor(label)
-        label_len = len(label)
+            label = torch.LongTensor(label)
+            label_len = len(label)
+        else:
+            # use CLIP tokenizer
+            label = clip.tokenize(raw_label)
+            label_len = len(label)
 
         return imgs, label, label_len, [raw_label]
 
@@ -95,11 +102,11 @@ class ObjectCategoriesDataModule(pl.LightningDataModule):
 
         self.eval_dataset = ObjectCategoriesEvalDataset(self.data, self.vocab)
 
-    def test_dataloader(self):
+    def test_dataloader(self, shuffle=False):
         eval_dataloader = DataLoader(
             self.eval_dataset,
             collate_fn=multiModalDataset_collate_fn,
-            shuffle=False,
+            shuffle=shuffle,
             batch_size=1,
             num_workers=4,
             pin_memory=False,
