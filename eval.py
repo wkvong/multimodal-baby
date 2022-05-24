@@ -37,15 +37,18 @@ def main(args):
         data_args = parser.parse_args("")
     else:
         if args.model == "embedding":
-            checkpoint_name = "multimodal_text_encoder_embedding_lr_0.0001_weight_decay_0.1_fix_temperature_True_batch_size_16"
+            # checkpoint_name = "multimodal_text_encoder_embedding_lr_0.0001_weight_decay_0.1_fix_temperature_True_batch_size_16"
+            checkpoint_name = f"multimodal_text_encoder_embedding_embedding_dim_512_batch_size_8_dropout_i_0.5_lr_5e-05_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
         elif args.model == "lstm":
-            checkpoint_name = 'multimodal_text_encoder_lstm_lr_0.0001_weight_decay_0.2_fix_temperature_False_batch_size_8'
-
+            # checkpoint_name = 'multimodal_text_encoder_lstm_lr_0.0001_weight_decay_0.2_fix_temperature_False_batch_size_8'
+            # checkpoint_name = "multimodal_text_encoder_lstm_embedding_dim_512_fix_temperature_True_temperature_0.07_batch_size_8_dropout_i_0.5_lr_5e-05_lr_scheduler_True_weight_decay_0.1_seed_0"
+            checkpoint_name = f"multimodal_text_encoder_lstm_embedding_dim_512_batch_size_8_dropout_i_0.5_lr_5e-05_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
         if checkpoint_name.endswith(".ckpt"):
             checkpoint = checkpoint_name
         else:
+            # grab checkpoint from epoch with lowest val loss
             checkpoint = glob.glob(
-                f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/*.ckpt")[0]
+                f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/epoch*.ckpt")[0]
 
         # load model from checkpoint
         model = MultiModalLitModel.load_from_checkpoint(
@@ -65,6 +68,9 @@ def main(args):
     data_args.eval_include_sos_eos = args.eval_include_sos_eos
     data_args.eval_type = args.eval_type
     data_args.eval_metadata_filename = args.eval_metadata_filename
+
+    # get seed
+    seed = args.seed
 
     # use clip for evaluation
     if args.model == "clip":
@@ -176,6 +182,7 @@ def main(args):
         # store results
         curr_results = {
             "checkpoint": checkpoint_name,
+            "seed": seed,
             "trial_idx": i,
             "categories": curr_eval_categories,
             "logits": logits_list,
@@ -238,7 +245,7 @@ def main(args):
         os.makedirs('results', exist_ok=True)
 
         # get filename
-        results_filename = f'results/{args.model}_{args.eval_type}_{args.eval_metadata_filename.replace(".json", "_predictions.json")}'
+        results_filename = f'results/{args.model}_seed_{seed}_{args.eval_type}_{args.eval_metadata_filename.replace(".json", "_predictions.json")}'
         print(results_filename)
 
         # save to JSON
@@ -252,6 +259,8 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default="lstm",
                         choices=['embedding', 'lstm', 'clip'],
                         help="which trained model to perform evaluations on")
+    parser.add_argument("--seed", type=int, default=0,
+                        help="which seed to load for trained model")
     parser.add_argument("--stage", type=str, default="dev", choices=["dev", "test"],
                         help="which evaluation stage to use")
     parser.add_argument("--eval_include_sos_eos", action="store_true",
