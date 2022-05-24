@@ -9,3 +9,4 @@ torchinfo
 gsheets
 wandb
 pycocoevalcap
+clip
