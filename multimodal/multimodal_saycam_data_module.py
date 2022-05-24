@@ -1067,11 +1067,10 @@ def _create_extra_eval_metadata():
 
 def _create_extra_filtered_eval_metadata():
     """Create extra splits for evaluating Multimodal SAYCam models using 10 or 22 possible images per trial"""
-    # if os.path.exists(FILTERED_EVAL_DEV_METADATA_FILENAME) and os.path.exists(FILTERED_EVAL_TEST_METADATA_FILENAME):
-    #     print(
-    #         "Extra evaluation metadata files have already been created. Skipping this step.")
-    # else:
-    if True:
+    if os.path.exists(FILTERED_EVAL_DEV_METADATA_FILENAME) and os.path.exists(FILTERED_EVAL_TEST_METADATA_FILENAME):
+        print(
+            "Extra evaluation metadata files have already been created. Skipping this step.")
+    else:
         print(
             "Creating extra metadata files for evaluation using filtered evaluation frames.")
 
