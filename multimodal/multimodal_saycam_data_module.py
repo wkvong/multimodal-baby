@@ -30,6 +30,10 @@ from multimodal.multimodal_data_module import MultiModalDataset, \
     IMAGE_H, IMAGE_W
 from multimodal.utils import *
 
+import clip
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 # directories and filenames
 DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
 GSHEETS_CREDENTIALS_FILENAME = DATA_DIR / "credentials.json"
@@ -38,14 +42,18 @@ TRANSCRIPTS_DIRNAME = DATA_DIR / "transcripts"
 PREPROCESSED_TRANSCRIPTS_DIRNAME = DATA_DIR / "preprocessed_transcripts_5fps"
 RAW_VIDEO_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/S_videos/"
 LABELED_S_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_clean_labeled_data_1fps_5"
+FILTERED_LABELED_S_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_clean_labeled_data_clip_filtered"
 EXTRACTED_FRAMES_DIRNAME = DATA_DIR / "train_5fps"
 EVAL_FRAMES_DIRNAME = DATA_DIR / "eval"
+FILTERED_EVAL_FRAMES_DIRNAME = DATA_DIR / "eval_filtered"
 ANIMATED_FRAMES_DIRNAME = DATA_DIR / "train_animated_5fps"
 TRAIN_METADATA_FILENAME = DATA_DIR / "train.json"
 VAL_METADATA_FILENAME = DATA_DIR / "val.json"
 TEST_METADATA_FILENAME = DATA_DIR / "test.json"
 EVAL_DEV_METADATA_FILENAME = DATA_DIR / "eval_dev.json"
 EVAL_TEST_METADATA_FILENAME = DATA_DIR / "eval_test.json"
+FILTERED_EVAL_DEV_METADATA_FILENAME = DATA_DIR / "eval_filtered_dev.json"
+FILTERED_EVAL_TEST_METADATA_FILENAME = DATA_DIR / "eval_filtered_test.json"
 VOCAB_FILENAME = DATA_DIR / "vocab.json"
 
 # default arguments
@@ -143,9 +151,13 @@ class MultiModalSAYCamDataModule(MultiModalDataModule):
         _preprocess_transcripts()
         _extract_train_frames()
         _create_train_metadata()
+        _filter_eval_frames()
         _extract_eval_frames()
+        _extract_filtered_eval_frames()
         _create_eval_metadata()
+        _create_filtered_eval_metadata()
         _create_extra_eval_metadata()
+        _create_extra_filtered_eval_metadata()
         _create_vocab()
         # _create_animations()  # TODO: add extra argument to generate this?
 
@@ -503,6 +515,70 @@ def _extract_frame(frame, frame_height, frame_width):
     return cropped_frame
 
 
+def _filter_eval_frames():
+    """Use CLIP to create a filtered evaluation set"""
+
+    if os.path.exists(FILTERED_LABELED_S_DIRNAME):
+        print("Evaluation frames have already been filtered. Skipping this step.")
+    else:
+        print("Filtering evaluation frames using CLIP")
+
+        # get evaluation categories and create folders
+        eval_categories = sorted(os.listdir(LABELED_S_DIRNAME))
+        eval_categories.remove("carseat")
+        eval_categories.remove("couch")
+        eval_categories.remove("greenery")
+        eval_categories.remove("plushanimal")
+
+        # create directories
+        os.makedirs(FILTERED_LABELED_S_DIRNAME, exist_ok=True)
+        for eval_category in eval_categories:
+            os.makedirs(Path(FILTERED_LABELED_S_DIRNAME) /
+                        eval_category, exist_ok=True)
+
+        # load CLIP model
+        model, preprocess = clip.load("ViT-B/16", device=device)
+        model.eval()
+
+        # get CLIP text embedding for eval categories
+        texts = clip.tokenize(
+            [f'{category}' for category in eval_categories]).to(device)
+        text_features = model.encode_text(texts).float()
+
+        for eval_category in eval_categories:
+            # get frames for each evaluation category
+            eval_category_dir = os.path.join(LABELED_S_DIRNAME, eval_category)
+            frames = glob.glob(f"{eval_category_dir}/*.jpeg")
+            print(
+                f"Filtering {len(frames)} from the category: {eval_category}")
+
+            count = 0
+
+            for frame in frames:
+                # load and encode image via CLIP
+                I = Image.open(frame).convert("RGB")
+                image = preprocess(I).unsqueeze(0).to(device)
+                image_features = model.encode_image(image).float()
+
+                # normalize features
+                image_features /= image_features.norm(dim=-1,
+                                                      keepdim=True)
+                text_features /= text_features.norm(dim=-1,
+                                                    keepdim=True)
+
+                # calculate top label
+                logits_per_text = (100.0 * image_features @
+                                   text_features.T).softmax(dim=-1)
+                pred = torch.argmax(logits_per_text, dim=-1).item()
+
+                # copy over image frame if prediction is correct
+                if pred == eval_categories.index(eval_category):
+                    frame_filename = frame.split("/")[-1]
+                    new_frame = os.path.join(
+                        FILTERED_LABELED_S_DIRNAME, eval_category, frame_filename)
+                    shutil.copyfile(frame, new_frame)
+
+
 def _extract_eval_frames():
     """Extract evaluation frames from labeled S dataset, splitting evenly for dev and test"""
 
@@ -566,6 +642,71 @@ def _extract_eval_frames():
                 # copy frame
                 shutil.copyfile(original_filename, os.path.join(
                     EVAL_FRAMES_DIRNAME, "test", eval_category, eval_category_frames[test_idx]))
+
+
+def _extract_filtered_eval_frames():
+    """Extract evaluation frames from (CLIP filtered) labeled S dataset, splitting evenly for dev and test"""
+
+    if os.path.exists(FILTERED_EVAL_FRAMES_DIRNAME):
+        print("Filtered evaluation frames have already been extracted. Skipping this step.")
+    else:
+        print("Extracting filtered evaluation frames")
+
+        # create directory to store evaluation frames
+        if not os.path.exists(FILTERED_EVAL_FRAMES_DIRNAME):
+            os.makedirs(FILTERED_EVAL_FRAMES_DIRNAME)
+            os.makedirs(FILTERED_EVAL_FRAMES_DIRNAME / "dev")
+            os.makedirs(FILTERED_EVAL_FRAMES_DIRNAME / "test")
+
+        # get original set of evaluation categories
+        eval_categories = sorted(os.listdir(FILTERED_LABELED_S_DIRNAME))
+        for eval_category in eval_categories:
+            eval_category_dirname = os.path.join(
+                FILTERED_LABELED_S_DIRNAME, eval_category)
+            eval_category_frames = sorted(os.listdir(eval_category_dirname))
+
+            # get indices to split original labeled s dataset into dev and test
+            split_idxs = np.arange(len(eval_category_frames))
+            np.random.shuffle(split_idxs)
+            dev_idxs = split_idxs[:int(len(eval_category_frames) * 0.5)]
+            test_idxs = split_idxs[int(len(eval_category_frames) * 0.5):]
+
+            # check dataset has been split correct
+            assert len(dev_idxs) + len(test_idxs) == len(split_idxs)
+
+            # copy over dev frames into a new directory
+            print(f"copying filtered {eval_category} frames for dev set")
+
+            # check if directory exists, and if not, create it
+            if not os.path.exists(os.path.join(FILTERED_EVAL_FRAMES_DIRNAME, "dev", eval_category)):
+                os.makedirs(os.path.join(
+                    FILTERED_EVAL_FRAMES_DIRNAME, "dev", eval_category))
+
+            for dev_idx in dev_idxs:
+                # get path to original frame
+                original_filename = os.path.join(
+                    FILTERED_LABELED_S_DIRNAME, eval_category, eval_category_frames[dev_idx])
+
+                # copy frame
+                shutil.copyfile(original_filename, os.path.join(
+                    FILTERED_EVAL_FRAMES_DIRNAME, "dev", eval_category, eval_category_frames[dev_idx]))
+
+            # copy over test frames into a new directory
+            print(f"copying filtered {eval_category} frames for test set")
+
+            # check if directory exists, and if not, create it
+            if not os.path.exists(os.path.join(FILTERED_EVAL_FRAMES_DIRNAME, "test", eval_category)):
+                os.makedirs(os.path.join(
+                    FILTERED_EVAL_FRAMES_DIRNAME, "test", eval_category))
+
+            for test_idx in test_idxs:
+                # get path to original frame
+                original_filename = os.path.join(
+                    FILTERED_LABELED_S_DIRNAME, eval_category, eval_category_frames[test_idx])
+
+                # copy frame
+                shutil.copyfile(original_filename, os.path.join(
+                    FILTERED_EVAL_FRAMES_DIRNAME, "test", eval_category, eval_category_frames[test_idx]))
 
 
 def _create_train_metadata():
@@ -757,6 +898,98 @@ def _create_eval_metadata():
             json.dump(eval_test_dict, f)
 
 
+def _create_filtered_eval_metadata():
+    """Creates files for evaluating multimodal SAYCam model using filtered evaluation frames"""
+
+    if os.path.exists(FILTERED_EVAL_DEV_METADATA_FILENAME) and os.path.exists(FILTERED_EVAL_TEST_METADATA_FILENAME):
+        print("Evaluation metadata files have already been created. Skipping this step.")
+    else:
+        print("Creating metadata files for evaluation using filtered evaluation framesw.")
+
+        n_foils = 3  # number of foil referents
+        n_evaluations = 100  # number of evaluations per category
+        eval_dev_dataset = []
+        eval_test_dataset = []
+
+        # get evaluation categories and remove ones not in vocab
+        eval_dev_dirname = FILTERED_EVAL_FRAMES_DIRNAME / "dev"
+        eval_test_dirname = FILTERED_EVAL_FRAMES_DIRNAME / "test"
+        eval_categories = sorted(os.listdir(eval_dev_dirname))
+
+        # generate dev evaluation trials
+        for target_category in eval_categories:
+            for i in range(n_evaluations):
+                # sample item from target category
+                target_category_dirname = os.path.join(
+                    eval_dev_dirname, target_category)
+                target_img_filename = os.path.join(target_category_dirname,
+                                                   np.random.choice(os.listdir(target_category_dirname)))
+
+                foil_categories = eval_categories.copy()
+                foil_categories.remove(target_category)
+                foil_categories = np.random.choice(
+                    foil_categories, size=n_foils, replace=False)
+                foil_img_filenames = []
+
+                for j in range(n_foils):
+                    foil_category_dirname = os.path.join(
+                        eval_dev_dirname, foil_categories[j])
+                    foil_img_filename = os.path.join(foil_category_dirname,
+                                                     np.random.choice(os.listdir(foil_category_dirname)))
+                    foil_img_filenames.append(foil_img_filename)
+
+                # save trial info as a dict
+                eval_trial = {}
+                eval_trial["trial_num"] = i
+                eval_trial["target_category"] = target_category
+                eval_trial["target_img_filename"] = target_img_filename
+                eval_trial["foil_categories"] = list(foil_categories)
+                eval_trial["foil_img_filenames"] = foil_img_filenames
+                eval_dev_dataset.append(eval_trial)
+
+        # generate test evaluation trials
+        for target_category in eval_categories:
+            for i in range(n_evaluations):
+                # sample item from target category
+                target_category_dirname = os.path.join(
+                    eval_test_dirname, target_category)
+                target_img_filename = os.path.join(target_category_dirname,
+                                                   np.random.choice(os.listdir(target_category_dirname)))
+
+                foil_categories = eval_categories.copy()
+                foil_categories.remove(target_category)
+                foil_categories = np.random.choice(
+                    foil_categories, size=n_foils, replace=False)
+                foil_img_filenames = []
+
+                for j in range(n_foils):
+                    foil_category_dirname = os.path.join(
+                        eval_test_dirname, foil_categories[j])
+                    foil_img_filename = os.path.join(foil_category_dirname,
+                                                     np.random.choice(os.listdir(foil_category_dirname)))
+                    foil_img_filenames.append(foil_img_filename)
+
+                # save trial info as a dict
+                eval_trial = {}
+                eval_trial["trial_num"] = i
+                eval_trial["target_category"] = target_category
+                eval_trial["target_img_filename"] = target_img_filename
+                eval_trial["foil_categories"] = list(foil_categories)
+                eval_trial["foil_img_filenames"] = foil_img_filenames
+                eval_test_dataset.append(eval_trial)
+
+        # put eval trials into dictionaries
+        eval_dev_dict = {"data": eval_dev_dataset}
+        eval_test_dict = {"data": eval_test_dataset}
+
+        # save as JSON files
+        with open(FILTERED_EVAL_DEV_METADATA_FILENAME, "w") as f:
+            json.dump(eval_dev_dict, f)
+
+        with open(FILTERED_EVAL_TEST_METADATA_FILENAME, "w") as f:
+            json.dump(eval_test_dict, f)
+
+
 def _generate_eval_trial(idx, stage, target_category, n_foils, eval_categories):
     """Generate a single evaluation trial with one category label and N images"""
     eval_dirname = EVAL_FRAMES_DIRNAME / f"{stage}"  # get directories
@@ -829,6 +1062,46 @@ def _create_extra_eval_metadata():
 
             # save as JSON
             with open(DATA_DIR / f"eval_{stage}_{n_foil}_foils.json", "w") as f:
+                json.dump(eval_dict, f)
+
+
+def _create_extra_filtered_eval_metadata():
+    """Create extra splits for evaluating Multimodal SAYCam models using 10 or 22 possible images per trial"""
+    # if os.path.exists(FILTERED_EVAL_DEV_METADATA_FILENAME) and os.path.exists(FILTERED_EVAL_TEST_METADATA_FILENAME):
+    #     print(
+    #         "Extra evaluation metadata files have already been created. Skipping this step.")
+    # else:
+    if True:
+        print(
+            "Creating extra metadata files for evaluation using filtered evaluation frames.")
+
+        stages = ["dev", "test"]
+        n_foils = [9, 21]  # number of foil referents
+        conds = itertools.product(stages, n_foils)
+        n_evaluations = 100  # number of evaluations per category
+
+        # get evaluation categories and remove ones not in vocab
+        eval_dev_dirname = FILTERED_EVAL_FRAMES_DIRNAME / "dev"
+        eval_categories = sorted(os.listdir(eval_dev_dirname))
+
+        for cond in conds:
+            # initialize condition
+            stage = cond[0]
+            n_foil = cond[1]
+            eval_dataset = []
+
+            # generate trials
+            for target_category in eval_categories:
+                for i in range(n_evaluations):
+                    eval_trial = _generate_eval_trial(
+                        i, stage, target_category, n_foil, eval_categories)
+                    eval_dataset.append(eval_trial)
+
+            # put dataset into dictionary
+            eval_dict = {"data": eval_dataset}
+
+            # save as JSON
+            with open(DATA_DIR / f"eval_filtered_{stage}_{n_foil}_foils.json", "w") as f:
                 json.dump(eval_dict, f)
 
 
