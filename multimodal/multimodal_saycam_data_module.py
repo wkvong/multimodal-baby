@@ -48,6 +48,7 @@ EVAL_FRAMES_DIRNAME = DATA_DIR / "eval"
 FILTERED_EVAL_FRAMES_DIRNAME = DATA_DIR / "eval_filtered"
 ANIMATED_FRAMES_DIRNAME = DATA_DIR / "train_animated_5fps"
 TRAIN_METADATA_FILENAME = DATA_DIR / "train.json"
+TRAIN_SHUFFLED_METADATA_FILENAME = DATA_DIR / "train_shuffled.json"
 VAL_METADATA_FILENAME = DATA_DIR / "val.json"
 TEST_METADATA_FILENAME = DATA_DIR / "test.json"
 EVAL_DEV_METADATA_FILENAME = DATA_DIR / "eval_dev.json"
@@ -66,6 +67,7 @@ MAX_FRAMES_PER_UTTERANCE = 32
 
 # training arguments
 MULTIPLE_FRAMES = False
+SHUFFLE_UTTERANCES = False
 
 
 class MultiModalSAYCamDataset(MultiModalDataset):
@@ -129,11 +131,17 @@ class MultiModalSAYCamDataModule(MultiModalDataModule):
 
         self.multiple_frames = self.args.get(
             "multiple_frames", MULTIPLE_FRAMES)
+        self.shuffle_utterances = self.args.get(
+            "shuffle_utterances", SHUFFLE_UTTERANCES)
 
     @staticmethod
     def add_additional_to_argparse(parser):
         parser.add_argument(
             "--multiple_frames", action="store_true", help="Randomly sample frames per utterance."
+        )
+        parser.add_argument(
+            "--shuffle_utterances", action="store_true",
+            help="Use shuffled utterances during training rather than matched utterances"
         )
         return parser
 
@@ -151,6 +159,7 @@ class MultiModalSAYCamDataModule(MultiModalDataModule):
         _preprocess_transcripts()
         _extract_train_frames()
         _create_train_metadata()
+        _create_train_shuffled_metadata()
         _filter_eval_frames()
         _extract_eval_frames()
         _extract_filtered_eval_frames()
@@ -167,11 +176,24 @@ class MultiModalSAYCamDataModule(MultiModalDataModule):
     def create_datasets(self, vocab):
         datasets = {}
 
-        for split, filename, multiple_frames, transform in [
-                ("train", TRAIN_METADATA_FILENAME, self.multiple_frames,
-                 self.transform),
-                ("val", VAL_METADATA_FILENAME, False, self.base_transform),
-                ("test", TEST_METADATA_FILENAME, False, self.base_transform)]:
+        if self.shuffle_utterances:
+            # use shuffled training data
+            print("Training using shuffled utterances!")
+            stage_splits = [("train", TRAIN_SHUFFLED_METADATA_FILENAME, self.multiple_frames,
+                             self.transform),
+                            ("val", VAL_METADATA_FILENAME,
+                             False, self.base_transform),
+                            ("test", TEST_METADATA_FILENAME, False, self.base_transform)]
+        else:
+            # use matched training data
+            print("Training using matched utterances!")
+            stage_splits = [("train", TRAIN_METADATA_FILENAME, self.multiple_frames,
+                             self.transform),
+                            ("val", VAL_METADATA_FILENAME,
+                             False, self.base_transform),
+                            ("test", TEST_METADATA_FILENAME, False, self.base_transform)]
+
+        for split, filename, multiple_frames, transform in stage_splits:
             data = load_data(filename)
             dataset = MultiModalSAYCamDataset(
                 data,
@@ -545,14 +567,14 @@ def _filter_eval_frames():
             [f'{category}' for category in eval_categories]).to(device)
         text_features = model.encode_text(texts).float()
 
-        for eval_category in eval_categories:
+        for i, eval_category in enumerate(eval_categories):
             # get frames for each evaluation category
             eval_category_dir = os.path.join(LABELED_S_DIRNAME, eval_category)
             frames = glob.glob(f"{eval_category_dir}/*.jpeg")
             print(
                 f"Filtering {len(frames)} from the category: {eval_category}")
 
-            count = 0
+            sims = []
 
             for frame in frames:
                 # load and encode image via CLIP
@@ -563,20 +585,25 @@ def _filter_eval_frames():
                 # normalize features
                 image_features /= image_features.norm(dim=-1,
                                                       keepdim=True)
-                text_features /= text_features.norm(dim=-1,
-                                                    keepdim=True)
 
-                # calculate top label
-                logits_per_text = (100.0 * image_features @
-                                   text_features.T).softmax(dim=-1)
-                pred = torch.argmax(logits_per_text, dim=-1).item()
+                # calculate sim
+                sim = (image_features.squeeze() @ text_features[i]).item()
+                sims.append([eval_category, frame, sim])
 
-                # copy over image frame if prediction is correct
-                if pred == eval_categories.index(eval_category):
-                    frame_filename = frame.split("/")[-1]
-                    new_frame = os.path.join(
-                        FILTERED_LABELED_S_DIRNAME, eval_category, frame_filename)
-                    shutil.copyfile(frame, new_frame)
+            # filter frames using top 15% based on CLIP similarity
+            threshold = 0.15
+            sims_df = pd.DataFrame(
+                sims, columns=["target_category", "frame", "sim"])
+            filtered_frames_df = sims_df.sort_values(by=['sim'], ascending=False).head(
+                int(len(sims_df)*threshold)).reset_index()
+            filtered_frames = filtered_frames_df["frame"].tolist()
+
+            # copy filtered frames into new directory
+            for frame in filtered_frames:
+                frame_filename = frame.split("/")[-1]
+                new_frame = os.path.join(
+                    FILTERED_LABELED_S_DIRNAME, eval_category, frame_filename)
+                shutil.copyfile(frame, new_frame)
 
 
 def _extract_eval_frames():
@@ -800,6 +827,35 @@ def _create_train_metadata():
 
         with open(TEST_METADATA_FILENAME, "w") as f:
             json.dump(test_dict, f)
+
+
+def _create_train_shuffled_metadata():
+    """Creates a JSON containing a shuffled version of the training data with image-utterance pairs randomly paired"""
+
+    if os.path.exists(TRAIN_SHUFFLED_METADATA_FILENAME):
+        print(
+            "Shuffled training metadata file has already been created. Skipping this step.")
+    else:
+        print("Creating metadata for shuffled train.")
+
+        # get train metadata
+        with open(TRAIN_METADATA_FILENAME) as f:
+            train_metadata = json.load(f)
+            train_metadata = train_metadata["data"]
+
+        # get list of utterances and shuffle
+        utterances = [trial["utterance"] for trial in train_metadata]
+        random.shuffle(utterances)
+
+        # re-assign shuffled utterances
+        for i, trial in enumerate(train_metadata):
+            trial["utterance"] = utterances[i]
+
+        train_shuffled_dict = {"data": train_metadata}
+
+        # save shuffled metadata file
+        with open(TRAIN_SHUFFLED_METADATA_FILENAME, "w") as f:
+            json.dump(train_shuffled_dict, f)
 
 
 def _create_eval_metadata():
