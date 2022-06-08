@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Any, Tuple
+from collections import Counter
 import os
 import glob
 import itertools
@@ -30,12 +31,13 @@ from multimodal.multimodal_data_module import MultiModalDataset, \
     IMAGE_H, IMAGE_W
 from multimodal.utils import *
 
+import spacy
 import clip
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # directories and filenames
-DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
+DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal_new_text")
 GSHEETS_CREDENTIALS_FILENAME = DATA_DIR / "credentials.json"
 TRANSCRIPT_LINKS_FILENAME = DATA_DIR / "SAYCam_transcript_links.csv"
 TRANSCRIPTS_DIRNAME = DATA_DIR / "transcripts"
@@ -92,7 +94,7 @@ class MultiModalSAYCamDataset(MultiModalDataset):
 
         # get utterance and convert to indices
         utterance = self.data[idx]["utterance"]
-        utterance_words = utterance.split(" ")
+        utterance_words = utterance.split()
         utterance_words = [SOS_TOKEN] + utterance_words + [EOS_TOKEN]
         utterance_length = len(utterance_words)
         utterance_idxs = torch.tensor([self.vocab.get(
@@ -151,9 +153,9 @@ class MultiModalSAYCamDataModule(MultiModalDataModule):
         _preprocess_transcripts()
         _extract_train_frames()
         _create_train_metadata()
-        _filter_eval_frames()
+        #_filter_eval_frames()
         _extract_eval_frames()
-        _extract_filtered_eval_frames()
+        #_extract_filtered_eval_frames()
         _create_eval_metadata()
         _create_filtered_eval_metadata()
         _create_extra_eval_metadata()
@@ -270,6 +272,9 @@ def _preprocess_transcripts():
         allowed_speakers = ["M", "Mom", "mom", "m",
                             "mother", "Mother", "papa", "the mom"]
 
+        # build spacy model
+        nlp = spacy.load("en_core_web_sm")
+
         # preprocess each transcript
         for transcript_idx, transcript_filename in enumerate(transcripts):
             # empty list to store processed transcript information
@@ -333,7 +338,7 @@ def _preprocess_transcripts():
 
                 # preprocess utterance to extract sub-utterances and timestamps
                 utterances, timestamps, num_frames = _preprocess_utterance(
-                    utterance, start_timestamp, end_timestamp)
+                    nlp, utterance, start_timestamp, end_timestamp)
 
                 # skip if preprocessed utterance is empty
                 if len(utterances) == 0:
@@ -360,30 +365,27 @@ def _preprocess_transcripts():
                     preprocessed_transcript_filename, index=False)
 
 
-def _preprocess_utterance(utterance, start_timestamp, end_timestamp):
+def _preprocess_utterance(nlp, utterance, start_timestamp, end_timestamp):
     """Preprocesses a single utterance, splitting it into multiple clean utterances with separate timestamps"""
 
     # check start timestamp is before end timestamp
     assert start_timestamp <= end_timestamp
 
-    # remove special characters, anything in asterisks or parentheses etc.
-    utterance = re.sub(r"\*[^)]*\*", "", utterance)
-    utterance = re.sub(r"\[[^)]*\]", "", utterance)
-    utterance = re.sub(r"\([^)]*\)", "", utterance)
-    utterance = re.sub(r" +", " ", utterance)
-    utterance = utterance.replace("--", " ")
-    utterance = utterance.replace("-", "")
-    utterance = utterance.replace("'", "")
-    utterance = utterance.replace("*", "")
-    utterance = utterance.replace("_", "")
-    utterance = utterance.replace(",", "")
-    utterance = utterance.replace("…", "")
-    utterance = utterance.lower().strip()
+    # remove anything in asterisks or parentheses.
+    inaudible = "INAUDIBLE"
+    repl = lambda matchobj: inaudible if "inaudible" in matchobj.group(0) else ""
+    utterance = re.sub(r"\*[^)]*\*", repl, utterance)
+    utterance = re.sub(r"\[[^)]*\]", repl, utterance)
+    utterance = re.sub(r"\([^)]*\)", repl, utterance)
+    utterance = re.sub(r"\binaudible\b", repl, utterance)
+    utterance = utterance.replace(r"*", "")
 
-    # split utterance based on certain delimeters, strip and remove empty utterances
-    utterances = msplit(utterance, (".", "?", "!"))
-    utterances = [utterance.strip()
-                  for utterance in utterances if len(utterance) > 0]
+    # process utterance
+    doc = nlp(utterance)
+    utterances = [' '.join(
+        map(lambda token: UNK_TOKEN if token == inaudible else token.lower(),
+            map(str, sent))
+        ) for sent in doc.sents]
 
     if len(utterances) > 0:
         # get interpolated timestamps, including end timestamp (which we remove later)
@@ -1071,7 +1073,7 @@ def _create_extra_filtered_eval_metadata():
     #     print(
     #         "Extra evaluation metadata files have already been created. Skipping this step.")
     # else:
-    if True:
+    if False:
         print(
             "Creating extra metadata files for evaluation using filtered evaluation frames.")
 
@@ -1105,7 +1107,7 @@ def _create_extra_filtered_eval_metadata():
                 json.dump(eval_dict, f)
 
 
-def _create_vocab():
+def _create_vocab(freq_threshold=3):
     """Create vocabulary object and save to file"""
 
     if VOCAB_FILENAME.exists():
@@ -1113,27 +1115,39 @@ def _create_vocab():
     else:
         print("Creating vocab.json file!")
 
-        # create vocab dictionary
-        vocab_dict = {
-            PAD_TOKEN: PAD_TOKEN_ID,
-            UNK_TOKEN: UNK_TOKEN_ID,
-            SOS_TOKEN: SOS_TOKEN_ID,
-            EOS_TOKEN: EOS_TOKEN_ID}
-        num_words = len(vocab_dict)
+        counter = Counter()
 
         # load utterances from training set
         with open(TRAIN_METADATA_FILENAME) as f:
             train_dict = json.load(f)
 
-        # fill vocab with all words from utterances
-        train = train_dict["data"]
-        for i in range(len(train)):
-            curr_utterance = str(train[i]["utterance"])
-            words = curr_utterance.split(" ")
-            for word in words:
-                if word not in vocab_dict:
-                    vocab_dict[word] = num_words
-                    num_words += 1
+        # get token frequency
+        for example in train_dict["data"]:
+            utterance = example["utterance"]
+            tokens = utterance.split()
+            counter.update(tokens)
+
+        # sort by frequency
+        vocab = sorted(counter.most_common(),
+                       key=lambda item: (-item[1], item[0]))
+
+        # create vocab
+        special_token_and_ids = [
+            (PAD_TOKEN, PAD_TOKEN_ID),
+            (UNK_TOKEN, UNK_TOKEN_ID),
+            (SOS_TOKEN, SOS_TOKEN_ID),
+            (EOS_TOKEN, EOS_TOKEN_ID),
+        ]
+        special_tokens = [token for token, token_id in special_token_and_ids]
+        vocab = special_tokens + \
+            [token for token, freq in vocab
+             if token not in special_tokens and freq >= freq_threshold]
+        # check consistency of special tokens
+        for token, token_id in special_token_and_ids:
+            assert vocab[token_id] == token
+
+        # create vocab dict
+        vocab_dict = {token: idx for idx, token in enumerate(vocab)}
 
         # save as JSON file
         with open(VOCAB_FILENAME, "w") as f:
