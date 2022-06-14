@@ -23,14 +23,14 @@ grids = [
         "batch_size": [8],
         "drop_last": [True],
         "optimizer": ["AdamW"],
-        "lr": [0.0001],
+        "lr": [0.003],
         "lr_scheduler": [True],
         "patience": [2],
-        "weight_decay": [0.03],
-        "seed": [0],
+        "weight_decay": [0.04],
+        "seed": [0, 1, 2][:1],
         "optimize_unused": [True],
         "eval_textgen": [False],
-        "max_epochs": [200],
+        "max_epochs": [100],
         "check_val_every_n_epoch": [1],
         "beam_width": [3],
         "checkpoint_callback": ["True"],
@@ -64,7 +64,7 @@ grids = [
         "lr_scheduler": [True],
         "patience": [2],
         "weight_decay": [0.03],
-        "seed": [0],
+        "seed": [0, 1, 2][:1],
         "optimize_unused": [True],
         "eval_textgen": [False],
         "max_epochs": [30],
@@ -73,7 +73,7 @@ grids = [
         "checkpoint_callback": ["True"],
         "logger": ["True"]
     },
-]
+][:1]
 # ordered flags to display in jobname
 flags = [
     "dataset", #"captioning",
