@@ -1,5 +1,7 @@
 import argparse
 from pathlib import Path
+import json
+import os
 
 import numpy as np
 import torch
@@ -51,6 +53,7 @@ def _setup_parser():
     parser.add_argument("--resume_ckpt", type=Path, default=None,
                         help="path to the checkpoint to resume from; if it's "
                              "\"last\", resume from the last checkpoint.")
+    parser.add_argument('--save_every_n_steps', type=int, default=50)
 
     return parser
 
@@ -61,7 +64,7 @@ def main():
     args = parser.parse_args()
 
     # checkpoint paths
-    ckpt_dir = Path('checkpoints') / args.exp_name
+    ckpt_dir = Path('/scratch/nk3351/projects/multimodal-baby/checkpoints') / args.exp_name
     if str(args.resume_ckpt) == "last":
         args.resume_ckpt = ckpt_dir / 'last.ckpt'
 
@@ -79,13 +82,28 @@ def main():
     text_encoder = TextEncoder(vocab, args=args)
     lit_model = MultiModalLitModel(vision_encoder, text_encoder, args)
 
+    # Save config and word2idx for AoA eval to ckpt_dir
+    args_d = {}
+    for key, val in args.__dict__.items():
+        if type(val) == type:
+            args_d[key] = str(val)
+        else:
+            args_d[key] = val
+
+    os.makedirs(ckpt_dir, exist_ok=True)
+    with open(os.path.join(ckpt_dir, 'config.json'), 'w') as f:
+        json.dump(args_d, f, indent=2)
+    with open(os.path.join(ckpt_dir, 'word2idx.json'), 'w') as f:
+        json.dump(text_encoder.word2idx, f)
+
     # setup checkpoint callback
     checkpoint_callback = ModelCheckpoint(
-        monitor='val_loss',
-        save_last=True,
+        # monitor='val_loss',
+        # save_last=True,
         save_top_k=args.save_top_k,
         dirpath=ckpt_dir,
-        filename='{epoch}')
+        every_n_train_steps=args.save_every_n_steps,
+        filename='{step}')
 
     # create trainer (with checkpoint and logger if specified)
     if args.logger:
@@ -101,6 +119,7 @@ def main():
         trainer = pl.Trainer.from_argparse_args(args)
 
     print(args)
+    print(ckpt_dir)
 
     # fit model
     trainer.fit(lit_model, data, ckpt_path=args.resume_ckpt)

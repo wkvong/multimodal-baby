@@ -30,13 +30,14 @@ from multimodal.multimodal_data_module import MultiModalDataset, \
 from multimodal.utils import *
 
 # directories and filenames
-DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
+#DATA_DIR = Path("/saycam/S_multimodal")
+DATA_DIR = Path("/saycam")
 GSHEETS_CREDENTIALS_FILENAME = DATA_DIR / "credentials.json"
 TRANSCRIPT_LINKS_FILENAME = DATA_DIR / "SAYCam_transcript_links.csv"
 TRANSCRIPTS_DIRNAME = DATA_DIR / "transcripts"
 PREPROCESSED_TRANSCRIPTS_DIRNAME = DATA_DIR / "preprocessed_transcripts_5fps"
-RAW_VIDEO_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/S_videos/"
-LABELED_S_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_clean_labeled_data_1fps_5"
+RAW_VIDEO_DIRNAME = "/saycam/S_videos_annotations/S_videos/"
+LABELED_S_DIRNAME = "/saycam/S_clean_labeled_data_1fps_5"
 EXTRACTED_FRAMES_DIRNAME = DATA_DIR / "train_5fps"
 EVAL_FRAMES_DIRNAME = DATA_DIR / "eval"
 ANIMATED_FRAMES_DIRNAME = DATA_DIR / "train_animated_5fps"

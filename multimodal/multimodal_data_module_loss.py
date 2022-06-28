@@ -238,7 +238,7 @@ class MultiModalDataModule(pl.LightningDataModule):
         self.datasets = self.create_datasets(vocab)
 
         # read and create eval data splits (val/test)
-        self.eval_datasets = self.create_eval_datasets(vocab)
+        # self.eval_datasets = self.create_eval_datasets(vocab)
 
     def read_vocab(self):
         raise NotImplementedError
@@ -275,7 +275,7 @@ class MultiModalDataModule(pl.LightningDataModule):
             pin_memory=False,
         )
 
-    def val_test_dataloader(self, dataset, eval_dataset, batch_size=None,
+    def val_test_dataloader(self, dataset, batch_size=None,
                             shuffle=False, drop_last=False):
         if batch_size is None:
             batch_size = self.val_batch_size
@@ -290,37 +290,21 @@ class MultiModalDataModule(pl.LightningDataModule):
             pin_memory=False,
         )
 
-        eval_dataloader = DataLoader(
-            eval_dataset,
-            collate_fn=multiModalDataset_collate_fn,
-            shuffle=shuffle,
-            # batch_size=self.batch_size // 4,  # divide by 4 here since eval trials have 4 images
-            batch_size=1,
-            num_workers=self.num_workers,
-            pin_memory=False,
-        )
-
-        return [dataloader, eval_dataloader]
+        return dataloader
 
     def val_dataloader(self, batch_size=None, shuffle=False, drop_last=False):
         dataloaders = self.val_test_dataloader(
             self.datasets['val'],
-            self.eval_datasets['val'],
             batch_size=batch_size,
             shuffle=shuffle,
             drop_last=drop_last,
         )
-
-        if TEST_WHILE_VAL:
-            dataloaders += self.test_dataloader(
-                batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
 
         return dataloaders
 
     def test_dataloader(self, batch_size=None, shuffle=False, drop_last=False):
         return self.val_test_dataloader(
             self.datasets['test'],
-            self.eval_datasets['test'],
             batch_size=batch_size,
             shuffle=shuffle,
             drop_last=drop_last,
