@@ -79,7 +79,8 @@ def main():
     data = DataModuleClass(args)
     vocab = data.read_vocab()
     vision_encoder = VisionEncoder(args=args)
-    text_encoder = TextEncoder(vocab, args=args)
+    text_encoder = TextEncoder(
+        vocab, image_feature_map_dim=vision_encoder.last_cnn_out_dim, args=args)
     lit_model = MultiModalLitModel(vision_encoder, text_encoder, args)
 
     # Save config and word2idx for AoA eval to ckpt_dir

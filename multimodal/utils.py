@@ -106,29 +106,35 @@ def get_entropy(logits, dim=-1):
     return (F.softmax(log_p, dim=dim) * -log_p).sum(dim=dim) # E[- log p] = sum - p log p
 
 
-def map_structure(fn, obj):
+def map_structure(fn, *obj):
     r"""Map a function over all elements in a (possibly nested) collection.
 
     Args:
         fn (callable): The function to call on elements.
-        obj: The collection to map function over.
+        *obj: The collection to map function over.
 
     Returns:
         The collection in the same structure, with elements mapped.
     """
-    if hasattr(obj, "--no-map--"):
-        return fn(obj)
-    if isinstance(obj, list):
-        return [map_structure(fn, x) for x in obj]
-    if isinstance(obj, tuple):
-        if isinstance(obj, torch.Size):
-            return fn(obj)
-        if hasattr(obj, '_fields'):  # namedtuple
-            return type(obj)(*[map_structure(fn, x) for x in obj])
+    if hasattr(obj[0], "--no-map--"):
+        return fn(*obj)
+    if isinstance(obj[0], list):
+        return [map_structure(fn, *x) for x in zip(*obj)]
+    if isinstance(obj[0], tuple):
+        if isinstance(obj[0], torch.Size):
+            return fn(*obj)
+        if hasattr(obj[0], '_fields'):  # namedtuple
+            return type(obj[0])(*[map_structure(fn, *x) for x in zip(*obj)])
         else:
-            return tuple(map_structure(fn, x) for x in obj)
-    if isinstance(obj, dict):
-        return {k: map_structure(fn, v) for k, v in obj.items()}
-    if isinstance(obj, set):
-        return {map_structure(fn, x) for x in obj}
-    return fn(obj)
+            return tuple(map_structure(fn, *x) for x in zip(*obj))
+    if isinstance(obj[0], dict):
+        return {k: map_structure(fn, *[o[k] for o in obj])
+                for k in obj[0].keys()}
+    if isinstance(obj[0], set):
+        assert len(obj) == 1, "map_structure can only accept one set"
+        return {map_structure(fn, x) for x in obj[0]}
+    return fn(*obj)
+
+
+def apply_permutation(tensor: torch.Tensor, permutation, dim: int) -> torch.Tensor:
+    return tensor.index_select(dim, permutation)

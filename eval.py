@@ -1,5 +1,6 @@
 import argparse
 import glob
+import json
 import os
 
 import numpy as np
@@ -10,66 +11,86 @@ from torchvision import transforms
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-from multimodal.multimodal_data_module import EVAL_DATA_DIR, SOS_TOKEN_ID, EOS_TOKEN_ID
+from multimodal.multimodal_data_module import EVAL_DATA_DIR, SOS_TOKEN_ID, EOS_TOKEN_ID, load_data
 from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule
-from multimodal.coco_captions_data_module import COCOCaptionsDataModule
 from multimodal.multimodal import MultiModalModel
 from multimodal.multimodal_lit import MultiModalLitModel
 from multimodal.attention_maps import gradCAM, getAttMap, n_inv, imshow
 from train import _setup_parser
 
+import clip
+
 EVAL_FRAMES_DIRNAME = EVAL_DATA_DIR / "eval"
-
-
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def main(args):
     # get checkpoint
-    if args.model == "embedding":
-        checkpoint_name = "multimodal_text_encoder_embedding_lr_0.0001_weight_decay_0.1_fix_temperature_True_batch_size_16"
-    elif args.model == "lstm":
-        checkpoint_name = 'multimodal_text_encoder_lstm_lr_0.0001_weight_decay_0.2_fix_temperature_False_batch_size_8'
-    else:
-        checkpoint_name = args.model
-    if checkpoint_name.endswith(".ckpt"):
-        checkpoint = checkpoint_name
-    else:
-        checkpoint = glob.glob(
-            f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/*.ckpt")[0]
+    if args.model == "clip":
+        print("Loading CLIP")
+        checkpoint_name = "clip_vitb16"
+        model, preprocess = clip.load("ViT-B/16", device=device)
+        model.eval()
 
-    # load model from checkpoint
-    model = MultiModalLitModel.load_from_checkpoint(
-        checkpoint, map_location=device)
-    model.eval()
+        # set up parser
+        parser = _setup_parser()
+        data_args = parser.parse_args("")
+    else:
+        if args.model == "embedding":
+            # checkpoint_name = "multimodal_text_encoder_embedding_lr_0.0001_weight_decay_0.1_fix_temperature_True_batch_size_16"
+            checkpoint_name = f"multimodal_text_encoder_embedding_embedding_dim_512_batch_size_8_dropout_i_0.5_lr_5e-05_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
+        elif args.model == "lstm":
+            # checkpoint_name = 'multimodal_text_encoder_lstm_lr_0.0001_weight_decay_0.2_fix_temperature_False_batch_size_8'
+            # checkpoint_name = "multimodal_text_encoder_lstm_embedding_dim_512_fix_temperature_True_temperature_0.07_batch_size_8_dropout_i_0.5_lr_5e-05_lr_scheduler_True_weight_decay_0.1_seed_0"
+            checkpoint_name = f"multimodal_text_encoder_lstm_embedding_dim_512_batch_size_8_dropout_i_0.5_lr_5e-05_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
+        if checkpoint_name.endswith(".ckpt"):
+            checkpoint = checkpoint_name
+        else:
+            # grab checkpoint from epoch with lowest val loss
+            checkpoint = glob.glob(
+                f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/epoch*.ckpt")[0]
 
-    # parse empty args
-    parser = _setup_parser()
-    data_args = parser.parse_args("")
-    # set args
-    for key, value in model.args.items():
-        setattr(data_args, key, value)
+        # load model from checkpoint
+        model = MultiModalLitModel.load_from_checkpoint(
+            checkpoint, map_location=device)
+        model.eval()
+
+        # parse empty args
+        parser = _setup_parser()
+        data_args = parser.parse_args("")
+
+        # set args from checkpoint
+        for key, value in model.args.items():
+            setattr(data_args, key, value)
+
     # make the train dataloader deterministic
     data_args.augment_frames = False
     data_args.eval_include_sos_eos = args.eval_include_sos_eos
+    data_args.eval_type = args.eval_type
+    data_args.eval_metadata_filename = args.eval_metadata_filename
+
+    # get seed
+    seed = args.seed
+
+    # use clip for evaluation
+    if args.model == "clip":
+        data_args.clip_eval = True
 
     # build data module
-    dataset_name = getattr(data_args, "dataset", "saycam")
-    DataModuleClass = {
-        "saycam": MultiModalSAYCamDataModule,
-        "coco": COCOCaptionsDataModule,
-    }[dataset_name]
-    data = DataModuleClass(data_args)
+    stage = getattr(data_args, "stage", "saycam")
+    data = MultiModalSAYCamDataModule(data_args)
     data.prepare_data()
     data.setup()
 
+    # load vocab and metadata
     vocab = data.read_vocab()
+    eval_data = load_data(EVAL_DATA_DIR / args.eval_metadata_filename)
 
     # create dataloader
     eval_dataloader = {
         "dev": data.val_dataloader,
         "test": data.test_dataloader,
-    }[args.dataset]()[1]
+    }[args.stage]()[1]  # second dataloader contains eval data
 
     # get eval categories
     classes = sorted(os.listdir(EVAL_FRAMES_DIRNAME / "dev"))
@@ -97,7 +118,7 @@ def main(args):
         # get text category label
         class_label = raw_label[0][0]
 
-        if args.use_kitty_label and class_label == "cat":
+        if args.use_kitty_label and class_label == "cat" and args.model != "clip":
             # use kitty for cat eval
             class_label = "kitty"
             label = [vocab[class_label]]
@@ -105,18 +126,44 @@ def main(args):
                 label = [SOS_TOKEN_ID] + label + [EOS_TOKEN_ID]
             label = torch.LongTensor([label])
 
-        img = img.squeeze(0).to(device)  # remove outer batch
-        label = label.to(device)
-        label_len = label_len.to(device)
+        if args.eval_type == "image":
+            # perform evaluation using single category label with multiple images
+            img = img.squeeze(0).to(device)  # remove outer batch
+            label = label.to(device)
+            label_len = label_len.to(device)
 
-        # calculate similarity between images
-        # first, get embeddings
-        with torch.no_grad():
-            _, logits_per_text = model(img, label, label_len)
-            logits_list = torch.softmax(logits_per_text,
-                                        dim=-1).detach().cpu().numpy().tolist()[0]
-            pred = torch.argmax(logits_per_text, dim=-1).item()
-            ground_truth = 0
+            # calculate similarity between images
+            # first, get embeddings
+            with torch.no_grad():
+                if args.model == "clip":
+                    label = label.squeeze(0)  # remove extra dim for CLIP
+                    _, logits_per_text = model(img, label)
+                else:
+                    _, logits_per_text = model(img, label, label_len)
+
+                logits_list = torch.softmax(logits_per_text,
+                                            dim=-1).detach().cpu().numpy().tolist()[0]
+
+                pred = torch.argmax(logits_per_text, dim=-1).item()
+                ground_truth = 0
+        elif args.eval_type == "text":
+            # perform evaluation using single image with multiple category labels
+            img = img.squeeze(0).to(device)
+            label = label.squeeze(0).to(device)
+            label_len = label_len.squeeze(0).to(device)
+
+            # calculate similarity between images
+            # first, get embeddings
+            with torch.no_grad():
+                if args.model == "clip":
+                    label = label.squeeze(0)  # remove extra dim for CLIP
+                    logits_per_image, _ = model(img, label)
+                else:
+                    logits_per_image, _ = model(img, label, label_len)
+                logits_list = torch.softmax(logits_per_image,
+                                            dim=-1).detach().cpu().numpy().tolist()[0]
+                pred = torch.argmax(logits_per_image, dim=-1).item()
+                ground_truth = 0
 
         # second, calculate if correct referent is predicted
         correct = False
@@ -126,9 +173,22 @@ def main(args):
 
         total_pred[class_label] += 1
 
+        # get categories
+        curr_trial = eval_data[i]
+        curr_target_category = curr_trial["target_category"]
+        curr_foil_categories = curr_trial["foil_categories"]
+        curr_eval_categories = [curr_target_category] + curr_foil_categories
+
         # store results
-        curr_results = [checkpoint_name, i,
-                        class_label, correct] + logits_list
+        curr_results = {
+            "checkpoint": checkpoint_name,
+            "seed": seed,
+            "trial_idx": i,
+            "categories": curr_eval_categories,
+            "logits": logits_list,
+            "pred": pred,
+            "correct": correct,
+        }
         results.append(curr_results)
 
         # plot attention map
@@ -178,28 +238,38 @@ def main(args):
 
     # save results
     if args.save_predictions:
+        # put results into a dictionary
+        results_dict = {"data": results}
+
         # create dir
         os.makedirs('results', exist_ok=True)
 
-        # convert results to data frame
-        columns = ['model_checkpoint', 'trial', 'category_label', 'correct',
-                   'target_prob', 'foil_one_prob', 'foil_two_prob',
-                   'foil_three_prob']
-        results_df = pd.DataFrame(results, columns=columns)
-        results_filename = os.path.join(
-            "results", f"{args.model}_eval_predictions.csv")
-        results_df.to_csv(results_filename, index=False)
+        # get filename
+        results_filename = f'results/{args.model}_seed_{seed}_{args.eval_type}_{args.eval_metadata_filename.replace(".json", "_predictions.json")}'
+        print(results_filename)
+
+        # save to JSON
+        print(f"Saving predictions to {results_filename}")
+        with open(results_filename, "w") as f:
+            json.dump(results_dict, f)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="lstm",
-                        #choices=['embedding', 'lstm'],
+                        choices=['embedding', 'lstm', 'clip'],
                         help="which trained model to perform evaluations on")
-    parser.add_argument("--dataset", type=str, default="dev", choices=["dev", "test"],
-                        help="which evaluation dataset to use")
+    parser.add_argument("--seed", type=int, default=0,
+                        help="which seed to load for trained model")
+    parser.add_argument("--stage", type=str, default="dev", choices=["dev", "test"],
+                        help="which evaluation stage to use")
     parser.add_argument("--eval_include_sos_eos", action="store_true",
                         help="include SOS/EOS tokens for eval labels")
+    parser.add_argument("--eval_type", type=str, default="image", choices=[
+        "image", "text"], help="Run evaluation using multiple images or multiple labels")
+    parser.add_argument("--eval_metadata_filename", type=str,
+                        default="eval_dev.json",
+                        help="JSON file with metadata for (dev) evaluation split to use")
     parser.add_argument("--use_kitty_label", action="store_true",
                         help="replaces cat label with kitty")
     parser.add_argument("--save_predictions", action="store_true",

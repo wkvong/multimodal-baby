@@ -6,7 +6,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from multimodal.multimodal import MultiModalModel, LanguageModel
+from multimodal.multimodal import MultiModalModel, LanguageModel, \
+    calculate_attn_reg_loss
 from multimodal.utils import get_entropy
 from multimodal.textgen_eval import evaluate as textgen_eval
 from multimodal.multimodal_data_module import \
@@ -44,6 +45,7 @@ class MultiModalLitModel(pl.LightningModule):
         # self.alpha = self.args.get("alpha", ALPHA)
         self.lambda_mm = self.args.get("lambda_mm", 1.)
         self.lambda_lm = self.args.get("lambda_lm", 0.)
+        self.lambda_ar = self.args.get("lambda_ar", 0.)
         self.optimize_unused = self.args.get("optimize_unused", False)
         self.eval_textgen = self.args.get("eval_textgen", False)
         self.beam_width = self.args.get("beam_width", BEAM_WIDTH)
@@ -80,6 +82,8 @@ class MultiModalLitModel(pl.LightningModule):
                             help="multimodal contrastive loss *= lambda_mm")
         parser.add_argument("--lambda_lm", type=float, default=0.,
                             help="language modeling loss *= lambda_lm")
+        parser.add_argument("--lambda_ar", type=float, default=0.,
+                            help="attention regularization loss *= lambda_ar")
         parser.add_argument("--optimize_unused", action="store_true",
                             help="optimize the computation for unused loss "
                                  "(i.e., lambda=0)")
@@ -115,6 +119,41 @@ class MultiModalLitModel(pl.LightningModule):
     def forward(self, x, y, y_len):
         return self.model(x, y, y_len)
 
+    def calculate_ce_loss(
+        self, y, y_len, x=None,
+        outputs=None,
+        image_features=None,
+        image_feature_map=None,
+        return_image_features=False,
+        **kwargs
+    ):
+        """Wraps self.language_model.calculate_ce_loss
+        """
+        if self.language_model.text_encoder.captioning or \
+            self.language_model.text_encoder.has_attention:
+            # get image_features and image_feature_map if needed
+            if image_features is None:
+                image_features, image_feature_map = self.model.encode_image(x)
+            # text_outputs is not reusable since it's not obtained from
+            # captioning in the contrastive module
+            outputs = None
+        else:
+            image_features, image_feature_map = None, None
+
+        # calculate language model ce loss
+        ret = self.language_model.calculate_ce_loss(
+            y, y_len,
+            outputs=outputs,
+            image_features=image_features
+                if self.language_model.text_encoder.captioning else None,
+            image_feature_map=image_feature_map
+                if self.language_model.text_encoder.has_attention else None,
+            **kwargs
+        )
+        if return_image_features:
+            ret = ret + (image_features, image_feature_map)
+        return ret
+
     def calculate_joint_loss(self, batch, stage, log, eval_textgen=False,
                              ce_weight=None):
         # batch of image-text pairs
@@ -125,13 +164,13 @@ class MultiModalLitModel(pl.LightningModule):
             'batch_size': x.size(0),
         }
 
-        # reuse image_features and text_outputs if possible
-        image_features, text_outputs = None, None
+        # reuse image_features, image_feature_map and text_outputs if possible
+        image_features, image_feature_map, text_outputs = None, None, None
 
         if self.lambda_mm or not self.optimize_unused:
             infonce_loss, image_accuracy, text_accuracy, \
                 image_entropy, text_entropy, logits_per_image, logits_per_text, \
-                image_features, text_outputs = \
+                image_features, image_feature_map, text_outputs = \
                 self.model.calculate_contrastive_loss(x, y, y_len)
 
             # log
@@ -155,21 +194,23 @@ class MultiModalLitModel(pl.LightningModule):
             infonce_loss = 0.
 
         if self.lambda_lm or not self.optimize_unused:
-            if self.language_model.text_encoder.captioning:
-                # get image_features if needed
-                if image_features is None:
-                    image_features = self.vision_encoder(x)
-                    if self.model.normalize_features:
-                        image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
-                # text_outputs is not reusable since it's not obtained from captioning in the contrastive module
-                text_outputs = None
-
             # calculate language model ce loss
-            ce_loss, _, _, labels = self.language_model.calculate_ce_loss(
-                y, y_len, outputs=text_outputs, image_features=image_features,
-                tokenwise=True, weight=ce_weight)
+            ce_loss, _, _, attns, labels, image_features, image_feature_map = \
+            self.calculate_ce_loss(
+                y, y_len, x=x,
+                outputs=text_outputs,
+                image_features=image_features,
+                image_feature_map=image_feature_map,
+                return_image_features=True,
+                tokenwise=True,
+                weight=ce_weight,
+            )
 
             # get all kinds of losses with/without special tokens
+            # Actually in torch.nn.CrossEntropyLoss the sum of loss should be
+            # divided by the sum of mask weighted by the weight. Here I ignored
+            # the weight for simplicity, since it is not used in the main code.
+
             # standard loss including all special tokens
             mask = (labels != PAD_TOKEN_ID)
             n_tokens = mask.sum()
@@ -197,6 +238,20 @@ class MultiModalLitModel(pl.LightningModule):
                 'n_tokens_wo_sos_eos': n_tokens_wo_sos_eos,
             })
 
+            # attention regularization loss
+            if self.language_model.text_encoder.has_attention:
+                attn_reg_loss = calculate_attn_reg_loss(attns)
+
+                # log
+                log(f"{stage}_attn_reg_loss", attn_reg_loss)
+
+                ret.update({
+                    'attn_reg_loss': attn_reg_loss.detach(),
+                })
+
+            else:
+                attn_reg_loss = 0.
+
             if eval_textgen:
                 beam_seq, log_prob = self.language_model.beam_search_decode(
                     batch_size=ret['batch_size'],
@@ -205,6 +260,9 @@ class MultiModalLitModel(pl.LightningModule):
                     length_penalty_alpha=self.length_penalty_alpha,
                     image_features=image_features
                         if self.language_model.text_encoder.captioning else
+                        None,
+                    image_feature_map=image_feature_map
+                        if self.language_model.text_encoder.has_attention else
                         None,
                 )
 
@@ -231,9 +289,11 @@ class MultiModalLitModel(pl.LightningModule):
 
         else:
             lm_ce_loss = 0.
+            attn_reg_loss = 0.
 
         # calculate joint loss
-        loss = self.lambda_mm * infonce_loss + self.lambda_lm * lm_ce_loss
+        loss = self.lambda_mm * infonce_loss + self.lambda_lm * lm_ce_loss \
+            + self.lambda_ar * attn_reg_loss
 
         # log
         log(f"{stage}_loss", loss)
@@ -284,6 +344,10 @@ class MultiModalLitModel(pl.LightningModule):
                 # perplexity
                 perplexity = np.exp(value_mean)
                 log(f"{stage}_perplexity{suffix}", perplexity)
+
+            if self.language_model.text_encoder.has_attention:
+                for name in ('attn_reg_loss',):
+                    log(f"{stage}_{name}", mean_over_examples(name))
 
             if eval_textgen:
                 list_of_references, hypotheses = [], []
@@ -341,20 +405,17 @@ class MultiModalLitModel(pl.LightningModule):
                 logits_per_image, logits_per_text = self.model(x, y, y_len)
                 logits = logits_per_text[0]  # get logits per trial
 
-            elif self.lambda_lm and self.language_model.text_encoder.captioning\
+            elif self.lambda_lm and (
+                    self.language_model.text_encoder.captioning or
+                    self.language_model.text_encoder.has_attention) \
                     and y[0, 0].item() == SOS_TOKEN_ID:
                 # tile y to match the batch size
                 y = y.expand(x.size(0), -1)
                 y_len = y_len.expand(x.size(0))
 
-                # get image_features
-                image_features = self.vision_encoder(x)
-                if self.model.normalize_features:
-                    image_features = F.normalize(image_features, p=2, dim=1)  # normalize image features
-
                 # calculate language model ce loss
-                ce_loss, _, _, labels = self.language_model.calculate_ce_loss(
-                    y, y_len, image_features=image_features, tokenwise=True)
+                ce_loss, _, _, _, labels = self.calculate_ce_loss(
+                    y, y_len, x=x, tokenwise=True)
 
                 # use - ce_loss on the word as logits
                 logits = - ce_loss[:, 0]
