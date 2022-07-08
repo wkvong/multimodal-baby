@@ -117,7 +117,11 @@ def main():
                                                     checkpoint_callback],
                                                 logger=wandb_logger)
     else:
-        trainer = pl.Trainer.from_argparse_args(args)
+        trainer = pl.Trainer.from_argparse_args(args,
+                                                enable_checkpointing=args.checkpoint_callback,
+                                                callbacks=[
+                                                checkpoint_callback]                                               
+                )
 
     print(args)
     print(ckpt_dir)

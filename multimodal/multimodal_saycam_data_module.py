@@ -37,20 +37,15 @@ import clip
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # directories and filenames
-#DATA_DIR = Path("/saycam/S_multimodal")
+OLD_DATA_DIR = Path("/saycam")
 DATA_DIR = Path("/saycam_new_text")
 GSHEETS_CREDENTIALS_FILENAME = DATA_DIR / "credentials.json"
 TRANSCRIPT_LINKS_FILENAME = DATA_DIR / "SAYCam_transcript_links.csv"
 TRANSCRIPTS_DIRNAME = DATA_DIR / "transcripts"
 PREPROCESSED_TRANSCRIPTS_DIRNAME = DATA_DIR / "preprocessed_transcripts_5fps"
-<<<<<<< HEAD
-RAW_VIDEO_DIRNAME = "/saycam/S_videos_annotations/S_videos/"
-LABELED_S_DIRNAME = "/saycam/S_clean_labeled_data_1fps_5"
-=======
 RAW_VIDEO_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/S_videos/"
-LABELED_S_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_clean_labeled_data_1fps_5"
-FILTERED_LABELED_S_DIRNAME = "/misc/vlgscratch4/LakeGroup/shared_data/S_clean_labeled_data_clip_filtered"
->>>>>>> 2559acd763f0b31b7fedb60940887da49d2910d5
+LABELED_S_DIRNAME = "/scratch/nk3351/data/saycam/S_clean_labeled_data_1fps_5"
+FILTERED_LABELED_S_DIRNAME = "/scratch/nk3351/data/saycam/S_clean_labeled_data_clip_filtered"
 EXTRACTED_FRAMES_DIRNAME = DATA_DIR / "train_5fps"
 EVAL_FRAMES_DIRNAME = DATA_DIR / "eval"
 FILTERED_EVAL_FRAMES_DIRNAME = DATA_DIR / "eval_filtered"
@@ -58,8 +53,8 @@ ANIMATED_FRAMES_DIRNAME = DATA_DIR / "train_animated_5fps"
 TRAIN_METADATA_FILENAME = DATA_DIR / "train.json"
 VAL_METADATA_FILENAME = DATA_DIR / "val.json"
 TEST_METADATA_FILENAME = DATA_DIR / "test.json"
-EVAL_DEV_METADATA_FILENAME = DATA_DIR / "eval_dev.json"
-EVAL_TEST_METADATA_FILENAME = DATA_DIR / "eval_test.json"
+EVAL_DEV_METADATA_FILENAME = OLD_DATA_DIR / "eval_dev.json"
+EVAL_TEST_METADATA_FILENAME = OLD_DATA_DIR / "eval_test.json"
 FILTERED_EVAL_DEV_METADATA_FILENAME = DATA_DIR / "eval_filtered_dev.json"
 FILTERED_EVAL_TEST_METADATA_FILENAME = DATA_DIR / "eval_filtered_test.json"
 VOCAB_FILENAME = DATA_DIR / "vocab.json"
@@ -159,13 +154,13 @@ class MultiModalSAYCamDataModule(MultiModalDataModule):
         _preprocess_transcripts()
         _extract_train_frames()
         _create_train_metadata()
-        #_filter_eval_frames()
-        _extract_eval_frames()
-        #_extract_filtered_eval_frames()
-        _create_eval_metadata()
-        _create_filtered_eval_metadata()
-        _create_extra_eval_metadata()
-        _create_extra_filtered_eval_metadata()
+        ##_filter_eval_frames()
+        # _extract_eval_frames()
+        ##_extract_filtered_eval_frames()
+        # _create_eval_metadata()
+        # _create_filtered_eval_metadata()
+        # _create_extra_eval_metadata()
+        # _create_extra_filtered_eval_metadata()
         _create_vocab()
         # _create_animations()  # TODO: add extra argument to generate this?
 
