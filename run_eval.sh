@@ -1,5 +1,49 @@
-# evaluation for embedding model
-python eval.py --use_kitty_label --model embedding --dataset dev --save_predictions --plot_attention
+# image evaluations for embedding model
+# python eval.py --model embedding --seed 0 --stage dev --eval_type image --use_kitty_label --save_predictions
+# python eval.py --model embedding --seed 1 --stage dev --eval_type image --use_kitty_label --save_predictions
+# python eval.py --model embedding --seed 2 --stage dev --eval_type image --use_kitty_label --save_predictions
+
+# python eval.py --model embedding --seed 0 --stage dev --eval_type image --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_9_foils.json 
+# python eval.py --model embedding --seed 1 --stage dev --eval_type image --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_9_foils.json 
+# python eval.py --model embedding --seed 2 --stage dev --eval_type image --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_9_foils.json 
+
+# python eval.py --model embedding --seed 0 --stage dev --eval_type image --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_21_foils.json 
+# python eval.py --model embedding --seed 1 --stage dev --eval_type image --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_21_foils.json 
+# python eval.py --model embedding --seed 2 --stage dev --eval_type image --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_21_foils.json 
+
+python eval.py --model embedding --seed 0 --stage dev --eval_type text --use_kitty_label --save_predictions
+python eval.py --model embedding --seed 1 --stage dev --eval_type text --use_kitty_label --save_predictions
+python eval.py --model embedding --seed 2 --stage dev --eval_type text --use_kitty_label --save_predictions
+
+python eval.py --model embedding --seed 0 --stage dev --eval_type text --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_9_foils.json 
+python eval.py --model embedding --seed 1 --stage dev --eval_type text --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_9_foils.json 
+python eval.py --model embedding --seed 2 --stage dev --eval_type text --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_9_foils.json 
+
+python eval.py --model embedding --seed 0 --stage dev --eval_type text --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_21_foils.json 
+python eval.py --model embedding --seed 1 --stage dev --eval_type text --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_21_foils.json 
+python eval.py --model embedding --seed 2 --stage dev --eval_type text --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_21_foils.json 
 
 # evaluation for lstm model
-python eval.py --use_kitty_label --model lstm --dataset dev --eval_include_sos_eos --save_predictions --plot_attention
+# python eval.py --model lstm --seed 0 --stage dev --eval_type image --use_kitty_label --save_predictions
+# python eval.py --model lstm --seed 1 --stage dev --eval_type image --use_kitty_label --save_predictions
+# python eval.py --model lstm --seed 2 --stage dev --eval_type image --use_kitty_label --save_predictions
+
+# python eval.py --model lstm --seed 0 --stage dev --eval_type image --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_9_foils.json 
+# python eval.py --model lstm --seed 1 --stage dev --eval_type image --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_9_foils.json 
+# python eval.py --model lstm --seed 2 --stage dev --eval_type image --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_9_foils.json 
+
+# python eval.py --model lstm --seed 0 --stage dev --eval_type image --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_21_foils.json 
+# python eval.py --model lstm --seed 1 --stage dev --eval_type image --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_21_foils.json 
+# python eval.py --model lstm --seed 2 --stage dev --eval_type image --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_21_foils.json 
+
+# python eval.py --model lstm --seed 0 --stage dev --eval_type text --use_kitty_label --save_predictions
+# python eval.py --model lstm --seed 1 --stage dev --eval_type text --use_kitty_label --save_predictions
+# python eval.py --model lstm --seed 2 --stage dev --eval_type text --use_kitty_label --save_predictions
+
+# python eval.py --model lstm --seed 0 --stage dev --eval_type text --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_9_foils.json 
+# python eval.py --model lstm --seed 1 --stage dev --eval_type text --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_9_foils.json 
+# python eval.py --model lstm --seed 2 --stage dev --eval_type text --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_9_foils.json 
+
+# python eval.py --model lstm --seed 0 --stage dev --eval_type text --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_21_foils.json 
+# python eval.py --model lstm --seed 1 --stage dev --eval_type text --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_21_foils.json 
+# python eval.py --model lstm --seed 2 --stage dev --eval_type text --use_kitty_label --save_predictions --eval_metadata_filename eval_filtered_dev_21_foils.json 
