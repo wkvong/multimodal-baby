@@ -27,15 +27,15 @@ def examples_from_dataloader(dataloader):
     return itertools.chain.from_iterable((zip(*batch) for batch in dataloader))
 
 
-import stanza
-nlp = stanza.Pipeline(lang='en', processors='tokenize,pos', tokenize_pretokenized=True)
-
 def get_pos_tags(dataloader, dataset_name, split):
     cache_path = Path('dataset_cache') / dataset_name / f'{split}.pos.cache'
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     if cache_path.exists():
         print(f'load cached pos tags: {cache_path}')
         return torch.load(cache_path)
+
+    import stanza
+    nlp = stanza.Pipeline(lang='en', processors='tokenize,pos', tokenize_pretokenized=True)
 
     pos_tags = []
 
