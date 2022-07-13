@@ -112,18 +112,30 @@ def run_model(model, x, y, y_len, single_example=False, return_all=False):
     return ret
 
 
-def run_model_on_data(model, dataloader, return_all=False):
-    """Run model on batches from dataloader and yields examples with model outputs appended.
+def run_model_on_data_batches(model, dataloader, use_tqdm=True, return_all=False):
+    """Run model on batches from dataloader and yields batches with model
+        outputs appended.
     """
 
+    if use_tqdm:
+        dataloader = tqdm(dataloader)
+
     with torch.no_grad():
-        for x, y, y_len, raw_y in tqdm(dataloader):
+        for x, y, y_len, raw_y in dataloader:
             batch_size = len(y)
             ret = run_model(model, x, y, y_len, return_all=return_all)
-            ret = tuple(t if t is not None else [None] * batch_size for t in ret)
+            yield x, y, y_len, raw_y, \
+                *(t if t is not None else [None] * batch_size for t in ret)
 
-            for example in zip(x, y, y_len, raw_y, *ret):
-                yield example
+
+def run_model_on_data(*args, **kwargs):
+    """Run model on batches from dataloader and yields examples with model
+        outputs appended.
+    """
+
+    for batch in run_model_on_data_batches(*args, **kwargs):
+        for example in zip(*batch):
+            yield example
 
 
 def get_token_items(token_pos_items):
