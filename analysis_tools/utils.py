@@ -83,3 +83,43 @@ def torch_cache(cache_path):
 
 def get_model_device(model):
     return next(model.parameters()).device
+
+
+default_value_formatter = lambda value: f'{value:5.3f}'
+prob_formatter = lambda prob: f'{prob:6.1%}'
+
+
+def print_top_values(values, idx2word, labels=None, top_k=5, steps=None,
+                     value_formatter=default_value_formatter):
+    """Print the top k words in values (optionally along with the labels)
+    Inputs:
+        values: a torch.Tensor of shape [n_steps, vocab_size] or [vocab_size]
+        idx2word: mapping word index to word
+        labels: a torch.Tensor of shape [n_steps] or []
+        top_k: the number of top words to print
+        steps: list of int, steps to print; None for all possible steps
+        value_formatter: value_formatter(value) should get the formatted string
+            of the value
+    """
+
+    # unsqueeze singleton inputs
+    if values.dim() == 1:
+        values = values.unsqueeze(0)
+        if labels is not None:
+            labels = labels.unsqueeze(0)
+
+    # init default values
+    if labels is None:
+        labels = [None] * len(values)
+    if steps is None:
+        steps = list(range(len(labels)))
+
+    top_values, top_indices = values.topk(top_k, -1)
+
+    zipped = list(zip(values, labels, top_values, top_indices))
+    for step in steps:
+        value, label, top_value, top_index = zipped[step]
+        formatter = lambda value, idx: f'{value_formatter(value)} {idx2word[idx]:8}'
+        line = (formatter(value[label.item()].item(), label.item()) + ' | ' if label is not None else '') \
+             + ' '.join(formatter(value.item(), index.item()) for value, index in zip(top_value, top_index))
+        print(line)
