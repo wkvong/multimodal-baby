@@ -83,11 +83,29 @@ def plot_model_y_value_heatmap(names, values, y_labels, annot=True, size=0.7, pl
 
 
 def print_top_probs(probs, idx2word, labels=None, top_k=5, steps=None):
+    """Print the top k words in probs (optionally along with the labels)
+    Inputs:
+        probs: a torch.Tensor of shape [n_steps, vocab_size] or [vocab_size]
+        idx2word: mapping word index to word
+        labels: a torch.Tensor of shape [n_steps] or []
+        top_k: the number of top words to print
+        steps: list of int, steps to print; None for all possible steps
+    """
+
+    # unsqueeze singleton inputs
+    if probs.dim() == 1:
+        probs = probs.unsqueeze(0)
+        if labels is not None:
+            labels = labels.unsqueeze(0)
+
+    # init default values
     if labels is None:
         labels = [None] * len(probs)
     if steps is None:
         steps = list(range(len(labels)))
+
     top_values, top_indices = probs.topk(top_k, -1)
+
     zipped = list(zip(probs, labels, top_values, top_indices))
     for step in steps:
         prob, label, top_value, top_index = zipped[step]
