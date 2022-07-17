@@ -77,7 +77,7 @@ pos_subcats = {
         ("animals", "kitty bear bunny doggy duck cow sheep kitties ducks fish birds horse birdy hippo birdies doggies bird giraffe dog dinosaur lamb mouse chick cows pig lion cat butterfly", "chicken animals"),
         ("vehicles", "train car truck cars boat trucks tractor wagon", ""),
         ("toys", "ball puzzle balloon balls toys blocks dummy toy dolly doh", "book books bubbles marker pen"),
-        ("food_drink", "water banana bread eggs egg milk apple browns jam juice food grapes biscuit strawberry rice fruit sushi hashbrowns coffee puree", "breakfast"),
+        ("food_drink", "water banana bread eggs egg milk apple browns jam juice food grapes biscuit strawberry rice fruit sushi hashbrowns coffee puree", "breakfast breaky"),
         ("clothing", "shoes socks shirt pants jacket clothes sock shoe hat", "nappy backpack blanket"),
         ("body_parts", "hand foot mouth hands head feet teeth nose lap toes face belly hair eyes", ""),
         ("household", "cup bottle brush bucket marmite spoon bag box bowl plate sandpit cups boxes", ""),
