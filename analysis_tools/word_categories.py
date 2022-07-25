@@ -74,13 +74,13 @@ untypical_words = ' '.join((possessives + negations + be_verbs + pronoun_contrac
 pos_subcats = {
     "noun": [
         ("sounds", "boop bloop ruff ya blo mmkay bop nom quack vroom boom mwah woof ma", "yeah oh yea uh yeahh ah hey yep mm mmm yay hmm um ohh yup yeahhh ahh op ooh yum woah hm ohhh ha oops"),
-        ("animals", "kitty bear bunny doggy duck cow sheep kitties ducks fish birds horse birdy hippo birdies doggies bird giraffe dog dinosaur lamb mouse chick cows pig lion cat butterfly", "chicken animals"),
+        ("animals", "kitty bear bunny doggy duck cow sheep kitties ducks fish birds horse birdy hippo birdies doggies bird giraffe dog dinosaur lamb mouse chick cows pig lion cat butterfly", "marmite chicken animals"),
         ("vehicles", "train car truck cars boat trucks tractor wagon", ""),
         ("toys", "ball puzzle balloon balls toys blocks dummy toy dolly doh", "book books bubbles marker pen"),
         ("food_drink", "water banana bread eggs egg milk apple browns jam juice food grapes biscuit strawberry rice fruit sushi hashbrowns coffee puree", "breakfast breaky"),
         ("clothing", "shoes socks shirt pants jacket clothes sock shoe hat", "nappy backpack blanket"),
         ("body_parts", "hand foot mouth hands head feet teeth nose lap toes face belly hair eyes", ""),
-        ("household", "cup bottle brush bucket marmite spoon bag box bowl plate sandpit cups boxes", ""),
+        ("household", "cup bottle brush bucket spoon bag box bowl plate sandpit cups boxes", ""),
         ("furniture_rooms", "bin potty chair crib door bed stairs window mirror floor basket", "computer"),
         ("outside", "sand flowers flower tree trees sun rocks", ""),
         ("places", "beach farm library store playground park", "house room"),

@@ -4,6 +4,10 @@ import numpy as np
 import torch
 
 
+def identity(x):
+    return x
+
+
 def get_n_rows(n_items, n_cols):
     return (n_items - 1) // n_cols + 1
 

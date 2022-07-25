@@ -1,5 +1,5 @@
 from pathlib import Path
-from collections import namedtuple, defaultdict
+from collections import namedtuple, defaultdict, Counter
 import itertools
 import functools
 from tqdm import tqdm
@@ -11,7 +11,7 @@ from ngram import NGramModel
 from multimodal.utils import map_structure
 from .token_items_data import token_field, Key
 from .sumdata import *
-from .utils import get_model_device
+from .utils import get_model_device, identity
 
 
 def build_ngram_model(N, vocab_size, train_dataloader):
@@ -68,6 +68,55 @@ def get_pos_tags(dataloader, dataset_name, split):
     torch.save(pos_tags, cache_path)
 
     return pos_tags
+
+
+def raw_utterances_from_dataloader(dataloader):
+    for x, y, y_len, raw_y in dataloader:
+        for raw_y_ in raw_y:
+            yield raw_y_[0]
+
+
+def get_word_pos_cnt(dataloader, pos_tags):
+    from multimodal.multimodal_data_module import SOS_TOKEN, EOS_TOKEN
+    raw_utterances = raw_utterances_from_dataloader(dataloader)
+    word_pos_cnt = Counter()
+    for raw_utterance, utterance_pos_tags in zip(raw_utterances, pos_tags):
+        tokens = [SOS_TOKEN] + raw_utterance.split() + [EOS_TOKEN]
+        word_pos_cnt.update(zip(tokens, utterance_pos_tags))
+    return word_pos_cnt
+
+
+def get_word_pos_stat_from_word_pos_cnt(word_pos_cnt):
+    word_pos_stat = defaultdict(Counter)
+    for (word, pos), cnt in word_pos_cnt.items():
+        word_pos_stat[word][pos] = cnt
+    return word_pos_stat
+
+
+def get_pos_stats_for_words(words, word_pos_stat, pos_mapping=identity):
+    """Get POS for words.
+    Inputs:
+        words: list or 1-d np.ndarray of words.
+        word_pos_stat: obtained from get_word_pos_stat_from_word_pos_cnt.
+        pos_mapping: callable to map pos in word_pos_stat.
+    Output:
+        pos_stats: list of sorted list of (pos, cnt) pairs.
+    """
+
+    pos_stats = []
+    for i, word in enumerate(words):
+        pos_stat = word_pos_stat.get(word, {})
+        # map pos
+        new_pos_stat = Counter()
+        for pos, cnt in pos_stat.items():
+            new_pos_stat[pos_mapping(pos)] += cnt
+        # sort by frequency
+        new_pos_stat = sorted(
+            new_pos_stat.items(),
+            key=lambda item: (-item[1], item[0])
+        )
+        pos_stats.append(new_pos_stat)
+    return pos_stats
 
 
 def is_regressional(model):
