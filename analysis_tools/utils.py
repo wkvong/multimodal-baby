@@ -4,6 +4,10 @@ import numpy as np
 import torch
 
 
+def frac_format(m, n):
+    return f'{m} / {n} = {m/n:.2%}'
+
+
 def identity(x):
     return x
 
