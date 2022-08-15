@@ -187,6 +187,20 @@ def run_model_on_data(*args, **kwargs):
             yield example
 
 
+def get_model_losses_on_data_batches(model, batches, use_tqdm=False):
+    """Run model on batches from datalaoder and returns tensor containing
+    all losses.
+    """
+
+    losses = []
+    for batch in run_model_on_data_batches(model, batches, use_tqdm=use_tqdm):
+        outputs, loss = batch[4:]
+        loss = loss.sum(-1)
+        losses.append(loss.detach())
+    losses = torch.cat(losses, 0)
+    return losses
+
+
 def get_token_items(token_pos_items):
     token_pos_items = list(token_pos_items.items())
     token_pos_items.sort()
