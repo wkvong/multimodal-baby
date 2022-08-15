@@ -592,8 +592,8 @@ def _filter_eval_frames():
                 sim = (image_features.squeeze() @ text_features[i]).item()
                 sims.append([eval_category, frame, sim])
 
-            # filter frames using top 15% based on CLIP similarity
-            threshold = 0.15
+            # filter frames using top 30% based on CLIP similarity
+            threshold = 0.3
             sims_df = pd.DataFrame(
                 sims, columns=["target_category", "frame", "sim"])
             filtered_frames_df = sims_df.sort_values(by=['sim'], ascending=False).head(
