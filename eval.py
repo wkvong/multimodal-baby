@@ -39,11 +39,11 @@ def main(args):
     else:
         if args.model == "embedding":
             # checkpoint_name = "multimodal_text_encoder_embedding_lr_0.0001_weight_decay_0.1_fix_temperature_True_batch_size_16"
-            checkpoint_name = f"multimodal_text_encoder_embedding_embedding_dim_512_batch_size_8_dropout_i_0.5_lr_5e-05_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
+            checkpoint_name = f"multimodal_text_encoder_embedding_embedding_dim_512_batch_size_8_dropout_i_0.5_lr_0.0001_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
         elif args.model == "lstm":
             # checkpoint_name = 'multimodal_text_encoder_lstm_lr_0.0001_weight_decay_0.2_fix_temperature_False_batch_size_8'
             # checkpoint_name = "multimodal_text_encoder_lstm_embedding_dim_512_fix_temperature_True_temperature_0.07_batch_size_8_dropout_i_0.5_lr_5e-05_lr_scheduler_True_weight_decay_0.1_seed_0"
-            checkpoint_name = f"multimodal_text_encoder_lstm_embedding_dim_512_batch_size_8_dropout_i_0.5_lr_5e-05_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
+            checkpoint_name = f"multimodal_text_encoder_lstm_embedding_dim_512_batch_size_8_dropout_i_0.5_lr_0.0001_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
         if checkpoint_name.endswith(".ckpt"):
             checkpoint = checkpoint_name
         else:

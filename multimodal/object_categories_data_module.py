@@ -17,8 +17,8 @@ from multimodal.multimodal_data_module import MAX_LEN_UTTERANCE, PAD_TOKEN, UNK_
 from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule, DATA_DIR, TRAIN_METADATA_FILENAME
 
 # directories and filenames
-OBJECT_CATEGORIES_DATA_DIR = Path(
-    "/home/wv9/code/WaiKeen/multimodal-baby/data/object_categories")
+DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
+OBJECT_CATEGORIES_DATA_DIR = DATA_DIR / "object_categories"
 OBJECT_CATEGORIES_EVAL_METADATA_FILENAME = DATA_DIR / \
     "eval_object_categories.json"
 
@@ -76,16 +76,80 @@ class ObjectCategoriesEvalDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
+class ObjectCategoriesTextEvalDataset(Dataset):
+    """
+    Dataset that returns a single target image and multiple category labels for evaluation
+    """
+
+    def __init__(self, data, vocab, eval_include_sos_eos=False, clip_eval=False):
+        self.data = data
+        self.vocab = vocab
+        self.eval_include_sos_eos = eval_include_sos_eos
+        self.clip_eval = clip_eval
+
+        self.transform = transforms.Compose([
+            transforms.Resize((IMAGE_H, IMAGE_W),
+                              interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.ToTensor(),
+            normalizer,
+        ])
+    
+    def __getitem__(self, idx):
+        # read trial information
+
+        trial = self.data[idx]
+
+        # read in target image
+        img = torch.zeros((1, 3, IMAGE_H, IMAGE_W))
+        target_img_filename = trial["target_img_filename"]
+        img[0] = self.transform(Image.open(target_img_filename).convert("RGB"))
+
+        # get target category and foil categories
+        raw_target_label = trial["target_category"]
+        raw_foil_labels = trial["foil_categories"]
+        raw_labels = [raw_target_label] + raw_foil_labels
+        labels = []
+        labels_len = []
+        for raw_label in raw_labels:
+            if not self.clip_eval:
+                # use SAYCam vocab/tokenizer
+                label = [self.vocab[raw_label]]
+                if self.eval_include_sos_eos:
+                    label = [SOS_TOKEN_ID] + label + [EOS_TOKEN_ID]
+                labels.append(label)
+                labels_len.append(len(label))
+            else:
+                # use CLIP tokenizer
+                label = clip.tokenize(raw_label)
+                labels.append(label)
+                labels_len.append(len(label))
+
+        if not self.clip_eval:
+            # convert list of labels to tensor
+            labels = torch.LongTensor(labels)
+        else:
+            # labels are already tensors, so need to concatenate
+            labels = torch.cat(labels, dim=0)
+
+        return img, labels, labels_len, [raw_target_label]
+        
+
+    def __len__(self):
+        return len(self.data)
+
+
+
 
 class ObjectCategoriesDataModule(pl.LightningDataModule):
     """
     The data module associated with evaluation using naturalistic object categories.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, args=None) -> None:
         super().__init__()
-        pass
+        self.eval_type = args.eval_type
 
+        
     def prepare_data(self, *args, **kwargs) -> None:
         print("Calling prepare_data!")
         self.vocab = _get_vocab()
@@ -100,7 +164,10 @@ class ObjectCategoriesDataModule(pl.LightningDataModule):
             data = json.load(f)
             self.data = data['data']
 
-        self.eval_dataset = ObjectCategoriesEvalDataset(self.data, self.vocab)
+        if self.eval_type == "image":
+            self.eval_dataset = ObjectCategoriesEvalDataset(self.data, self.vocab)
+        elif self.eval_type == "text":
+            self.eval_dataset = ObjectCategoriesTextEvalDataset(self.data, self.vocab)
 
     def test_dataloader(self, shuffle=False):
         eval_dataloader = DataLoader(
@@ -200,7 +267,7 @@ def _generate_object_category_eval_metadata(object_categories):
 
 
 def _get_object_category_word_counts():
-    """Get word frequency for each object category."""
+    """Get word frequency for each object category from the training set."""
     with open(TRAIN_METADATA_FILENAME) as f:
         train_data = json.load(f)
         train_data = train_data["data"]

@@ -38,15 +38,14 @@ def main(args):
         data_args = parser.parse_args("")
     else:
         if args.model == "embedding":
-            checkpoint_name = f"multimodal_text_encoder_embedding_embedding_dim_512_batch_size_8_shuffle_utterances_True_dropout_i_0.5_lr_5e-05_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
+            checkpoint_name = f"multimodal_text_encoder_embedding_embedding_dim_512_batch_size_8_dropout_i_0.5_shuffle_utterances_True_fix_temperature_True_lr_0.0001_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
         elif args.model == "lstm":
-            checkpoint_name = f"multimodal_text_encoder_lstm_embedding_dim_512_batch_size_8_shuffle_utterances_True_dropout_i_0.5_lr_5e-05_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
+            checkpoint_name = f"multimodal_text_encoder_lstm_embedding_dim_512_batch_size_8_dropout_i_0.5_shuffle_utterances_True_fix_temperature_True_lr_0.0001_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
         if checkpoint_name.endswith(".ckpt"):
             checkpoint = checkpoint_name
         else:
-            # grab checkpoint from epoch with lowest val loss
-            checkpoint = glob.glob(
-                f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/epoch*.ckpt")[0]
+            # grab last saved checkpoint
+            checkpoint = f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/last.ckpt"
 
         # load model from checkpoint
         model = MultiModalLitModel.load_from_checkpoint(
@@ -243,11 +242,8 @@ def main(args):
         # put results into a dictionary
         results_dict = {"data": results}
 
-        # create dir
-        os.makedirs('results_shuffled', exist_ok=True)
-
         # get filename
-        results_filename = f'results_shuffled/{args.model}_seed_{seed}_{args.eval_type}_{args.eval_metadata_filename.replace(".json", "_predictions.json")}'
+        results_filename = f'results/shuffled_{args.model}_seed_{seed}_{args.eval_type}_{args.eval_metadata_filename.replace(".json", "_predictions.json")}'
         print(results_filename)
 
         # save to JSON
