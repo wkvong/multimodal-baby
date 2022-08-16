@@ -36,11 +36,11 @@ def main(args):
     else:
         if args.model == "embedding":
             # checkpoint_name = "multimodal_text_encoder_embedding_lr_0.0001_weight_decay_0.1_fix_temperature_True_batch_size_16"
-            checkpoint_name = f"multimodal_text_encoder_embedding_embedding_dim_512_batch_size_8_dropout_i_0.5_lr_5e-05_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
+            checkpoint_name = f"multimodal_text_encoder_embedding_embedding_dim_512_batch_size_8_dropout_i_0.5_lr_0.0001_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
         elif args.model == "lstm":
             # checkpoint_name = 'multimodal_text_encoder_lstm_lr_0.0001_weight_decay_0.2_fix_temperature_False_batch_size_8'
             # checkpoint_name = "multimodal_text_encoder_lstm_embedding_dim_512_fix_temperature_True_temperature_0.07_batch_size_8_dropout_i_0.5_lr_5e-05_lr_scheduler_True_weight_decay_0.1_seed_0"
-            checkpoint_name = f"multimodal_text_encoder_lstm_embedding_dim_512_batch_size_8_dropout_i_0.5_lr_5e-05_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
+            checkpoint_name = f"multimodal_text_encoder_lstm_embedding_dim_512_batch_size_8_dropout_i_0.5_lr_0.0001_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
         if checkpoint_name.endswith(".ckpt"):
             checkpoint = checkpoint_name
         else:
@@ -74,7 +74,7 @@ def main(args):
         data_args.clip_eval = True
 
     # set up object categories dataloader
-    object_categories_dm = ObjectCategoriesDataModule()
+    object_categories_dm = ObjectCategoriesDataModule(args)  # TODO: check this works
     object_categories_dm.prepare_data()
     object_categories_dm.setup()
     object_categories_dataloader = object_categories_dm.test_dataloader()
@@ -119,8 +119,24 @@ def main(args):
                 pred = torch.argmax(logits_per_text, dim=-1).item()
                 ground_truth = 0
         elif args.eval_type == "text":
-            pass
+            # perform evaluation using single image with multiple category labels
+            img = img.squeeze(0).to(device)
+            label = label.squeeze(0).to(device)
+            label_len = label_len.squeeze(0).to(device)
 
+            # calculate similarity between images
+            # first, get embeddings
+            with torch.no_grad():
+                if args.model == "clip":
+                    label = label.squeeze(0)  # remove extra dim for CLIP
+                    logits_per_image, _ = model(img, label)
+                else:
+                    logits_per_image, _ = model(img, label, label_len)
+
+                logits_list = torch.softmax(logits_per_image, dim=-1).detach().cpu().numpy().tolist()[0]
+                pred = torch.argmax(logits_per_image, dim=-1).item()
+                ground_truth = 0
+                
         # second, calculate if correct referent is predicted
         correct = False
         if pred == ground_truth:
@@ -148,9 +164,12 @@ def main(args):
         results.append(curr_results)
 
     # print accuracy for each class
+    accuracies = []
     for classname, correct_count in correct_pred.items():
         accuracy = float(correct_count) / total_pred[classname]
-        print(f"Accuracy for class {classname:8s} is: {accuracy:.1%}")
+        # print(f"Accuracy for class {classname:8s} is: {accuracy:.1%}")
+        print(f"{classname}, {accuracy:.1%}")
+        accuracies.append(accuracy)
 
     # print total accuracy
     total_correct = sum(correct_pred.values())
@@ -188,7 +207,7 @@ if __name__ == "__main__":
                         choices=["image", "text"],
                         help="Run evaluation using multiple images or multiple labels")
     parser.add_argument("--save_predictions", action="store_true",
-                        help="save model predictions to CSV")
+                        help="save model predictions to JSON")
     args = parser.parse_args()
 
     main(args)
