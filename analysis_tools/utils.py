@@ -45,8 +45,13 @@ def get_tsne_points_from_vectors(
     print('T-SNE done.')
     return points
 
-def get_eigen_points_from_vectors(vectors, print_singular_values=False, **kwargs):
+def get_eigen_points_from_vectors(vectors, centered=True, print_singular_values=False, **kwargs):
     from scipy.linalg import svd
+
+    if centered:
+        # subtract mean vector from vectors
+        mean_vector = vectors.mean(0, keepdims=True)
+        vectors = vectors - mean_vector
 
     U, s, Vh = svd(vectors, full_matrices=False, **kwargs)
     print('SVD done.')
