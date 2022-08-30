@@ -68,7 +68,7 @@ pos_ambiguous_words = (
 special_tokens = (
 "<unk>",
 )
-untypical_words = ' '.join((possessives + negations + be_verbs + pronoun_contractions + other_contractions + quantifiers + pos_ambiguous_words)).split()
+untypical_words = ' '.join((possessives + negations + be_verbs + pronoun_contractions + other_contractions + quantifiers + pos_ambiguous_words + special_tokens)).split()
 
 # manually labelled all words with freq >= 24 (i.e., ends at "works" in the vocab)
 pos_subcats = {
