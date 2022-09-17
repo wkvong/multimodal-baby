@@ -60,6 +60,15 @@ def get_eigen_points_from_vectors(vectors, centered=True, print_singular_values=
         print(s)
     return U
 
+def get_pca_points_from_vectors(vectors, **kwargs):
+    from sklearn.decomposition import PCA
+
+    pca = PCA()
+
+    reduced = pca.fit_transform(vectors)
+    print('PCA done.')
+    return reduced
+
 def convert_attr_for_each(objs, get_attr='mean_vector', set_attr='tsne_point', converter=get_tsne_points_from_vectors, **kwargs):
     attrs = get_np_attrs_from_values(objs, get_attr)
 
@@ -70,6 +79,7 @@ def convert_attr_for_each(objs, get_attr='mean_vector', set_attr='tsne_point', c
 
 get_tsne_points = functools.partial(convert_attr_for_each, set_attr='tsne_point', converter=get_tsne_points_from_vectors)
 get_eigen_points = functools.partial(convert_attr_for_each, set_attr='eigen_point', converter=get_eigen_points_from_vectors)
+get_pca_points = functools.partial(convert_attr_for_each, set_attr='pca_point', converter=get_pca_points_from_vectors)
 
 
 def torch_cache(cache_path):

@@ -42,7 +42,7 @@ def row_llf(row, tag_field='pos', with_cnt=True, name=None, baseline_name=None):
 
 def extend_point_items(items, name, attr, n=None):
     if n is None:
-        n = {'tsne': 2, 'eigen': 5}[attr]
+        n = {'tsne': 2, 'eigen': 5, 'pca': 5}[attr]
     for idx in range(n):
         items[f'{name} {attr} {idx}'] = items[name].map(lambda value: getattr(value, attr + '_point')[idx])
 
@@ -71,6 +71,11 @@ def extend_items_for_name(items, name, baseline_name=None):
     try:
         # add eigen
         extend_point_items(items, name, 'eigen')
+    except AttributeError:
+        pass
+    try:
+        # add pca
+        extend_point_items(items, name, 'pca')
     except AttributeError:
         pass
 
