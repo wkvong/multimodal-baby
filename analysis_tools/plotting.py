@@ -4,15 +4,15 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from .representation_similarity import *
 from .token_items_data import token_field, row_llf
-from .pos_tags import pos_palette
-from .word_categories import subcat_palette
+from .pos_tags import pos_palette, pos_mappings
+from .word_categories import subcat_palette, subcat_field
 from .utils import get_n_rows, get_np_attrs_from_values
 
 
 def get_palette(field):
-    if 'pos' in field:
+    if field in pos_mappings:
         palette = pos_palette
-    elif field == 'subcat':
+    elif field == subcat_field:
         palette = subcat_palette
     else:
         palette = None
@@ -127,7 +127,20 @@ def plot_repres_sim_heatmap(vectors, names, title=None, ax=None):
 
 
 
-def plot_dendrogram(items, names, vector_attr='mean_vector', heatmap=False, annot=False, size=0.7, heatmap_linkage=None, tag_field='pos0', ll_tag_field='pos', ll_with_cnt=True, ll_with_ppl=True, title=None):
+def plot_dendrogram(
+    items,
+    names,
+    vector_attr='mean_vector',
+    heatmap=False,
+    annot=False,
+    size=0.7,
+    heatmap_linkage=None,
+    tag_field='POS tag',
+    ll_tag_field='pos',
+    ll_with_cnt=True,
+    ll_with_ppl=True,
+    title=None
+):
     """linkage clustering and dendrogram plotting
     items: pd.DataFrame
     names: the names of the models to plot
@@ -241,7 +254,19 @@ def plot_dendrogram(items, names, vector_attr='mean_vector', heatmap=False, anno
 plotting_variable_keys = {'x', 'y', 'hue', 'size', 'style'}
 default_figsize = (13, 12)
 
-def plot(fn, items, n_items=None, xrange=None, yrange=None, token_kwargs=None, palette=None, title=None, suptitle=None, hlines=None, vlines=None, figsize=default_figsize, **kwargs):
+def plot(
+    fn,
+    items, n_items=None,
+    xrange=None, yrange=None,
+    token_kwargs=None,
+    palette=None,
+    axis_option="on",
+    xlabel=None, ylabel=None,
+    title=None, suptitle=None,
+    hlines=None, vlines=None,
+    figsize=default_figsize,
+    **kwargs
+):
     """plot items using fn
     fn: seaborn plot function
     items: pd.DataFrame items; will drop items with missing values in the variables
@@ -293,6 +318,11 @@ def plot(fn, items, n_items=None, xrange=None, yrange=None, token_kwargs=None, p
         all_ax = [ret]
 
     for ax in all_ax:
+        if xlabel is not None:
+            ax.set_xlabel(xlabel)
+        if ylabel is not None:
+            ax.set_ylabel(ylabel)
+        ax.axis(axis_option)
         for hline in hlines:
             ax.axhline(hline)
         for vline in vlines:

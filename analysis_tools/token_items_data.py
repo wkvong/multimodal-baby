@@ -85,7 +85,7 @@ def extend_items(items, names, idx2word, baseline_name=None):
     """
 
     # add 'pos'
-    for pos_field, pos_mapping in pos_mappings:
+    for pos_field, pos_mapping in pos_mappings.items():
         items[pos_field] = items['pos'].map(pos_mapping).astype('category')
     # add 'logcnt'
     items['logcnt'] = np.log(items['cnt'])

@@ -1,5 +1,5 @@
-pos_mappings = [
-    ('pos0', {
+pos_mappings = {
+    'POS tag': {
         "''": ".",
         ",": ".",
         "-LRB-": ".",
@@ -46,8 +46,8 @@ pos_mappings = [
         "WP$": "WP$",
         "WRB": "WRB",
         "``": ".",
-    }),
-    ('pos1', {
+    },
+    'POS tag (compressed)': {
         "''": ".",
         ",": ".",
         "-LRB-": ".",
@@ -94,8 +94,8 @@ pos_mappings = [
         "WP$": "wh-word",
         "WRB": "wh-word",
         "``": ".",
-    }),
-    ('pos2', {
+    },
+    'syntactic category': {
         "''": ".",
         ",": ".",
         "-LRB-": ".",
@@ -142,8 +142,8 @@ pos_mappings = [
         "WP$": "function word",
         "WRB": "function word",
         "``": ".",
-    }),
-]
+    },
+}
 
 pos_palette = {
     "''": "black",
