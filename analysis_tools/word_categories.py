@@ -107,9 +107,28 @@ word2subcat = {
 }
 
 subcat_palette = {
-    cat_name: color
-    for subcats in pos_subcats.values()
-    for (cat_name, words), color in zip(subcats, sns.color_palette("husl", len(subcats)))
+    #cat_name: color
+    #for subcats in pos_subcats.values()
+    #for (cat_name, words), color in zip(subcats, sns.color_palette("husl", len(subcats)))
+
+    "body_parts": "red",
+    "clothing": "blue",
+    "food_drink": "orange",
+    "vehicles": "gray",
+    "toys": "green",
+    "animals": "pink",
+    "household": "cyan",
+    "places": "brown",
+    "sounds": "yellow",
+    "furniture_rooms": "maroon",
+    "outside": "limegreen",
+    "people": "fuchsia",
+    "games_routines": "slategray",
+
+    "transitive": "gold",
+    "intransitive": "purple",
+    "both": "peru",
+    "special": "lime",
 }
 
 subcat_field = "subcat"

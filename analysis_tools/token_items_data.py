@@ -18,7 +18,7 @@ class Key(namedtuple('Key', ['token_id', 'pos'])):
 
 
 def row_prefix_str(row, tag_field='pos', with_cnt=False):
-    prefix = f"{row[token_field]:<10} {row[tag_field]:<4}" if tag_field and not pd.isna(row[tag_field]) else f"{row[token_field]:<15}"
+    prefix = f"{row[tag_field]:<4} {row[token_field]:<10}" if tag_field and not pd.isna(row[tag_field]) else f"{row[token_field]:<15}"
     if with_cnt:
         prefix = prefix + f" {row['cnt']:>6}"
     return prefix
