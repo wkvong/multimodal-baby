@@ -19,6 +19,7 @@ from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule,
 # directories and filenames
 DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
 OBJECT_CATEGORIES_DATA_DIR = DATA_DIR / "object_categories"
+OBJECT_CATEGORIES_RESIZED_DATA_DIR = DATA_DIR / "object_categories_resized"
 OBJECT_CATEGORIES_EVAL_METADATA_FILENAME = DATA_DIR / \
     "eval_object_categories.json"
 
@@ -154,7 +155,8 @@ class ObjectCategoriesDataModule(pl.LightningDataModule):
         print("Calling prepare_data!")
         self.vocab = _get_vocab()
         self.object_categories = _get_object_categories(self.vocab)
-        _move_test_items(self.object_categories)
+        # _move_test_items(self.object_categories)  # skip this step
+        # _resize_images(self.object_categories)  # skip this step
         _generate_object_category_eval_metadata(self.object_categories)
 
     def setup(self, *args, **kwargs) -> None:
@@ -205,6 +207,7 @@ def _get_object_categories(vocab):
 
 def _move_test_items(object_categories):
     """Move test items into the parent dir for each object category"""
+    print("Moving test items!")
     for object_category in object_categories:
         test_dir = os.path.join(
             OBJECT_CATEGORIES_DATA_DIR / f"{object_category}/TestItems")
@@ -213,6 +216,25 @@ def _move_test_items(object_categories):
             test_filename = test_item.split("/")[-1]
             shutil.move(test_item, "..")
 
+def _resize_images(object_categories):
+    """Resize Brady stimuli to be 50% smaller"""
+    print("Resizing object category images!")
+    os.makedirs(OBJECT_CATEGORIES_RESIZED_DATA_DIR, exist_ok=True)
+
+    for object_category in object_categories:
+        # create dir for object category
+        category_dir = OBJECT_CATEGORIES_DATA_DIR / f"{object_category}"
+        category_resized_dir = OBJECT_CATEGORIES_RESIZED_DATA_DIR / f"{object_category}"
+        os.makedirs(category_resized_dir, exist_ok=True)
+
+        # resize images and save to new dir
+        for img_filename in glob.glob(f"{category_dir}/*.jpg"):
+            img = Image.open(img_filename)
+            img = img.resize((int(IMAGE_W / 2), int(IMAGE_H / 2)), Image.BICUBIC)
+            new_img = Image.new('RGB', (IMAGE_W, IMAGE_H), 'white')
+            new_img.paste(img, (int(IMAGE_W / 4), int(IMAGE_H / 4)))
+            new_img.save(f"{category_resized_dir}/{img_filename.split('/')[-1]}")
+            
 
 def _generate_object_category_eval_trial(idx, target_img_filename, target_category, object_categories, n_foils):
     """Generate a single evaluation trial for object category evaluation."""
