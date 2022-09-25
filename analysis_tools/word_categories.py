@@ -134,4 +134,4 @@ subcat_palette = {
     "special": "lime",
 }
 
-subcat_field = "subcat"
+subcat_field = "subcategory"
