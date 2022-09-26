@@ -9,6 +9,9 @@ from .word_categories import subcat_palette, subcat_field
 from .utils import get_n_rows, get_np_attrs_from_values
 
 
+output_fig = lambda fname: plt.show()
+
+
 def get_palette(field):
     if field in pos_mappings:
         palette = pos_palette
@@ -66,7 +69,7 @@ def plot_sim_heatmap(matrix, labels, annot=True, size=0.7, title=None, ax=None):
         ax.set_title(title)
 
 
-def plot_model_y_value_heatmap(names, values, y_labels, annot=True, size=0.7, plot_diff=True, plot_ori=False):
+def plot_model_y_value_heatmap(names, values, y_labels, annot=True, size=0.7, plot_diff=True, plot_ori=False, figname='model_y_value heatmap'):
     values = np.array(values)
     data = [values[0]]
     yticklabels = [names[0]]
@@ -79,10 +82,10 @@ def plot_model_y_value_heatmap(names, values, y_labels, annot=True, size=0.7, pl
             yticklabels.append(f'{names[i]}')
     ax = sns.heatmap(data, center=0, annot=annot, fmt='.2f', xticklabels=y_labels, yticklabels=yticklabels, square=False, cbar=False)
     ax.figure.set_size_inches(size * (len(data[0]) + 1.), size * 0.5 * (len(data) + .5))
-    plt.show()
+    output_fig(figname)
 
 
-def plot_vector_sim_heatmap(items, names, diff=False, vector_attr='mean_vector', one_figure=False, size=0.7, **kwargs):
+def plot_vector_sim_heatmap(items, names, diff=False, vector_attr='mean_vector', one_figure=False, size=0.7, figname='similarity heatmap', **kwargs):
     if diff:
         if len(items) % 2 != 0:
             print('Error: number of items should be even.')
@@ -103,7 +106,7 @@ def plot_vector_sim_heatmap(items, names, diff=False, vector_attr='mean_vector',
     if not diff:
         plot_repres_sim_heatmap(vectors, names, ax=next(all_axes) if one_figure else None)
         if not one_figure:
-            plt.show()
+            output_fig(figname + ' RSA')
 
     for V, name in zip(vectors, names):
         if diff:
@@ -111,12 +114,12 @@ def plot_vector_sim_heatmap(items, names, diff=False, vector_attr='mean_vector',
             V = V[:, 1] - V[:, 0]
         plot_sim_heatmap(cosine_matrix(V), labels if diff else tokens, size=size, title=name, ax=next(all_axes) if one_figure else None, **kwargs)
         if not one_figure:
-            plt.show()
+            output_fig(figname + f' {name}')
 
     if one_figure:
         for ax in all_axes:
             ax.axis("off")
-        plt.show()
+        output_fig(figname)
 
 
 def plot_repres_sim_heatmap(vectors, names, title=None, ax=None):
@@ -210,5 +213,4 @@ def plot(
     if suptitle is not None:
         plt.suptitle(suptitle)
 
-    plt.show()
     return ret
