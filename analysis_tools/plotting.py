@@ -69,7 +69,7 @@ def plot_sim_heatmap(matrix, labels, annot=True, size=0.7, title=None, ax=None):
         ax.set_title(title)
 
 
-def plot_model_y_value_heatmap(names, values, y_labels, annot=True, size=0.7, plot_diff=True, plot_ori=False, figname='model_y_value heatmap'):
+def plot_model_y_value_heatmap(names, values, y_labels, annot=True, size=0.7, plot_diff=True, plot_ori=False):
     values = np.array(values)
     data = [values[0]]
     yticklabels = [names[0]]
@@ -81,8 +81,9 @@ def plot_model_y_value_heatmap(names, values, y_labels, annot=True, size=0.7, pl
             data.append(values[i])
             yticklabels.append(f'{names[i]}')
     ax = sns.heatmap(data, center=0, annot=annot, fmt='.2f', xticklabels=y_labels, yticklabels=yticklabels, square=False, cbar=False)
+    plt.xticks(rotation=0)
+    plt.yticks(rotation=0)
     ax.figure.set_size_inches(size * (len(data[0]) + 1.), size * 0.5 * (len(data) + .5))
-    output_fig(figname)
 
 
 def plot_vector_sim_heatmap(items, names, diff=False, vector_attr='mean_vector', one_figure=False, size=0.7, figname='similarity heatmap', **kwargs):
