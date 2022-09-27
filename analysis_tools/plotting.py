@@ -60,13 +60,19 @@ def build_linkage_by_same_value(s):
 
 
 
-def plot_sim_heatmap(matrix, labels, annot=True, size=0.7, title=None, ax=None):
+def plot_sim_heatmap(matrix, labels, annot=True, size=0.7, ax=None):
     designated_ax = ax is not None
     ax = sns.heatmap(matrix, vmin=-1, vmax=1, center=0, annot=annot, fmt='.2f', xticklabels=labels, yticklabels=labels, square=True, cbar=False, ax=ax)
     if not designated_ax:
         ax.figure.set_size_inches(size * (matrix.shape[0] + 2.), size * (matrix.shape[1] + 2.))
-    if title is not None:
-        ax.set_title(title)
+    return ax
+
+
+def plot_repres_sim_heatmap(vectors, names, ax=None):
+    dissim_matrices = [cosine_dissim_matrix(V) for V in vectors]
+
+    repres_sim_matrix = np.array([[rsa_of_dissim_matrices(A, B) for B in dissim_matrices] for A in dissim_matrices])
+    return plot_sim_heatmap(repres_sim_matrix, names, annot=True, size=1., ax=ax)
 
 
 def plot_model_y_value_heatmap(names, values, y_labels, annot=True, size=0.7, plot_diff=True, plot_ori=False):
@@ -105,29 +111,26 @@ def plot_vector_sim_heatmap(items, names, diff=False, vector_attr='mean_vector',
         all_axes = itertools.chain.from_iterable(axes)
 
     if not diff:
-        plot_repres_sim_heatmap(vectors, names, ax=next(all_axes) if one_figure else None)
+        ax = plot_repres_sim_heatmap(vectors, names, ax=next(all_axes) if one_figure else None)
+        _title = figname + ' RSA'
+        ax.set_title(_title)
         if not one_figure:
-            output_fig(figname + ' RSA')
+            output_fig(_title)
 
     for V, name in zip(vectors, names):
         if diff:
             V = V.reshape((V.shape[0] // 2, 2,) + V.shape[1:])
             V = V[:, 1] - V[:, 0]
-        plot_sim_heatmap(cosine_matrix(V), labels if diff else tokens, size=size, title=name, ax=next(all_axes) if one_figure else None, **kwargs)
+        ax = plot_sim_heatmap(cosine_matrix(V), labels if diff else tokens, size=size, ax=next(all_axes) if one_figure else None, **kwargs)
+        _title = figname + f' {name}'
+        ax.set_title(_title)
         if not one_figure:
-            output_fig(figname + f' {name}')
+            output_fig(_title)
 
     if one_figure:
         for ax in all_axes:
             ax.axis("off")
         output_fig(figname)
-
-
-def plot_repres_sim_heatmap(vectors, names, title=None, ax=None):
-    dissim_matrices = [cosine_dissim_matrix(V) for V in vectors]
-
-    repres_sim_matrix = np.array([[rsa_of_dissim_matrices(A, B) for B in dissim_matrices] for A in dissim_matrices])
-    plot_sim_heatmap(repres_sim_matrix, names, annot=True, size=1., title=title, ax=ax)
 
 
 plotting_variable_keys = {'x', 'y', 'hue', 'size', 'style'}
@@ -141,7 +144,6 @@ def plot(
     palette=None,
     axis_option="on",
     xlabel=None, ylabel=None,
-    title=None, suptitle=None,
     hlines=None, vlines=None,
     figsize=default_figsize,
     **kwargs
@@ -206,12 +208,5 @@ def plot(
             ax.axhline(hline)
         for vline in vlines:
             ax.axvline(vline)
-
-    if title is not None:
-        if title == "vs":
-            title = f"{kwargs['x']} vs {kwargs['y']}"
-        plt.title(title)
-    if suptitle is not None:
-        plt.suptitle(suptitle)
 
     return ret
