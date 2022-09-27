@@ -15,6 +15,9 @@ LABELED_S_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_clean_labeled_da
 OBJECT_CATEGORIES_ORIGINAL_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal/object_categories_original")
 OBJECT_CATEGORIES_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal/object_categories")
 
+pd.options.display.float_format = '{:.2f}'.format
+
+
 def load_data():
     """Load multimodal saycam data"""
     with open(DATA_DIR / 'train.json') as f:
@@ -22,13 +25,13 @@ def load_data():
         train_data = train_data["data"]
         train_df = pd.DataFrame(train_data)
         train_df["split"] = "train"
-     
+
     with open(DATA_DIR / 'val.json') as f:
         val_data = json.load(f)
         val_data = val_data["data"]
         val_df = pd.DataFrame(val_data)
         val_df["split"] = "val"
-     
+
     with open(DATA_DIR / 'test.json') as f:
         test_data = json.load(f)
         test_data = test_data["data"]
@@ -49,48 +52,49 @@ def calculate_dataset_descriptives(saycam_df, vocab):
     """Calculate descriptives for multimodal saycam dataset"""
     # order split column
     saycam_df["split"] = pd.Categorical(saycam_df["split"], categories=["train", "val", "test"], ordered=True)
-    
+
     # get number of utterances per split
     utterances_per_split = saycam_df.groupby("split").size()
-    print("Number of utterances in each split")
+    print("Number of utterances in each split:")
     print(utterances_per_split)
 
     # get total number of utterances
     total_utterances = utterances_per_split.sum()
-    print("Total number of utterances")
+    print("Total number of utterances:")
     print(total_utterances)
 
-    # get total number of words per split by summing the number of words in each utterance
-    words_per_split = saycam_df.groupby("split")["utterance"].apply(lambda x: x.str.split(' ').str.len().sum())
-    print("Number of words in each split")
-    print(words_per_split)
+    # get total number of tokens per split by summing the number of tokens in each utterance
+    tokens_per_split = saycam_df.groupby("split")["utterance"].apply(lambda x: x.str.split().str.len().sum())
+    print("Number of tokens in each split:")
+    print(tokens_per_split)
 
-    # get total number of words
-    total_words = words_per_split.sum()
-    print(f"Total number of words: {total_words}")
+    # get total number of tokens
+    total_tokens = tokens_per_split.sum()
+    print(f"Total number of tokens: {total_tokens}")
 
-    # get mean and standard standard deviation of utterance length per split by splitting utterance by space
-    print(words_per_split)
-    
+    # get mean and standard deviation of utterance length per split by splitting utterance
+
     # get sum of num_frames per split
     num_frames_per_split = saycam_df.groupby("split")["num_frames"].sum()
-    print("Sum of num_frames in each split")
+    print("Sum of num_frames in each split:")
     print(num_frames_per_split)
 
     # get total number of frames
     total_num_frames = num_frames_per_split.sum()
     print(f"Total number of frames: {total_num_frames}")
 
-    # for each split, take each utterance and split by space, and calculate the length of each utterance
-    saycam_df["utterance_length"] = saycam_df.groupby("split")["utterance"].apply(lambda x: x.str.split(' ').str.len())
+    # for each split, take each utterance and split, and calculate the length of each utterance
+    saycam_df["utterance_length"] = saycam_df.groupby("split")["utterance"].apply(lambda x: x.str.split().str.len())
 
     # get mean utterance length per split
     mean_utterance_length_per_split = saycam_df.groupby("split")["utterance_length"].agg(["mean", "std"])
-    print(f"Mean utterance length in each split: {mean_utterance_length_per_split}")
+    print("Mean utterance length in each split:")
+    print(mean_utterance_length_per_split)
 
     # get the average number of frames per utterance in each split
     mean_num_frames_per_utterance_per_split = num_frames_per_split / utterances_per_split
-    print(f"Mean number of frames per utterance in each split: {mean_num_frames_per_utterance_per_split}")
+    print("Mean number of frames per utterance in each split:")
+    print(mean_num_frames_per_utterance_per_split)
 
     # get size of vocab
     vocab_size = len(vocab)
@@ -162,14 +166,14 @@ def calculate_video_descriptives(saycam_df):
 
     # get proportion of transcribed videos
     print(f"Proportion of transcribed videos: {sum(transcribed_video_lengths) / sum(original_video_lengths)}")
-    
+
 def calculate_labeled_s_descriptives(saycam_df):
     """Calculate descriptives for labeled S evaluation dataset."""
     # get number of images per category in Labeled S dataset
     labeled_s_categories = os.listdir(LABELED_S_DIR)
     total_images = 0
     img_freq_dict = {}
-    
+
     for category in labeled_s_categories:
         category_dir = LABELED_S_DIR / category
         num_images = len(os.listdir(category_dir))
@@ -211,7 +215,7 @@ def calculate_labeled_s_descriptives(saycam_df):
 
     # save plot
     plot.save("../figures/labeled-s-freq-scatterplot.png", dpi=600)
-    
+
 def calculate_object_categories_descriptives():
     """Calculate descriptives for object categories evaluation dataset."""
     # get number of categories/folders in original dataset
@@ -233,8 +237,8 @@ def calculate_object_categories_descriptives():
     object_categories = os.listdir(OBJECT_CATEGORIES_DIR)
     # filter by folders
     object_categories = [x for x in object_categories if os.path.isdir(OBJECT_CATEGORIES_DIR / x)]
-    print(f"Number of object categories in vocab: {len(object_categories)}")    
-    
+    print(f"Number of object categories in vocab: {len(object_categories)}")
+
     # get number of images from filtered object categories dataset
     num_images = 0
     for category in object_categories:
@@ -255,12 +259,12 @@ def calculate_object_categories_descriptives():
     object_categories = set(os.listdir(OBJECT_CATEGORIES_DIR))
     print(f"Number of object categories in both datasets: {len(labeled_s_categories.intersection(object_categories))}")
     print(f"Object categories in both datasets: {labeled_s_categories.intersection(object_categories)}")
-    
+
 def calculate_object_localization_descriptives():
     # TODO: only write code for this if we know we want to include this in the paper eventually!
     pass
-    
-    
+
+
 def main():
     # load data and vocab
     saycam_df = load_data()
