@@ -187,10 +187,15 @@ def plot(
     ret = fn(data=data, **kwargs)
 
     if token_kwargs is not None and 'x' in variable_keys and 'y' in variable_keys:
+        from adjustText import adjust_text
         x = kwargs['x']
         y = kwargs['y']
-        for _, row in data.iterrows():
-            plt.text(row[x], row[y], row[token_field], **token_kwargs)
+        texts = [
+            plt.text(
+                row[x], row[y], row[token_field],
+                ha='center', va='center', **token_kwargs)
+            for _, row in data.iterrows()]
+        adjust_text(texts)
 
     if isinstance(ret, sns.FacetGrid):
         ret.figure.set_size_inches(*figsize)
