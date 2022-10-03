@@ -1,3 +1,16 @@
+all_groups = {
+    "LSTM": ["LSTM 0", "LSTM 1", "LSTM 2"],
+    "LSTM Captioning": ["LSTM Captioning 0", "LSTM Captioning 1", "LSTM Captioning 2"],
+    "CBOW": ["CBOW 0", "CBOW 1", "CBOW 2"],
+    "Contrastive": ["Contrastive 0", "Contrastive 1", "Contrastive 2"],
+    "Joint bs16": ["Joint bs16 0", "Joint bs16 1", "Joint bs16 2"],
+    "Joint bs512": ["Joint bs512 0", "Joint bs512 1", "Joint bs512 2"],
+    "1-gram": ["1-gram"],
+    "2-gram": ["2-gram"],
+    "3-gram": ["3-gram"],
+    "4-gram": ["4-gram"],
+}
+
 all_checkpoint_paths = {
     "saycam": {
         "LSTM bs8": "checkpoints/lm_dataset_saycam_captioning_True_text_encoder_lstm_embedding_dim_512_dropout_i_0.5_dropout_o_0.0_batch_size_8_lr_0.003_lr_scheduler_True_weight_decay_0.04_seed_0/epoch=38.ckpt",
