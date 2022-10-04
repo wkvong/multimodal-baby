@@ -146,3 +146,29 @@ def print_top_values(values, idx2word, labels=None, top_k=5, steps=None,
         line = (formatter(value[label.item()].item(), label.item()) + ' | ' if label is not None else '') \
              + ' '.join(formatter(value.item(), index.item()) for value, index in zip(top_value, top_index))
         print(line)
+
+
+def get_data_mean_img(data):
+    from PIL import Image
+    from torchvision import transforms
+    from multimodal.multimodal_data_module import normalizer
+    from multimodal.multimodal_saycam_data_module import EXTRACTED_FRAMES_DIRNAME
+    import tqdm
+
+    sum_example_img = 0
+
+    to_tensor = transforms.ToTensor()
+
+    for example in tqdm.tqdm(data):
+        img_filenames = example["frame_filenames"]
+        imgs = [
+            to_tensor(Image.open(EXTRACTED_FRAMES_DIRNAME / img_filename).convert("RGB"))
+            for img_filename in img_filenames]
+        example_mean_img = sum(imgs) / len(imgs)
+
+        sum_example_img += example_mean_img
+
+    data_mean_img = sum_example_img / len(data)
+
+    img = normalizer(data_mean_img)
+    return img
