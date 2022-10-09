@@ -1,6 +1,6 @@
 from collections import namedtuple
 import numpy as np
-from .pos_tags import pos_mappings
+from .pos_tags import pos_categorical_dtypes, pos_mappings
 from .sumdata import *
 from .word_ratings import *
 
@@ -86,13 +86,16 @@ def extend_items_for_name(items, name, baseline_name=None):
         pass
 
 
+def extend_pos(items):
+    for pos_field, pos_mapping in pos_mappings.items():
+        items[pos_field] = items['pos'].map(pos_mapping).astype(pos_categorical_dtypes.get(pos_field, 'category'))
+
+
 def extend_items(items, names, idx2word, baseline_name=None):
     """Extend the fields of items
     """
-
-    # add 'pos'
-    for pos_field, pos_mapping in pos_mappings.items():
-        items[pos_field] = items['pos'].map(pos_mapping).astype('category')
+    # extend various pos fields
+    extend_pos(items)
     # add 'logcnt'
     items['logcnt'] = np.log(items['cnt'])
 

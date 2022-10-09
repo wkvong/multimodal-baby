@@ -1,3 +1,10 @@
+from pandas.api.types import CategoricalDtype
+
+
+pos_categorical_dtypes = {
+    'syntactic category': CategoricalDtype(['noun', 'verb', 'adjective', 'adverb', 'function word', 'cardinal number', '.'], ordered=True),
+}
+
 pos_mappings = {
     'POS tag': {
         "''": ".",

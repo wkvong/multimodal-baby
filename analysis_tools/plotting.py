@@ -134,7 +134,6 @@ def plot_vector_sim_heatmap(items, names, diff=False, vector_attr='mean_vector',
 
 
 plotting_variable_keys = {'x', 'y', 'hue', 'size', 'style'}
-default_figsize = (13, 12)
 
 def plot(
     fn,
@@ -144,8 +143,6 @@ def plot(
     palette=None,
     axis_option="on",
     xlabel=None, ylabel=None,
-    hlines=None, vlines=None,
-    figsize=default_figsize,
     **kwargs
 ):
     """plot items using fn
@@ -157,12 +154,6 @@ def plot(
     palette: palette for hue; if None, for pos it will use pos_palette; for other categories, use 'tab20'
     kwargs: all other kwargs to pass to fn
     """
-
-    if hlines is None:
-        hlines = []
-    if vlines is None:
-        vlines = []
-
     variable_keys = plotting_variable_keys & kwargs.keys()
     variable_keys = {key for key in variable_keys if kwargs[key] is not None}
 
@@ -198,7 +189,6 @@ def plot(
         adjust_text(texts)
 
     if isinstance(ret, sns.FacetGrid):
-        ret.figure.set_size_inches(*figsize)
         all_ax = itertools.chain.from_iterable(ret.axes)
     else:
         all_ax = [ret]
@@ -209,9 +199,5 @@ def plot(
         if ylabel is not None:
             ax.set_ylabel(ylabel)
         ax.axis(axis_option)
-        for hline in hlines:
-            ax.axhline(hline)
-        for vline in vlines:
-            ax.axvline(vline)
 
     return ret
