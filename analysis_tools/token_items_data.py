@@ -53,8 +53,16 @@ def extend_point_items(items, name, attr, n=None):
         items[f'{name} {attr} {idx}'] = items[name].map(lambda value: getattr(value, attr + '_point')[idx])
 
 
+def diff_field_suffix(baseline_name, value_attr):
+    return f' {value_attr} - {baseline_name} {value_attr}'
+
+
+def diff_field_name(name, baseline_name, value_attr):
+    return name + diff_field_suffix(baseline_name, value_attr)
+
+
 def extend_items_value_diff(items, name, baseline_name, value_attr):
-    items[f'{name} {value_attr} diff'] = items[f'{name} {value_attr}'] - items[f'{baseline_name} {value_attr}']
+    items[diff_field_name(name, baseline_name, value_attr)] = items[f'{name} {value_attr}'] - items[f'{baseline_name} {value_attr}']
 
 
 def extend_items_for_name(items, name, baseline_name=None):
