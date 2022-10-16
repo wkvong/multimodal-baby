@@ -4,22 +4,88 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from .representation_similarity import *
 from .token_items_data import token_field, row_llf
-from .pos_tags import pos_palette, pos_mappings
-from .word_categories import subcat_palette, subcat_field
 from .utils import get_n_rows, get_np_attrs_from_values
 
 
 output_fig = lambda fname: plt.show()
 
 
-def get_palette(field):
-    if field in pos_mappings:
-        palette = pos_palette
-    elif field == subcat_field:
-        palette = subcat_palette
-    else:
-        palette = None
-    return palette
+palette = {
+    "''": "black",
+    "``": "black",
+    ",": "black",
+    ".": "black",
+    ":": "black",
+    ".": "black",
+    "-LRB-": "black",
+    "HYPH": "black",
+    "LS": "black",
+    "SYM": "black",
+    "CC": "brown",
+    "cardinal number": "tab:gray",
+    "CD": "tab:gray",
+    "DT": "salmon",
+    "EX": "rosybrown",
+    "function word": "tab:purple",
+    "IN": "tab:purple",
+    "adjective": "tab:orange",
+    "JJ": "tab:orange",
+    "JJR": "gold",
+    "JJS": "yellow",
+    "MD": "rosybrown",
+    "noun": "tab:blue",
+    "NN": "tab:blue",
+    "NNP": "navy",
+    "NNS": "cadetblue",
+    "PDT": "saddlebrown",
+    "POS": "grey",
+    "PRP": "tab:olive",
+    "PRP$": "olivedrab",
+    "adverb": "tab:pink",
+    "RB": "tab:pink",
+    "RBR": "magenta",
+    "RBS": "palevioletred",
+    "RP": "darkviolet",
+    "TO": "indigo",
+    "ADD": "tab:green",
+    "FW": "tab:green",
+    "GW": "tab:green",
+    "NFP": "tab:green",
+    "UH": "tab:green",
+    "verb": "tab:red",
+    "VB": "tab:red",
+    "VBD": "salmon",
+    "VBG": "orangered",
+    "VBN": "chocolate",
+    "VBP": "pink",
+    "VBZ": "crimson",
+    "WDT": "darkcyan",
+    "WP": "slateblue",
+    "WP$": "darkslateblue",
+    "wh-word": "tab:cyan",
+    "WRB": "tab:cyan",
+
+    # noun subcategories
+    "body_parts": "red",
+    "clothing": "blue",
+    "food_drink": "orange",
+    "vehicles": "gray",
+    "toys": "green",
+    "animals": "pink",
+    "household": "cyan",
+    "places": "brown",
+    "sounds": "yellow",
+    "furniture_rooms": "maroon",
+    "outside": "limegreen",
+    "people": "fuchsia",
+    "games_routines": "slategray",
+
+    # verb subcategories
+    "trans. verb": "gold",
+    "intrans. verb": "purple",
+    "(in)trans. verb": "peru",
+    "special verb": "lime",
+}
 
 
 def build_linkage_by_same_value(s):
@@ -137,10 +203,8 @@ plotting_variable_keys = {'x', 'y', 'hue', 'size', 'style'}
 
 def plot(
     fn,
-    items, n_items=None,
-    xrange=None, yrange=None,
+    items,
     token_kwargs=None,
-    palette=None,
     axis_option="on",
     xlabel=None, ylabel=None,
     **kwargs
@@ -148,34 +212,13 @@ def plot(
     """plot items using fn
     fn: seaborn plot function
     items: pd.DataFrame items; will drop items with missing values in the variables
-    n_items: plot at most n_items items
-    xrange, yrange: plot points only within this range
     token_kwargs: kwargs to plt.text to add token text labels; if None, do not add text labels
-    palette: palette for hue; if None, for pos it will use pos_palette; for other categories, use 'tab20'
     kwargs: all other kwargs to pass to fn
     """
     variable_keys = plotting_variable_keys & kwargs.keys()
     variable_keys = {key for key in variable_keys if kwargs[key] is not None}
 
-    if palette is None and 'hue' in variable_keys:
-        hue = kwargs['hue']
-        palette = get_palette(hue)
-        if palette is None and items.dtypes[hue] == "category":
-            palette = 'tab20'
-    if fn not in [sns.regplot]:
-        kwargs['palette'] = palette
-
-    data = items.dropna(subset=[kwargs[key] for key in variable_keys])
-    if xrange is not None:
-        x = kwargs['x']
-        data = data[data[x].map(lambda x: xrange[0] <= x <= xrange[1])]
-    if yrange is not None:
-        y = kwargs['y']
-        data = data[data[y].map(lambda y: yrange[0] <= y <= yrange[1])]
-    if n_items is not None:
-        data = data.iloc[:n_items]
-    print(f'plotting {len(data)}/{len(items)} = {len(data) / len(items) if len(items) else 0.:.2%} items...')
-    ret = fn(data=data, **kwargs)
+    ret = fn(data=items, **kwargs)
 
     if token_kwargs is not None and 'x' in variable_keys and 'y' in variable_keys:
         from adjustText import adjust_text
@@ -185,7 +228,7 @@ def plot(
             plt.text(
                 row[x], row[y], row[token_field],
                 ha='center', va='center', **token_kwargs)
-            for _, row in data.iterrows()]
+            for _, row in items.iterrows()]
         adjust_text(texts)
 
     if isinstance(ret, sns.FacetGrid):

@@ -59,6 +59,7 @@ quantifiers = (
 "one",
 )
 pos_ambiguous_words = (
+"help",
 "looking",
 "rub",
 "boop",
@@ -88,17 +89,17 @@ pos_subcats = {
         "games_routines": ("game nap breaky", ""),
     },
     "verb": {
-        "transitive": ("put let got make take give say find show help open pick says watch use love push throw making putting wear thank wash bring grab said press cut drink made saying hear dump lift makes carry pat tell called feed touch drinking wants pull cook took wonder", "painting"),
-        "intransitive": ("go going gon come walk goes gone sit coming went work stand fell walking sitting fall comes talking pooing standing run sleep roar came cluck happens running stay bark works", ""),
-        "both": ("want see get know look like think try play read turn remember eat eating looking hold getting draw clap rub playing finish blow trying hang reading bounce keep wait change looks feel leave move saw thought drawing dropped climb shake forgot hurt leaves drop guess pour gets", "end start"),
-        "special": ("'s is do are can have 're s done be did 'm 'll will should was does has am might ca \u2019s were re doing had could 've would shall 'd m wo having been being", "wanna need")
+        "trans. verb": ("put let make take give say find show help pick says watch use love push throw making putting wear thank wash bring grab said press cut drink made saying hear dump lift makes carry pat tell called feed touch drinking wants pull cook took wonder", "painting"),
+        "intrans. verb": ("go going gon come walk goes gone sit coming went work stand fell walking sitting fall comes talking pooing standing run sleep roar came cluck happens running stay bark works", ""),
+        "(in)trans. verb": ("want see get know look like think try play read got turn remember eat eating looking hold getting draw clap open rub playing finish blow trying hang reading bounce keep wait change looks feel leave move saw thought drawing dropped climb shake forgot hurt leaves drop guess pour gets", "end start"),
+        "special verb": ("'s is do are can have 're s done be did 'm 'll will should was does has am might ca \u2019s were re doing had could 've would shall 'd m wo having been being", "wanna need")
     },
 }
 pos_subcats = {
     pos: {
         cat_name: typical_words.split()
         for cat_name, (typical_words, untypical_words) in subcats.items()
-        if cat_name not in ["sounds", "furniture_rooms", "outside", "people", "both", "special"]
+        if cat_name not in ["sounds", "furniture_rooms", "outside", "people", "(in)trans. verb", "special verb"]
     }
     for pos, subcats in pos_subcats.items()
 }
@@ -108,30 +109,3 @@ word2subcat = {
     for cat_name, words in subcats.items()
     for word in words
 }
-
-subcat_palette = {
-    #cat_name: color
-    #for subcats in pos_subcats.values()
-    #for cat_name, color in zip(subcats.keys(), sns.color_palette("husl", len(subcats)))
-
-    "body_parts": "red",
-    "clothing": "blue",
-    "food_drink": "orange",
-    "vehicles": "gray",
-    "toys": "green",
-    "animals": "pink",
-    "household": "cyan",
-    "places": "brown",
-    "sounds": "yellow",
-    "furniture_rooms": "maroon",
-    "outside": "limegreen",
-    "people": "fuchsia",
-    "games_routines": "slategray",
-
-    "transitive": "gold",
-    "intransitive": "purple",
-    "both": "peru",
-    "special": "lime",
-}
-
-subcat_field = "subcategory"
