@@ -1,19 +1,27 @@
-import itertools 
+import itertools
 import spacy
 
 
-nlp = None
-
-
-def tokenize(s : str, kind='space'):
+def tokenize(s, kind='spacy'):
     if kind == 'spacy':
-        if nlp is None:
-            nlp = spacy.load("en_core_web_sm")
-        return nlp(s)
+        nlp = spacy.load(
+            'en_core_web_sm',
+            exclude=[
+                'attribute_ruler', 'lemmatizer', 'ner',
+                'senter', 'parser', 'tagger', 'tok2vec']
+        )
+        tokenizer = nlp.tokenizer
+        if isinstance(s, str):
+            return tokenizer(s)
+        else:
+            return tokenizer.pipe(s)
     elif kind == 'space':
-        return s.split()
+        if isinstance(s, str):
+            return s.split()
+        else:
+            return (sent.split() for sent in s)
     else:
-        raise Exception("Unrecognized kind='{kind}'")
+        raise Exception(f"Unrecognized {kind=}")
 
 
 def untokenize(s):
