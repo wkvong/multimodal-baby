@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from .representation_similarity import *
-from .token_items_data import token_field, row_llf
+from .token_items_data import token_field
 from .utils import get_n_rows, get_np_attrs_from_values
 
 

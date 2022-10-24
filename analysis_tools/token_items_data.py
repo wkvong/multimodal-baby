@@ -17,30 +17,29 @@ class Key(namedtuple('Key', ['token_id', 'pos'])):
 # string representations of row information
 
 
-def row_prefix_str(row, tag_field='pos', tag_width=4, token_width=10, sep=' ', with_cnt=False, reverse_token_tag=True):
-    prefix = (
-        (f"{row[tag_field]:<{tag_width}}{sep}{row[token_field]:<{token_width}}"
-         if reverse_token_tag else
-         f"{row[token_field]:<{token_width}}{sep}{row[tag_field]:<{tag_width}}")
-        if tag_field and not pd.isna(row[tag_field]) else
-        f"{row[token_field]:<{token_width + len(sep) + tag_width}}")
+def row_prefix_str(row, tag_field='pos', tag_width=4, token_width=10, sep=' ', with_cnt=False, reverse_token_tag=True, align=True):
+    if tag_field and not pd.isna(row[tag_field]):
+        token_str = f"{row[token_field]:<{token_width}}"
+        tag_str = f"{row[tag_field]:<{tag_width}}"
+        prefix = (
+            tag_str + sep + token_str
+            if reverse_token_tag else
+            token_str + sep + tag_str
+        )
+    else:
+        prefix = (
+            f"{row[token_field]:<{token_width + len(sep) + tag_width}}"
+            if align else
+            row[token_field]
+        )
     if with_cnt:
         prefix += sep + f"{row['cnt']:>6}"
     return prefix
 
 
-def row_str(row, names, reverse_token_tag=True):
-    return (row_prefix_str(row, with_cnt=True, reverse_token_tag=reverse_token_tag)
+def row_str(row, names, **kwargs):
+    return (row_prefix_str(row, with_cnt=True, **kwargs)
         + ': ' + ' '.join(f"{row[name].ppl:9.3f}" for name in names))
-
-
-def row_llf(row, tag_field='pos', tag_width=4, sep=' ', with_cnt=True, name=None, baseline_name=None):
-    s = row_prefix_str(row, tag_field=tag_field, tag_width=tag_width, sep=sep, with_cnt=with_cnt)
-    if name is not None:
-        ppl = row[name].ppl
-        baseline_ppl = 0. if baseline_name is None else row[baseline_name].ppl
-        s += sep + f'{ppl-base_ppl:+9.2f}={ppl:8.2f}'
-    return s
 
 
 # extending items with various information
