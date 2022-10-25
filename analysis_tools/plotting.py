@@ -88,44 +88,6 @@ palette = {
 }
 
 
-def build_linkage_by_same_value(s):
-    """build the linkage by clustering same values in the series s
-    """
-    idxes = list(range(len(s)))
-    key_fn = lambda idx: s.iloc[idx]
-    idxes.sort(key=key_fn)
-
-    # get groups by finding contingous segments on sorted idxes
-    l, r = 0, 0
-    groups = []
-    while l < len(idxes):
-        while r < len(idxes) and key_fn(idxes[l]) == key_fn(idxes[r]):
-            r += 1
-        groups.append(idxes[l:r])
-        l = r
-
-    # initialization
-    Z = [(idx, idx, 0., 1) for idx in range(len(s))]
-
-    def merge(idx0, idx1, distance):
-        Z.append((idx0, idx1, distance, Z[idx0][3] + Z[idx1][3]))
-        return len(Z) - 1
-
-    def merge_group(group, distance):
-        root = group[0]
-        for idx in group[1:]:
-            root = merge(root, idx, distance)
-        return root
-
-    # merge items within each group
-    group_idxes = [merge_group(group, 0.) for group in groups]
-    # merge groups
-    root = merge_group(group_idxes, 1.)
-
-    return np.array(Z[len(s):])
-
-
-
 def plot_sim_heatmap(matrix, labels, annot=True, size=0.7, ax=None):
     designated_ax = ax is not None
     ax = sns.heatmap(matrix, vmin=-1, vmax=1, center=0, annot=annot, fmt='.2f', xticklabels=labels, yticklabels=labels, square=True, cbar=False, ax=ax)

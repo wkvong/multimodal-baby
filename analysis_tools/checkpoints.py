@@ -5,9 +5,9 @@ all_groups = {
     "Contrastive": ["Contrastive 0", "Contrastive 1", "Contrastive 2"],
     "Joint bs16": ["Joint bs16 0", "Joint bs16 1", "Joint bs16 2"],
     "Joint bs512": ["Joint bs512 0", "Joint bs512 1", "Joint bs512 2"],
-    "1-gram": ["1-gram"],
-    "2-gram": ["2-gram"],
-    "3-gram": ["3-gram"],
+    "unigram": ["1-gram"],
+    "bigram": ["2-gram"],
+    "trigram": ["3-gram"],
     "4-gram": ["4-gram"],
 }
 

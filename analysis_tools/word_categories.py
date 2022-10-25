@@ -89,7 +89,8 @@ pos_subcats = {
         "games_routines": ("game nap breaky", ""),
     },
     "verb": {
-        "trans. verb": ("put let make take give say find show help pick says watch use love push throw making putting wear thank wash bring grab said press cut drink made saying hear dump lift makes carry pat tell called feed touch drinking wants pull cook took wonder", "painting"),
+        "trans. verb": ("let make take say find show help pick says watch use love push throw making wear thank wash bring grab said press cut drink made saying hear dump lift makes carry pat tell called feed touch drinking wants pull cook took wonder", "painting"),
+        "ditrans. verb": ("put give putting", ""),
         "intrans. verb": ("go going gon come walk goes gone sit coming went work stand fell walking sitting fall comes talking pooing standing run sleep roar came cluck happens running stay bark works", ""),
         "(in)trans. verb": ("want see get know look like think try play read got turn remember eat eating looking hold getting draw clap open rub playing finish blow trying hang reading bounce keep wait change looks feel leave move saw thought drawing dropped climb shake forgot hurt leaves drop guess pour gets", "end start"),
         "special verb": ("'s is do are can have 're s done be did 'm 'll will should was does has am might ca \u2019s were re doing had could 've would shall 'd m wo having been being", "wanna need")
@@ -99,7 +100,7 @@ pos_subcats = {
     pos: {
         cat_name: typical_words.split()
         for cat_name, (typical_words, untypical_words) in subcats.items()
-        if cat_name not in ["sounds", "furniture_rooms", "outside", "people", "(in)trans. verb", "special verb"]
+        if cat_name not in ["sounds", "furniture_rooms", "outside", "people", "ditrans. verb", "(in)trans. verb", "special verb"]
     }
     for pos, subcats in pos_subcats.items()
 }
