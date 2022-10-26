@@ -171,6 +171,10 @@ def calculate_labeled_s_descriptives(saycam_df):
     """Calculate descriptives for labeled S evaluation dataset."""
     # get number of images per category in Labeled S dataset
     labeled_s_categories = os.listdir(LABELED_S_DIR)
+    labeled_s_categories.remove("carseat")
+    labeled_s_categories.remove("couch")
+    labeled_s_categories.remove("greenery")
+    labeled_s_categories.remove("plushanimal")
     total_images = 0
     img_freq_dict = {}
 
@@ -186,7 +190,6 @@ def calculate_labeled_s_descriptives(saycam_df):
     saycam_train_df = saycam_df[saycam_df["split"] == "train"]
     word_freq_dict = {}
 
-    labeled_s_categories = os.listdir(LABELED_S_DIR)
     for category in labeled_s_categories:
         word_freq = 0
         for utterance in saycam_train_df['utterance'].tolist():
@@ -198,8 +201,10 @@ def calculate_labeled_s_descriptives(saycam_df):
     print("Word frequency of Labeled S categories in training split")
     print(word_freq_dict)
 
-    img_freq_norm = {k: v / sum(img_freq_dict.values()) for k, v in img_freq_dict.items()}
-    word_freq_norm = {k: v / sum(word_freq_dict.values()) for k, v in word_freq_dict.items()}
+    # img_freq_norm = {k: v / sum(img_freq_dict.values()) for k, v in img_freq_dict.items()}
+    # word_freq_norm = {k: v / sum(word_freq_dict.values()) for k, v in word_freq_dict.items()}
+    img_freq_norm = {k: v for k, v in img_freq_dict.items()}
+    word_freq_norm = {k: v for k, v in word_freq_dict.items()}
 
     # put into dataframe
     freq_df = pd.DataFrame.from_dict([img_freq_norm]).transpose().reset_index()
@@ -207,14 +212,39 @@ def calculate_labeled_s_descriptives(saycam_df):
     freq_df["word_freq"] = word_freq_norm.values()
 
     # create seaborn objects scatterplot
-    plot = (
-        so.Plot(freq_df, x="img_freq", y="word_freq")
-        .scale(x="log", y="log")
-        .add(so.Dot())
-    )
+    # plot = (
+    #     so.Plot(freq_df, x="img_freq", y="word_freq")
+    #     .add(so.Dot())
+    #     .add(so.Line(), so.PolyFit(order=1))
+    #     .scale(x="log", y="log")
+    # )
 
-    # save plot
-    plot.save("../figures/labeled-s-freq-scatterplot.png", dpi=600)
+    # # save plot
+    # plot.save("../figures/labeled-s-freq-scatterplot.png", dpi=600)
+
+    print(freq_df)
+    # create a matplotlib scatterplot of freq_df with img_freq on the x-axis and word_freq on the y-axis
+    fig, ax = plt.subplots()
+    ax.scatter(freq_df["img_freq"], freq_df["word_freq"])
+
+    # add linear regression line
+    # import scipy.stats as stats
+    # slope, intercept, r_value, p_value, std_err = stats.linregress(freq_df["img_freq"], freq_df["word_freq"])
+    # ax.plot(freq_df["img_freq"], intercept + slope * freq_df["img_freq"], 'r', label='fitted line')
+
+    # add label for each point with category, img_freq, and word_freq
+    for i, txt in enumerate(freq_df["category"]):
+        ax.annotate(f"{txt} ({freq_df['img_freq'][i]}, {freq_df['word_freq'][i]})", (freq_df["img_freq"][i], freq_df["word_freq"][i]), size=6)
+    
+    # for i, txt in enumerate(freq_df["category"]):
+    #     ax.annotate(txt, (freq_df["img_freq"].iloc[i], freq_df["word_freq"].iloc[i]), xytext=(0, 0), textcoords='offset points')
+    
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("Image frequency")
+    ax.set_ylabel("Word frequency")
+    plt.savefig("../figures/labeled-s-freq-scatterplot-mpl.png", dpi=600)
+    
 
 def calculate_object_categories_descriptives():
     """Calculate descriptives for object categories evaluation dataset."""
@@ -274,7 +304,7 @@ def main():
     calculate_dataset_descriptives(saycam_df, vocab)
     # calculate_date_descriptives(saycam_df)
     # calculate_video_descriptives(saycam_df)
-    # calculate_labeled_s_descriptives(saycam_df)
+    calculate_labeled_s_descriptives(saycam_df)
     # calculate_object_categories_descriptives()
     # calculate_object_localization_descriptives()
 
