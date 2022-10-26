@@ -47,7 +47,8 @@ parser.add_argument('-p', '--print-freq', default=100, type=int, metavar='N', he
 #                          'multi node data parallel training')
 parser.add_argument('--checkpoint', type=str, help='path to model checkpoint')
 parser.add_argument('--num-classes', default=22, type=int, help='number of classes in downstream classification task')
-
+parser.add_argument('--subset', default=100, type=int, choices=[1, 10, 100],
+                    help="proportion of training data to use for linear probe")
 
 def set_parameter_requires_grad(model, feature_extracting=True):
     '''Helper function for setting body to non-trainable'''
@@ -63,21 +64,36 @@ def load_split_train_test(train_dir, test_dir, args):
     train_data = datasets.ImageFolder(train_dir, transform=transforms.Compose([transforms.ToTensor(), normalize]))
     test_data = datasets.ImageFolder(test_dir, transform=transforms.Compose([transforms.ToTensor(), normalize]))
 
-    num_train = len(train_data)
-    num_test = len(test_data)
+    # create subsets and setup dataloaders
+    if args.subset == 100:
+        train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, shuffle=True,
+            num_workers=args.workers, pin_memory=True)
+    if args.subset == 10:
+        # create subset with 10% of training data using SubsetRandomSampler
+        train_indices = list(range(len(train_data)))
+        random.shuffle(train_indices)
+        train_indices = train_indices[:int(0.1 * len(train_indices))]
+        print(len(train_indices))
+        train_sampler = torch.utils.data.SubsetRandomSampler(train_indices)
+        train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, sampler=train_sampler, num_workers=args.workers, pin_memory=True, shuffle=False)
+    elif args.subset == 1:
+        # create subset with 1% of training data
+        train_indices = list(range(len(train_data)))
+        random.shuffle(train_indices)
+        train_indices = train_indices[:int(0.01 * len(train_indices))]
+        print(len(train_indices))
+        train_sampler = torch.utils.data.SubsetRandomSampler(train_indices)
+        train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, sampler=train_sampler, num_workers=args.workers, pin_memory=True, shuffle=False)
 
-    print('Total train data size is', num_train)
-    print('Number of train classes is', len(train_data.classes))
-    print('Total test data size is', num_test)
-    print('Number of test classes is', len(test_data.classes))
-
-    trainloader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, shuffle=True,
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
-    testloader = torch.utils.data.DataLoader(test_data, batch_size=args.batch_size, shuffle=False,
-        num_workers=args.workers, pin_memory=True)
 
-    return trainloader, testloader
+    num_train = len(train_loader)
+    num_test = len(test_loader)
+    print('Total train data size is', num_train * args.batch_size)
+    print('Total test data size is', num_test * args.batch_size)
 
+    return train_loader, test_loader
 
 def main():
     args = parser.parse_args()
@@ -122,7 +138,10 @@ def main():
     cudnn.benchmark = True
 
     # Data loading code
-    savefile_name = f'probe_results/embedding_frozen_pretrained_contrastive_labeled_s_linear_probe_seed_{seed}.tar'
+    if 'finetune_cnn_True' in checkpoint_name:
+        savefile_name = f'probe_results/embedding_finetuned_pretrained_contrastive_labeled_s_linear_probe_seed_{seed}_subset_{args.subset}.tar'
+    else:
+        savefile_name = f'probe_results/embedding_frozen_pretrained_contrastive_labeled_s_linear_probe_seed_{seed}_subset_{args.subset}.tar'
 
     train_loader, test_loader = load_split_train_test(args.train_dir, args.test_dir, args)
     acc1_list = []

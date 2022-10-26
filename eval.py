@@ -19,62 +19,96 @@ from multimodal.multimodal_lit import MultiModalLitModel
 from multimodal.attention_maps import gradCAM, getAttMap, n_inv, imshow
 from train import _setup_parser
 
-EVAL_FRAMES_DIRNAME = EVAL_DATA_DIR / "eval_filtered"
+import clip
+
+EVAL_FRAMES_DIRNAME = EVAL_DATA_DIR / "eval"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def main(args):
-    checkpoint_name = args.checkpoint
-    if args.checkpoint.endswith(".ckpt"):
-        checkpoint = checkpoint_name
-    elif "shuffle_utterances_True" in args.checkpoint:
-        print('using last saved checkpoint')
-        checkpoint = f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/last.ckpt"
-    else:
-        # grab checkpoint from epoch with lowest val loss
-        checkpoint = glob.glob(
-            f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/epoch*.ckpt")[0]
+    if args.clip_eval:
+        print("Loading CLIP")
+        checkpoint_name = "clip_vitl_14"
+        model, preprocess = clip.load("ViT-L/14", device=device)
+        model.eval()
+        print("CLIP loaded")
 
-    # extract checkpoint config
-    config = {}
-    if "lstm" in checkpoint_name:
-        config["model"] = "lstm"
-    elif "embedding" in checkpoint_name:
-        config["model"] = "embedding"
+        # set up parser
+        parser = _setup_parser()
+        data_args = parser.parse_args("")
 
-    if "seed_0" in checkpoint_name:
-        config["seed"] = 0
-    elif "seed_1" in checkpoint_name:
-        config["seed"] = 1
-    elif "seed_2" in checkpoint_name:
-        config["seed"] = 2
-    else:
+        # set up CLIP config
+        config = {}
+        config["model"] = "clip"
         config["seed"] = None
-
-    if "shuffle_utterances" in checkpoint_name:
-        config["shuffle_utterances"] = True
+        config["shuffle_utterances"] = None
+        config["cnn"] = "clip"
+        config["augment_frames"] = None
+        config["multiple_frames"] = None
     else:
-        config["shuffle_utterances"] = False
+        checkpoint_name = args.checkpoint
+        if args.checkpoint.endswith(".ckpt"):
+            checkpoint = checkpoint_name
+        elif "shuffle_utterances_True" in args.checkpoint:
+            print('using last saved checkpoint')
+            checkpoint = f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/last.ckpt"
+        else:
+            # grab checkpoint from epoch with lowest val loss
+            checkpoint = glob.glob(
+                f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/epoch*.ckpt")[0]
+     
+        # extract checkpoint config
+        config = {}
+        if "lstm" in checkpoint_name:
+            config["model"] = "lstm"
+        elif "embedding" in checkpoint_name:
+            config["model"] = "embedding"
+     
+        if "seed_0" in checkpoint_name:
+            config["seed"] = 0
+        elif "seed_1" in checkpoint_name:
+            config["seed"] = 1
+        elif "seed_2" in checkpoint_name:
+            config["seed"] = 2
+        else:
+            config["seed"] = None
+     
+        if "shuffle_utterances" in checkpoint_name:
+            config["shuffle_utterances"] = True
+        else:
+            config["shuffle_utterances"] = False
+     
+        if "pretrained_cnn_True_finetune_cnn_True" in checkpoint_name:
+            config["cnn"] = "finetune_pretrained"
+        elif "pretrained_cnn_False_finetune_cnn_True" in checkpoint_name:
+            config["cnn"] = "finetune_random_init"
+        elif "pretrained_cnn_False_finetune_cnn_False" in checkpoint_name:
+            config["cnn"] = "frozen_random_init"
+        else:
+            config["cnn"] = "frozen_pretrained"
+     
+        if "augment_frames_False" in checkpoint_name:
+            config["augment_frames"] = False
+        else:
+            config["augment_frames"] = True
+     
+        if "multiple_frames_False" in checkpoint_name:
+            config["multiple_frames"] = False
+        else:
+            config["multiple_frames"] = True
 
-    if "pretrained_cnn_True_finetune_cnn_True" in checkpoint_name:
-        config["cnn"] = "finetune_pretrained"
-    elif "pretrained_cnn_False_finetune_cnn_True" in checkpoint_name:
-        config["cnn"] = "random_init"
-    else:
-        config["cnn"] = "frozen_pretrained"
+        # load model from checkpoint
+        model = MultiModalLitModel.load_from_checkpoint(
+            checkpoint, map_location=device)
+        model.eval()
 
-    # load model from checkpoint
-    model = MultiModalLitModel.load_from_checkpoint(
-        checkpoint, map_location=device)
-    model.eval()
+        # parse empty args
+        parser = _setup_parser()
+        data_args = parser.parse_args("")
 
-    # parse empty args
-    parser = _setup_parser()
-    data_args = parser.parse_args("")
-
-    # set args from checkpoint
-    for key, value in model.args.items():
-        setattr(data_args, key, value)
+        # set args from checkpoint
+        for key, value in model.args.items():
+            setattr(data_args, key, value)
 
     # make the train dataloader deterministic
     data_args.augment_frames = False
@@ -83,6 +117,10 @@ def main(args):
     # manually set to be filtered set
     data_args.eval_metadata_filename = args.eval_metadata_filename
 
+    if args.clip_eval:
+        # ensure CLIP transforms/tokenization are used
+        data_args.clip_eval = True
+    
     # build data module
     if args.eval_dataset == "saycam":
         # set up saycam dataloader
@@ -117,7 +155,7 @@ def main(args):
         classes = _get_object_categories(vocab)
 
     # replace cat with kitty
-    if args.use_kitty_label:
+    if args.use_kitty_label and not args.clip_eval:
         classes.remove("cat")
         classes.append("kitty")
 
@@ -135,7 +173,7 @@ def main(args):
         # get text category label
         class_label = raw_label[0][0]
 
-        if args.use_kitty_label and class_label == "cat":
+        if args.use_kitty_label and class_label == "cat" and not args.clip_eval:
             # use kitty for cat eval
             class_label = "kitty"
 
@@ -159,7 +197,11 @@ def main(args):
             # calculate similarity between images
             # first, get embeddings
             with torch.no_grad():
-                _, logits_per_text = model(img, label, label_len)
+                if args.clip_eval:
+                     label = label.squeeze(0)  # remove extra dim for CLIP
+                     _, logits_per_text = model(img, label)
+                else:
+                    _, logits_per_text = model(img, label, label_len)
                 logits_list = torch.softmax(logits_per_text,
                                             dim=-1).detach().cpu().numpy().tolist()[0]
 
@@ -174,7 +216,11 @@ def main(args):
             # calculate similarity between images
             # first, get embeddings
             with torch.no_grad():
-                logits_per_image, _ = model(img, label, label_len)
+                if args.clip_eval:
+                    label = label.squeeze(0)  # remove extra dim for CLIP
+                    logits_per_image, _ = model(img, label)                    
+                else:
+                    logits_per_image, _ = model(img, label, label_len)
                 logits_list = torch.softmax(logits_per_image,
                                             dim=-1).detach().cpu().numpy().tolist()[0]
                 pred = torch.argmax(logits_per_image, dim=-1).item()
@@ -200,9 +246,12 @@ def main(args):
             "model": config["model"],
             "seed": config["seed"],
             "shuffle_utterances": config["shuffle_utterances"],
+            "augment_frames": config["augment_frames"],
+            "multiple_frames": config["multiple_frames"],
             "cnn": config["cnn"],
             "eval_type": args.eval_type,
             "eval_dataset": args.eval_dataset,
+            "stage": args.stage,
             "trial_idx": i,
             "categories": curr_eval_categories,
             "logits": logits_list,
@@ -230,10 +279,16 @@ def main(args):
         os.makedirs('results', exist_ok=True)
 
         # get filename
-        if config["shuffle_utterances"]:
-            results_filename = f"results/shuffle_{config['model']}_{config['cnn']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_eval_predictions.json"
+        if args.clip_eval:
+            results_filename = f"results/clip_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
+        elif config["shuffle_utterances"]:
+            results_filename = f"results/shuffle_{config['model']}_{config['cnn']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
+        elif not config["augment_frames"]:
+            results_filename = f"results/{config['model']}_{config['cnn']}_augment_frames_{config['augment_frames']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
+        elif not config["multiple_frames"]:
+            results_filename = f"results/{config['model']}_{config['cnn']}_multiple_frames_{config['multiple_frames']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
         else:
-            results_filename = f"results/{config['model']}_{config['cnn']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_eval_predictions.json"
+            results_filename = f"results/{config['model']}_{config['cnn']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
 
         # save to JSON
         print(f"Saving predictions to {results_filename}")
@@ -245,12 +300,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=str,
                         help="path to checkpoint to use for evaluation")
-    parser.add_argument("--model", type=str, default="lstm",
-                        choices=['embedding', 'lstm'],
-                        help="which trained model to perform evaluations on")
-    parser.add_argument("--seed", type=int, default=0,
-                        help="which seed to load for trained model")
-    parser.add_argument("--stage", type=str, default="dev", choices=["dev", "test"],
+    parser.add_argument("--clip_eval", action="store_true",
+                       help="Use CLIP model for evaluation")
+    parser.add_argument("--stage", type=str, default="test", choices=["dev", "test"],
                         help="which evaluation stage to use")
     parser.add_argument("--eval_include_sos_eos", action="store_true",
                         help="include SOS/EOS tokens for eval labels")
@@ -259,12 +311,12 @@ if __name__ == "__main__":
     parser.add_argument("--eval_dataset", type=str, default="saycam", choices=[
                         "saycam", "object_categories"], help="Which evaludation dataset to use")
     parser.add_argument("--eval_metadata_filename", type=str,
-                        default="eval_filtered_dev.json",
-                        help="JSON file with metadata for (dev) evaluation split to use")
+                        default="eval_test.json",
+                        help="JSON file with metadata evaluation split to use")
     parser.add_argument("--use_kitty_label", action="store_true",
                         help="replaces cat label with kitty")
     parser.add_argument("--save_predictions", action="store_true",
-                        help="save model predictions to CSV")
+                        help="save model predictions to JSON")
     args = parser.parse_args()
 
     main(args)

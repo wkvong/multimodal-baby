@@ -42,6 +42,18 @@ def main(args):
         config['seed'] = 1
     elif 'seed_2' in args.checkpoint:
         config['seed'] = 2
+
+    if "frozen_pretrained" in args.checkpoint:
+        config["cnn"] = "frozen_pretrained"
+    elif "finetuned_pretrained" in args.checkpoint:
+        config["cnn"] = "finetuned_pretrained"
+
+    if "subset_10" in args.checkpoint:
+        config["model"] = "embedding_linear_probe_10_percent"
+    elif "subset_1" in args.checkpoint:
+        config["model"] = "embedding_linear_probe_1_percent"
+    else:
+        config["model"] = "embedding_linear_probe"
      
     # initialize linear probe model
     model = MultiModalLitModel.load_from_checkpoint(
@@ -119,11 +131,13 @@ def main(args):
         # store results
         curr_results = {
             "checkpoint": args.checkpoint,
-            "model": "linear_probe_embedding",
-            "cnn": "frozen_pretrained",
+            # "model": "linear_probe_embedding",
+            "model": config["model"],
+            "cnn": config["cnn"],
             "seed": config["seed"],
             "eval_type": "image",
             "eval_dataset": "saycam",
+            "stage": "test",
             "trial_idx": i,
             "categories": curr_eval_categories,
             "logits": logits_list,
@@ -151,7 +165,7 @@ def main(args):
         os.makedirs('results', exist_ok=True)
      
         # get filename
-        results_filename = f"results/linear_probe_embedding_frozen_pretrained_seed_{config['seed']}_image_saycam_eval_predictions.json"
+        results_filename = f"results/{config['model']}_{config['cnn']}_seed_{config['seed']}_image_saycam_eval_predictions.json"
      
         # save to JSON
         print(f"Saving predictions to {results_filename}")

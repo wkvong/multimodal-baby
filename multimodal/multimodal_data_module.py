@@ -17,7 +17,7 @@ import clip
 # directories and filenames
 # must be consistent with multimodal_saycam_data_module
 EVAL_DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
-EVAL_METADATA_FILENAME = "eval_filtered_dev.json"
+EVAL_METADATA_FILENAME = "eval_dev.json"
 # EVAL_DEV_METADATA_FILENAME = EVAL_DATA_DIR / "eval_dev.json"
 # EVAL_TEST_METADATA_FILENAME = EVAL_DATA_DIR / "eval_test.json"
 
