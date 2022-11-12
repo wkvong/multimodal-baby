@@ -163,46 +163,57 @@ def plot_vector_sim_heatmap(items, names, diff=False, vector_attr='mean_vector',
 
 plotting_variable_keys = {'x', 'y', 'hue', 'size', 'style'}
 
-def plot(
-    fn,
-    items,
-    token_kwargs=None,
-    axis_option="on",
-    xlabel=None, ylabel=None,
-    **kwargs
-):
-    """plot items using fn
-    fn: seaborn plot function
-    items: pd.DataFrame items; will drop items with missing values in the variables
-    token_kwargs: kwargs to plt.text to add token text labels; if None, do not add text labels
-    kwargs: all other kwargs to pass to fn
+def plot_wrapper(plot_fn):
+    """wrapping seaborn plot_fn with additional functions
+    plot_fn: seaborn plot function to wrap
     """
-    variable_keys = plotting_variable_keys & kwargs.keys()
-    variable_keys = {key for key in variable_keys if kwargs[key] is not None}
+    def wrapped_plot_fn(
+        data=None,
+        text_label=None,
+        text_label_kwargs=None,
+        axis_option="on",
+        xlabel=None, ylabel=None,
+        **kwargs
+    ):
+        """ Wrapped seaborn plot function
+        data: pd.DataFrame
+        text_label: column name of text label; if None, do not add text labels
+        text_label_kwargs: kwargs to plt.text for text labels
+        axis_option: set all axis with axis_option
+        xlabel, ylabel: set all axis with xlabel and ylabel
+        kwargs: all other kwargs to pass to fn
+        """
+        variable_keys = (
+            plotting_variable_keys &
+            {key for key, value in kwargs.items() if value is not None}
+        )
 
-    ret = fn(data=items, **kwargs)
+        ret = plot_fn(data=data, **kwargs)
 
-    if token_kwargs is not None and 'x' in variable_keys and 'y' in variable_keys:
-        from adjustText import adjust_text
-        x = kwargs['x']
-        y = kwargs['y']
-        texts = [
-            plt.text(
-                row[x], row[y], row[token_field],
-                ha='center', va='center', **token_kwargs)
-            for _, row in items.iterrows()]
-        adjust_text(texts)
+        if (text_label is not None
+            and 'x' in variable_keys and 'y' in variable_keys):
+            from adjustText import adjust_text
+            x = kwargs['x']
+            y = kwargs['y']
+            texts = [
+                plt.text(
+                    row[x], row[y], row[text_label],
+                    ha='center', va='center', **text_label_kwargs)
+                for _, row in data.iterrows()]
+            adjust_text(texts)
 
-    if isinstance(ret, sns.FacetGrid):
-        all_ax = itertools.chain.from_iterable(ret.axes)
-    else:
-        all_ax = [ret]
+        if isinstance(ret, sns.FacetGrid):
+            all_ax = itertools.chain.from_iterable(ret.axes)
+        else:
+            all_ax = [ret]
 
-    for ax in all_ax:
-        if xlabel is not None:
-            ax.set_xlabel(xlabel)
-        if ylabel is not None:
-            ax.set_ylabel(ylabel)
-        ax.axis(axis_option)
+        for ax in all_ax:
+            if xlabel is not None:
+                ax.set_xlabel(xlabel)
+            if ylabel is not None:
+                ax.set_ylabel(ylabel)
+            ax.axis(axis_option)
 
-    return ret
+        return ret
+
+    return wrapped_plot_fn

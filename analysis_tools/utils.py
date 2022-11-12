@@ -28,6 +28,7 @@ def get_tsne_points_from_vectors(
         learning_rate='auto',
         n_iter=1000,
         metric='cosine',
+        init='pca',
         **kwargs,
     ):
     from sklearn.manifold import TSNE
@@ -39,6 +40,7 @@ def get_tsne_points_from_vectors(
         learning_rate=learning_rate,
         n_iter=n_iter,
         metric=metric,
+        init=init,
         **kwargs,
     )
     points = tsne.fit_transform(vectors)
