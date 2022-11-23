@@ -1,5 +1,6 @@
 import itertools
 import numpy as np
+import scipy.stats
 import matplotlib.pyplot as plt
 import seaborn as sns
 from .representation_similarity import *
@@ -96,11 +97,24 @@ def plot_sim_heatmap(matrix, labels, annot=True, size=0.7, ax=None):
     return ax
 
 
-def plot_repres_sim_heatmap(vectors, names, ax=None):
-    dissim_matrices = [cosine_dissim_matrix(V) for V in vectors]
-
-    repres_sim_matrix = np.array([[rsa_of_dissim_matrices(A, B) for B in dissim_matrices] for A in dissim_matrices])
-    return plot_sim_heatmap(repres_sim_matrix, names, annot=True, size=1., ax=ax)
+def plot_rsa_heatmap(
+    vectors, names,
+    dissim_matrix_fn=cosine_dissim_matrix,
+    correlation=scipy.stats.pearsonr,
+    get_value_fn=lambda result: result.statistic,  # for pearsonr
+    ax=None,
+):
+    dissim_matrices = [dissim_matrix_fn(V) for V in vectors]
+    rsa_results = [
+        [rsa_of_dissim_matrices(A, B)
+         for B in dissim_matrices]
+        for A in dissim_matrices]
+    rsa_values = np.array([
+        [get_value_fn(result)
+         for result in rsa_result_row]
+        for rsa_result_row in rsa_results])
+    return (plot_sim_heatmap(rsa_values, names, annot=True, size=1., ax=ax),
+            rsa_results)
 
 
 def plot_model_y_value_heatmap(names, values, y_labels, annot=True, size=0.7, plot_diff=True, plot_ori=False):
@@ -139,7 +153,7 @@ def plot_vector_sim_heatmap(items, names, diff=False, vector_attr='mean_vector',
         all_axes = itertools.chain.from_iterable(axes)
 
     if not diff:
-        ax = plot_repres_sim_heatmap(vectors, names, ax=next(all_axes) if one_figure else None)
+        ax, rsa_results = plot_rsa_heatmap(vectors, names, ax=next(all_axes) if one_figure else None)
         _title = figname + ' RSA'
         ax.set_title(_title)
         if not one_figure:
