@@ -117,7 +117,11 @@ def plot_rsa_heatmap(
             rsa_results)
 
 
-def plot_model_y_value_heatmap(names, values, y_labels, annot=True, size=0.7, plot_diff=True, plot_ori=False):
+def plot_model_y_value_heatmap(
+    names, values, y_labels,
+    plot_diff=True, plot_ori=False,
+    center=0., annot=True, fmt='.2f', square=False, cbar=False, **kwargs
+):
     values = np.array(values)
     data = [values[0]]
     yticklabels = [names[0]]
@@ -128,10 +132,15 @@ def plot_model_y_value_heatmap(names, values, y_labels, annot=True, size=0.7, pl
         if plot_ori:
             data.append(values[i])
             yticklabels.append(f'{names[i]}')
-    ax = sns.heatmap(data, center=0, annot=annot, fmt='.2f', xticklabels=y_labels, yticklabels=yticklabels, square=False, cbar=False)
+    ax = sns.heatmap(
+        data,
+        xticklabels=y_labels,
+        yticklabels=yticklabels,
+        center=center, annot=annot, fmt=fmt, square=square, cbar=cbar, **kwargs
+    )
     plt.xticks(rotation=0)
     plt.yticks(rotation=0)
-    ax.figure.set_size_inches(size * (len(data[0]) + 1.), size * 0.5 * (len(data) + .5))
+    return ax, data
 
 
 def plot_vector_sim_heatmap(items, names, diff=False, vector_attr='mean_vector', one_figure=False, size=0.7, figname='similarity heatmap', **kwargs):
