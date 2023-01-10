@@ -21,19 +21,19 @@ for eval_type in ${eval_types[@]}; do
         # done
 
         # fine-tune random-init eval
-        for checkpoint in ${finetune_random_init_checkpoints[@]}; do
-            python eval.py --checkpoint ${checkpoint} --eval_type ${eval_type} --eval_dataset ${eval_dataset} --stage ${stage} --use_kitty_label --save_predictions
-        done
+        # for checkpoint in ${finetune_random_init_checkpoints[@]}; do
+        #     python eval.py --checkpoint ${checkpoint} --eval_type ${eval_type} --eval_dataset ${eval_dataset} --stage ${stage} --use_kitty_label --save_predictions
+        # done
 
         # frozen random-init eval
-        for checkpoint in ${frozen_random_init_checkpoints[@]}; do
+        # for checkpoint in ${frozen_random_init_checkpoints[@]}; do
+        #     python eval.py --checkpoint ${checkpoint} --eval_type ${eval_type} --eval_dataset ${eval_dataset} --stage ${stage} --use_kitty_label --save_predictions
+        # done
+
+        # fine-tuned pre-trained eval
+        for checkpoint in ${finetuned_pretrained_checkpoints[@]}; do
             python eval.py --checkpoint ${checkpoint} --eval_type ${eval_type} --eval_dataset ${eval_dataset} --stage ${stage} --use_kitty_label --save_predictions
         done
-
-        #     # fine-tuned pre-trained eval
-        #     # for checkpoint in ${finetuned_pretrained_checkpoints[@]}; do
-        #     #     python eval.py --checkpoint ${checkpoint} --eval_type ${eval_type} --eval_dataset ${eval_dataset} --stage ${stage} --use_kitty_label --save_predictions
-        #     # done
 
         # shuffled eval
         # for checkpoint in ${shuffled_checkpoints[@]}; do

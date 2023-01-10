@@ -5,6 +5,7 @@ import random
 import shutil
 import time
 import warnings
+import math
 import numpy as np
 
 import torch
@@ -45,9 +46,10 @@ parser.add_argument('-p', '--print-freq', default=100, type=int, metavar='N', he
 #                          'N processes per node, which has N GPUs. This is the '
 #                          'fastest way to use PyTorch for either single node or '
 #                          'multi node data parallel training')
-parser.add_argument('--checkpoint', type=str, help='path to model checkpoint')
+parser.add_argument('--checkpoint', type=str, help='path to model checkpoint',
+                    default='models/TC-S-resnext.tar')
 parser.add_argument('--num-classes', default=22, type=int, help='number of classes in downstream classification task')
-parser.add_argument('--subset', default=100, type=int, choices=[1, 10, 100],
+parser.add_argument('--subset', default=1.0, type=float, choices=[1.0, 0.1, 0.01],
                     help="proportion of training data to use for linear probe")
 
 def set_parameter_requires_grad(model, feature_extracting=True):
@@ -65,26 +67,24 @@ def load_split_train_test(train_dir, test_dir, args):
     test_data = datasets.ImageFolder(test_dir, transform=transforms.Compose([transforms.ToTensor(), normalize]))
 
     # create subsets and setup dataloaders
-    if args.subset == 100:
+    if args.subset == 1.0:
+        # train using all data
         train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, shuffle=True,
             num_workers=args.workers, pin_memory=True)
-    if args.subset == 10:
-        # create subset with 10% of training data using SubsetRandomSampler
-        train_indices = list(range(len(train_data)))
-        random.shuffle(train_indices)
-        train_indices = train_indices[:int(0.1 * len(train_indices))]
-        print(len(train_indices))
-        train_sampler = torch.utils.data.SubsetRandomSampler(train_indices)
-        train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, sampler=train_sampler, num_workers=args.workers, pin_memory=True, shuffle=False)
-    elif args.subset == 1:
-        # create subset with 1% of training data
-        train_indices = list(range(len(train_data)))
-        random.shuffle(train_indices)
-        train_indices = train_indices[:int(0.01 * len(train_indices))]
-        print(len(train_indices))
-        train_sampler = torch.utils.data.SubsetRandomSampler(train_indices)
-        train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, sampler=train_sampler, num_workers=args.workers, pin_memory=True, shuffle=False)
+    else:
+        # get indices for subset of training data
+        train_indices = []
+        for i in range(len(train_data.classes)):
+            indices = [j for j, x in enumerate(train_data.targets) if x == i]
+            subset_indices = random.sample(indices, math.ceil(len(indices) * args.subset))
+            train_indices += subset_indices
 
+        # shuffle train indices since dataloader needs to set shuffle=False
+        random.shuffle(train_indices)
+        
+        train_sampler = torch.utils.data.SubsetRandomSampler(train_indices)
+        train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, sampler=train_sampler, num_workers=args.workers, pin_memory=True, shuffle=False)
+        
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
 
@@ -101,36 +101,53 @@ def main():
     num_classes = args.num_classes
 
     # load our model checkpoint
+    # checkpoint_name = args.checkpoint
+    # checkpoint = glob.glob(f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/epoch*.ckpt")[0]
+
+    # # get seed
+    # if 'seed_0' in checkpoint_name:
+    #     seed = 0
+    # elif 'seed_1' in checkpoint_name:
+    #     seed = 1
+    # elif 'seed_2' in checkpoint_name:
+    #     seed = 2
+
+    # model = MultiModalLitModel.load_from_checkpoint(
+    #     checkpoint, map_location=device)
+    # vision_model = model.vision_encoder
+
+    # # define custom vision model so that only first return arg from forward pass is used
+    # # which contains the actual embedding
+    # class VisionModelWrapper(nn.Module):
+    #     def __init__(self, vision_model):
+    #         super().__init__()
+    #         self.vision_model = vision_model
+
+    #     def forward(self, x):
+    #         x, y = self.vision_model(x)
+    #         return x
+
+    # vision_model = VisionModelWrapper(vision_model)
+
+    model = models.resnext50_32x4d(pretrained=False)
+    model.fc = torch.nn.Linear(
+        in_features=2048, out_features=2765, bias=True)
+
+    # load checkpoint
+    print('Loading pretrained CNN!')
     checkpoint_name = args.checkpoint
-    checkpoint = glob.glob(f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/epoch*.ckpt")[0]
+    checkpoint = torch.load(checkpoint_name)
 
-    # get seed
-    if 'seed_0' in checkpoint_name:
-        seed = 0
-    elif 'seed_1' in checkpoint_name:
-        seed = 1
-    elif 'seed_2' in checkpoint_name:
-        seed = 2
+    prefix = 'module.'
+    n_clip = len(prefix)
+    renamed_checkpoint = {k[n_clip:]: v for k, v in
+                          checkpoint['model_state_dict'].items()}
 
-    model = MultiModalLitModel.load_from_checkpoint(
-        checkpoint, map_location=device)
-    vision_model = model.vision_encoder
-
-    # define custom vision model so that only first return arg from forward pass is used
-    # which contains the actual embedding
-    class VisionModelWrapper(nn.Module):
-        def __init__(self, vision_model):
-            super().__init__()
-            self.vision_model = vision_model
-
-        def forward(self, x):
-            x, y = self.vision_model(x)
-            return x
-
-    vision_model = VisionModelWrapper(vision_model)
-    set_parameter_requires_grad(vision_model)
-    classifier = torch.nn.Linear(in_features=512, out_features=args.num_classes, bias=True).to(device)
-    model = torch.nn.Sequential(vision_model, classifier)
+    model.load_state_dict(renamed_checkpoint)
+    model = model.to(device)
+    
+    set_parameter_requires_grad(model) 
+    model.fc = torch.nn.Linear(in_features=2048, out_features=args.num_classes, bias=True).to(device)
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().to(device)
@@ -140,8 +157,10 @@ def main():
     # Data loading code
     if 'finetune_cnn_True' in checkpoint_name:
         savefile_name = f'probe_results/embedding_finetuned_pretrained_contrastive_labeled_s_linear_probe_seed_{seed}_subset_{args.subset}.tar'
-    else:
+    elif 'finetune_cnn_False' in checkpoint_name:
         savefile_name = f'probe_results/embedding_frozen_pretrained_contrastive_labeled_s_linear_probe_seed_{seed}_subset_{args.subset}.tar'
+    else:
+        savefile_name = f'probe_results/self_supervised_tc_labeled_s_linear_probe_subset_{args.subset}.tar'
 
     train_loader, test_loader = load_split_train_test(args.train_dir, args.test_dir, args)
     acc1_list = []
