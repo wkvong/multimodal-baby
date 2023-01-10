@@ -111,7 +111,8 @@ def calculate_date_descriptives(saycam_df):
     saycam_df["date"] = pd.to_datetime(saycam_df["date"], format="%Y%m%d")
 
     # sort dates and get first and last entries (only in the training split)
-    train_dates = saycam_df[saycam_df["split"] == "train"].sort_values("date")[["date", "split"]].drop_duplicates()
+    train_dates = saycam_df[saycam_df["split"] == "train"].sort_values("date")[["date", "split", "utterance"]].reset_index()
+
     print("Printing date descriptives")
     print(f"First transcribed date: {train_dates['date'].iloc[0]}")
     print(f"Last transcribed date: {train_dates['date'].iloc[-1]}")
@@ -127,6 +128,57 @@ def calculate_date_descriptives(saycam_df):
     print(f"First original date: {original_video_dates.iloc[0]}")
     print(f"Last original date: {original_video_dates.iloc[-1]}")
     print(f"Number of unique original dates: {len(original_video_dates)}")
+
+    # get labeled s categories
+    labeled_s_categories = os.listdir(LABELED_S_DIR)
+    labeled_s_categories.remove("carseat")
+    labeled_s_categories.remove("couch")
+    labeled_s_categories.remove("greenery")
+    labeled_s_categories.remove("plushanimal")
+
+    # create word frequency dataframe with labeled s categories as a column
+    word_freq_subsets_df = pd.DataFrame(labeled_s_categories, columns=["category"])
+    
+    # get first half of train_dates based on number of rows
+    subset_proportions = [1.0, 0.5, 0.25, 0.1]
+    
+    for subset_proportion in subset_proportions:
+        subset_train_dates = train_dates.iloc[:int(len(train_dates) * subset_proportion)]
+        # get utterances from first_half_train_dates
+        train_utterances = train_dates["utterance"].values
+        subset_train_utterances = subset_train_dates["utterance"].values
+     
+        word_freq_dict = {}
+        for category in labeled_s_categories:
+            word_freq = 0
+            for utterance in subset_train_utterances:
+                words = utterance.split()
+                if category in words:
+                    word_freq += 1
+            word_freq_dict[category] = word_freq
+
+        # get values from word_freq_dict and add to word_freq_subsets_df
+        word_freq_subsets_df[f"{subset_proportion}"] = word_freq_subsets_df["category"].map(word_freq_dict)
+
+    print(word_freq_subsets_df)
+
+    # convert word_freq_subsets_df to long format
+    word_freq_subsets_df = word_freq_subsets_df.melt(id_vars="category", var_name="subset_proportion", value_name="word_freq")
+    # arrange by category
+    word_freq_subsets_df = word_freq_subsets_df.sort_values("category")
+    word_freq_subsets_df["subset_proportion"] = pd.Categorical(word_freq_subsets_df["subset_proportion"], categories=["1.0", "0.5", "0.25", "0.1"])
+    
+    # use seaborn to plot word_freq_subsets_df as a bar plot grouped by subset_proportion
+    sns.barplot(x="category", y="word_freq", hue="subset_proportion", data=word_freq_subsets_df)
+        
+    # plt.figure(figsize=(10, 5))
+    # sns.barplot(x="category", y="word_freq", color="subset_proportion", data=word_freq_subsets_df)
+    plt.xlabel("Category")
+    plt.ylabel("Word Frequency")
+    # set xticks at 45 degree and align them
+    plt.xticks(rotation=45, ha="right")
+    plt.savefig("../figures/word-freq-subsets-mpl.png", dpi=600)
+
 
 def calculate_video_descriptives(saycam_df):
     """Get video filenames to calculate total length of transcribed videos."""
@@ -201,16 +253,20 @@ def calculate_labeled_s_descriptives(saycam_df):
     print("Word frequency of Labeled S categories in training split")
     print(word_freq_dict)
 
-    # img_freq_norm = {k: v / sum(img_freq_dict.values()) for k, v in img_freq_dict.items()}
-    # word_freq_norm = {k: v / sum(word_freq_dict.values()) for k, v in word_freq_dict.items()}
-    img_freq_norm = {k: v for k, v in img_freq_dict.items()}
-    word_freq_norm = {k: v for k, v in word_freq_dict.items()}
+    # sum all values in word_freq_dict
+    total_word_freq = 0
+    for value in word_freq_dict.values():
+        total_word_freq += value
+
+    print(f"Total word frequency of Labeled S categories in training split: {total_word_freq}")
+    print(f"Average word frequency of Labeled S categories in training split: {total_word_freq / len(word_freq_dict)}")
 
     # put into dataframe
-    freq_df = pd.DataFrame.from_dict([img_freq_norm]).transpose().reset_index()
+    freq_df = pd.DataFrame.from_dict([word_freq_dict]).transpose().reset_index()
     freq_df.columns = ["category", "img_freq"]
-    freq_df["word_freq"] = word_freq_norm.values()
-
+    freq_df["word_freq"] = word_freq_dict.values()
+    freq_df = freq_df.sort_values(by="category")
+    
     # create seaborn objects scatterplot
     # plot = (
     #     so.Plot(freq_df, x="img_freq", y="word_freq")
@@ -246,7 +302,7 @@ def calculate_labeled_s_descriptives(saycam_df):
     plt.savefig("../figures/labeled-s-freq-scatterplot-mpl.png", dpi=600)
     
 
-def calculate_object_categories_descriptives():
+def calculate_object_categories_descriptives(saycam_df):
     """Calculate descriptives for object categories evaluation dataset."""
     # get number of categories/folders in original dataset
     original_categories = os.listdir(OBJECT_CATEGORIES_ORIGINAL_DIR)
@@ -254,21 +310,35 @@ def calculate_object_categories_descriptives():
     original_categories = [x for x in original_categories if os.path.isdir(OBJECT_CATEGORIES_ORIGINAL_DIR / x)]
     print(f"Number of object categories in original dataset: {len(original_categories)}")
 
-    # get number of jpg images from folders under original dataset
-    num_original_images = 0
-    for category in original_categories:
-        images = os.listdir(OBJECT_CATEGORIES_ORIGINAL_DIR / category)
-        num_images = len([x for x in images if x.endswith(".jpg")])
-        num_original_images += num_images
-    print(f"Number of images in original dataset: {num_original_images}")
-    print("Warning: this doesn't include test images")
-
     # get number of filtered object categories
     object_categories = os.listdir(OBJECT_CATEGORIES_DIR)
     # filter by folders
     object_categories = [x for x in object_categories if os.path.isdir(OBJECT_CATEGORIES_DIR / x)]
     print(f"Number of object categories in vocab: {len(object_categories)}")
 
+    # get word frequency of object categories in training dataset
+    saycam_train_df = saycam_df[saycam_df["split"] == "train"]
+    word_freq_dict = {}
+
+    for category in object_categories:
+        word_freq = 0
+        for utterance in saycam_train_df['utterance'].tolist():
+            words = utterance.split()
+            if category in words:
+                word_freq += 1
+        word_freq_dict[category] = word_freq
+
+    print("Word frequency of object categories in training split")
+    print(word_freq_dict)
+
+    # sum all values in word_freq_dict
+    total_word_freq = 0
+    for value in word_freq_dict.values():
+        total_word_freq += value
+
+    print(f"Total word frequency of object categories in training split: {total_word_freq}")
+    print(f"Average word frequency of object categories in training split: {total_word_freq / len(original_categories)}")
+    
     # get number of images from filtered object categories dataset
     num_images = 0
     for category in object_categories:
@@ -302,10 +372,10 @@ def main():
 
     # get descriptives
     calculate_dataset_descriptives(saycam_df, vocab)
-    # calculate_date_descriptives(saycam_df)
+    calculate_date_descriptives(saycam_df)
     # calculate_video_descriptives(saycam_df)
     calculate_labeled_s_descriptives(saycam_df)
-    # calculate_object_categories_descriptives()
+    calculate_object_categories_descriptives(saycam_df)
     # calculate_object_localization_descriptives()
 
 if __name__ == "__main__":
