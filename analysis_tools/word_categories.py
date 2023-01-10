@@ -1,6 +1,3 @@
-import seaborn as sns
-
-
 possessives = (
 "'s ’s s",
 )

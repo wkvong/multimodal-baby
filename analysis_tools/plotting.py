@@ -1,5 +1,6 @@
 import itertools
 import numpy as np
+import scipy.stats
 import matplotlib.pyplot as plt
 import seaborn as sns
 from .representation_similarity import *
@@ -96,14 +97,31 @@ def plot_sim_heatmap(matrix, labels, annot=True, size=0.7, ax=None):
     return ax
 
 
-def plot_repres_sim_heatmap(vectors, names, ax=None):
-    dissim_matrices = [cosine_dissim_matrix(V) for V in vectors]
+def plot_rsa_heatmap(
+    vectors, names,
+    dissim_matrix_fn=cosine_dissim_matrix,
+    correlation=scipy.stats.pearsonr,
+    get_value_fn=lambda result: result.statistic,  # for pearsonr
+    ax=None,
+):
+    dissim_matrices = [dissim_matrix_fn(V) for V in vectors]
+    rsa_results = [
+        [rsa_of_dissim_matrices(A, B)
+         for B in dissim_matrices]
+        for A in dissim_matrices]
+    rsa_values = np.array([
+        [get_value_fn(result)
+         for result in rsa_result_row]
+        for rsa_result_row in rsa_results])
+    return (plot_sim_heatmap(rsa_values, names, annot=True, size=1., ax=ax),
+            rsa_results)
 
-    repres_sim_matrix = np.array([[rsa_of_dissim_matrices(A, B) for B in dissim_matrices] for A in dissim_matrices])
-    return plot_sim_heatmap(repres_sim_matrix, names, annot=True, size=1., ax=ax)
 
-
-def plot_model_y_value_heatmap(names, values, y_labels, annot=True, size=0.7, plot_diff=True, plot_ori=False):
+def plot_model_y_value_heatmap(
+    names, values, y_labels,
+    plot_diff=True, plot_ori=False,
+    center=0., annot=True, fmt='.2f', square=False, cbar=False, **kwargs
+):
     values = np.array(values)
     data = [values[0]]
     yticklabels = [names[0]]
@@ -114,10 +132,15 @@ def plot_model_y_value_heatmap(names, values, y_labels, annot=True, size=0.7, pl
         if plot_ori:
             data.append(values[i])
             yticklabels.append(f'{names[i]}')
-    ax = sns.heatmap(data, center=0, annot=annot, fmt='.2f', xticklabels=y_labels, yticklabels=yticklabels, square=False, cbar=False)
+    ax = sns.heatmap(
+        data,
+        xticklabels=y_labels,
+        yticklabels=yticklabels,
+        center=center, annot=annot, fmt=fmt, square=square, cbar=cbar, **kwargs
+    )
     plt.xticks(rotation=0)
     plt.yticks(rotation=0)
-    ax.figure.set_size_inches(size * (len(data[0]) + 1.), size * 0.5 * (len(data) + .5))
+    return ax, data
 
 
 def plot_vector_sim_heatmap(items, names, diff=False, vector_attr='mean_vector', one_figure=False, size=0.7, figname='similarity heatmap', **kwargs):
@@ -139,7 +162,7 @@ def plot_vector_sim_heatmap(items, names, diff=False, vector_attr='mean_vector',
         all_axes = itertools.chain.from_iterable(axes)
 
     if not diff:
-        ax = plot_repres_sim_heatmap(vectors, names, ax=next(all_axes) if one_figure else None)
+        ax, rsa_results = plot_rsa_heatmap(vectors, names, ax=next(all_axes) if one_figure else None)
         _title = figname + ' RSA'
         ax.set_title(_title)
         if not one_figure:
@@ -163,46 +186,57 @@ def plot_vector_sim_heatmap(items, names, diff=False, vector_attr='mean_vector',
 
 plotting_variable_keys = {'x', 'y', 'hue', 'size', 'style'}
 
-def plot(
-    fn,
-    items,
-    token_kwargs=None,
-    axis_option="on",
-    xlabel=None, ylabel=None,
-    **kwargs
-):
-    """plot items using fn
-    fn: seaborn plot function
-    items: pd.DataFrame items; will drop items with missing values in the variables
-    token_kwargs: kwargs to plt.text to add token text labels; if None, do not add text labels
-    kwargs: all other kwargs to pass to fn
+def plot_wrapper(plot_fn):
+    """wrapping seaborn plot_fn with additional functions
+    plot_fn: seaborn plot function to wrap
     """
-    variable_keys = plotting_variable_keys & kwargs.keys()
-    variable_keys = {key for key in variable_keys if kwargs[key] is not None}
+    def wrapped_plot_fn(
+        data=None,
+        text_label=None,
+        text_label_kwargs=None,
+        axis_option="on",
+        xlabel=None, ylabel=None,
+        **kwargs
+    ):
+        """ Wrapped seaborn plot function
+        data: pd.DataFrame
+        text_label: column name of text label; if None, do not add text labels
+        text_label_kwargs: kwargs to plt.text for text labels
+        axis_option: set all axis with axis_option
+        xlabel, ylabel: set all axis with xlabel and ylabel
+        kwargs: all other kwargs to pass to fn
+        """
+        variable_keys = (
+            plotting_variable_keys &
+            {key for key, value in kwargs.items() if value is not None}
+        )
 
-    ret = fn(data=items, **kwargs)
+        ret = plot_fn(data=data, **kwargs)
 
-    if token_kwargs is not None and 'x' in variable_keys and 'y' in variable_keys:
-        from adjustText import adjust_text
-        x = kwargs['x']
-        y = kwargs['y']
-        texts = [
-            plt.text(
-                row[x], row[y], row[token_field],
-                ha='center', va='center', **token_kwargs)
-            for _, row in items.iterrows()]
-        adjust_text(texts)
+        if (text_label is not None
+            and 'x' in variable_keys and 'y' in variable_keys):
+            from adjustText import adjust_text
+            x = kwargs['x']
+            y = kwargs['y']
+            texts = [
+                plt.text(
+                    row[x], row[y], row[text_label],
+                    ha='center', va='center', **text_label_kwargs)
+                for _, row in data.iterrows()]
+            adjust_text(texts)
 
-    if isinstance(ret, sns.FacetGrid):
-        all_ax = itertools.chain.from_iterable(ret.axes)
-    else:
-        all_ax = [ret]
+        if isinstance(ret, sns.FacetGrid):
+            all_ax = itertools.chain.from_iterable(ret.axes)
+        else:
+            all_ax = [ret]
 
-    for ax in all_ax:
-        if xlabel is not None:
-            ax.set_xlabel(xlabel)
-        if ylabel is not None:
-            ax.set_ylabel(ylabel)
-        ax.axis(axis_option)
+        for ax in all_ax:
+            if xlabel is not None:
+                ax.set_xlabel(xlabel)
+            if ylabel is not None:
+                ax.set_ylabel(ylabel)
+            ax.axis(axis_option)
 
-    return ret
+        return ret
+
+    return wrapped_plot_fn
