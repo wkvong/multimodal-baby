@@ -9,6 +9,7 @@ grids = [
         "embedding_dim": [512],
         "dropout_i": [.5],
         "dropout_o": [.0],
+        "cnn_dino": [True],
         "pretrained_cnn": [False],
         "finetune_cnn": [False],
         "multiple_frames": [True],
@@ -36,6 +37,7 @@ grids = [
 ]
 # ordered flags to display in jobname
 flags = [
+    "cnn_dino",
     "text_encoder",
     "embedding_dim",
     "batch_size",

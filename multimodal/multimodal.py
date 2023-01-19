@@ -12,6 +12,7 @@ from multimodal.multimodal_data_module import \
 from multimodal.beam_search import beam_search
 from multimodal.utils import get_entropy, map_structure, apply_permutation
 from multimodal.attention_maps import Hook
+from multimodal.utils import load_model
 
 TEXT_ENCODER = "embedding"
 ATTENTION_ACTIVATION = "relu"
@@ -28,8 +29,8 @@ TEMPERATURE = 0.07
 FIX_TEMPERATURE = False
 
 # vision encoder arguments
-CNN_MODEL = "models/TC-S-resnext.tar"
-
+CNN_MODEL = "models/TC-S-resnext.tar"  # link to TC resnext model
+CNN_DINO = False  # boolean flag to use DINO resnext model
 
 def set_parameter_requires_grad(model, feature_extracting=True):
     '''Helper function for setting body to non-trainable'''
@@ -61,6 +62,7 @@ class VisionEncoder(nn.Module):
         self.embedding_dim = self.args.get("embedding_dim")
         self.pretrained_cnn = self.args.get("pretrained_cnn")
         self.cnn_model = self.args.get("cnn_model", CNN_MODEL)
+        self.cnn_dino = self.args.get("cnn_dino", CNN_DINO)
         self.finetune_cnn = self.args.get("finetune_cnn")
         self.model = self._load_pretrained_cnn()
 
@@ -71,6 +73,8 @@ class VisionEncoder(nn.Module):
         parser.add_argument("--cnn_model", type=str, default=CNN_MODEL,
                             help="name in torchvision.models or "
                                  "the path to the CNN model checkpoint")
+        parser.add_argument("--cnn_dino", action="store_true", default=CNN_DINO,
+                            help="use DINO resnext model")
         parser.add_argument("--finetune_cnn", action="store_true",
                             help="finetune CNN (frozen by default)")
 
@@ -104,42 +108,47 @@ class VisionEncoder(nn.Module):
         return 2048
 
     def _load_pretrained_cnn(self):
-        # get the model name and checkpoint path
-        model_name = self.cnn_model
-        checkpoint_path = None
-        if not hasattr(torchvision.models, model_name):
-            checkpoint_path = self.cnn_model
-            name_to_model_name = {
-                'resnext': 'resnext50_32x4d',
-            }
-            for name, model_name_ in name_to_model_name.items():
-                if name in model_name:
-                    model_name = model_name_
-                    break
-            else:
-                assert False, \
-                    f"Unable to recognize the model name of {model_name}"
-
-        # initialize model and replace fc layer to match pretrained model
-        model = getattr(torchvision.models, model_name)(
-            pretrained=self.pretrained_cnn and not checkpoint_path)
-        model.fc = torch.nn.Linear(
-            in_features=self.last_cnn_out_dim, out_features=2765, bias=True)
-
-        # load checkpoint
-        if self.pretrained_cnn and checkpoint_path:
-            # rename checkpoint keys since we are not using DataParallel
-            print('Loading pretrained CNN!')
-
-            checkpoint = torch.load(checkpoint_path,
-                                    map_location=torch.device("cpu"))
-
-            prefix = 'module.'
-            n_clip = len(prefix)
-            renamed_checkpoint = {k[n_clip:]: v for k, v in
-                                  checkpoint['model_state_dict'].items()}
-
-            model.load_state_dict(renamed_checkpoint)
+        if self.cnn_dino:
+            print("Loading DINO model!")
+            model_name = "dino_sfp_resnext50"
+            model = load_model(model_name, self.pretrained_cnn)
+        else:
+            # get the model name and checkpoint path
+            model_name = self.cnn_model
+            checkpoint_path = None
+            if not hasattr(torchvision.models, model_name):
+                checkpoint_path = self.cnn_model
+                name_to_model_name = {
+                    'resnext': 'resnext50_32x4d',
+                }
+                for name, model_name_ in name_to_model_name.items():
+                    if name in model_name:
+                        model_name = model_name_
+                        break
+                else:
+                    assert False, \
+                        f"Unable to recognize the model name of {model_name}"
+     
+            # initialize model and replace fc layer to match pretrained model
+            model = getattr(torchvision.models, model_name)(
+                pretrained=self.pretrained_cnn and not checkpoint_path)
+            model.fc = torch.nn.Linear(
+                in_features=self.last_cnn_out_dim, out_features=2765, bias=True)
+     
+            # load checkpoint
+            if self.pretrained_cnn and checkpoint_path:
+                # rename checkpoint keys since we are not using DataParallel
+                print('Loading pretrained CNN!')
+     
+                checkpoint = torch.load(checkpoint_path,
+                                        map_location=torch.device("cpu"))
+     
+                prefix = 'module.'
+                n_clip = len(prefix)
+                renamed_checkpoint = {k[n_clip:]: v for k, v in
+                                      checkpoint['model_state_dict'].items()}
+     
+                model.load_state_dict(renamed_checkpoint)
 
         if not self.finetune_cnn:
             print('Freezing CNN layers!')
@@ -155,6 +164,7 @@ class VisionEncoder(nn.Module):
         elif self.embedding_type == "flat":
             # remove classifier head and add linear layer to map original embedding to embedding_dim
             model.fc = nn.Linear(self.last_cnn_out_dim, self.embedding_dim)
+            print(model)
 
         return model
 

@@ -23,7 +23,7 @@ argparser.add_argument("--checkpoints", type=Path, default=Path("checkpoints"),
                        help="The directory of checkpoints.")
 argparser.add_argument("--code-dir", type=Path, default=Path(),
                        help="The working directory of the jobs.")
-argparser.add_argument("--time", default="48:00:00",
+argparser.add_argument("--time", default="96:00:00",
                        help="The time limit of the jobs.")
 argparser.add_argument("--mem", default="32GB",
                        help="The memory limit of the jobs.")

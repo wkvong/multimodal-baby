@@ -30,23 +30,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def main(args):
     # load our model checkpoint
-    # checkpoint_name = "multimodal_text_encoder_embedding_embedding_dim_512_batch_size_8_dropout_i_0.5_lr_0.0001_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_0"
     linear_probe_checkpoint_name = f"/home/wv9/code/WaiKeen/multimodal-baby/probe_results/{args.checkpoint}.tar"
-    # checkpoint = glob.glob(f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/epoch*.ckpt")[0]
 
     # get config
     config = {}
-    # if 'seed_0' in args.checkpoint:
-    #     config['seed'] = 0
-    # elif 'seed_1' in args.checkpoint:
-    #     config['seed'] = 1
-    # elif 'seed_2' in args.checkpoint:
-    #     config['seed'] = 2
-
-    # if "frozen_pretrained" in args.checkpoint:
-    #     config["cnn"] = "frozen_pretrained"
-    # elif "finetuned_pretrained" in args.checkpoint:
-    #     config["cnn"] = "finetuned_pretrained"
 
     if "subset_0.1" in args.checkpoint:
         config["model"] = "embedding_linear_probe_10_percent"

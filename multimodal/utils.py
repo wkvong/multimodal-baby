@@ -1,9 +1,11 @@
 from PIL import ImageFilter
+import os
+import sys
 import random
 import numpy as np
 import torch
 import torch.nn.functional as F
-
+from huggingface_hub import hf_hub_download
 
 def msplit(string, delimiters):
     """Split with multiple delimiters."""
@@ -138,3 +140,72 @@ def map_structure(fn, *obj):
 
 def apply_permutation(tensor: torch.Tensor, permutation, dim: int) -> torch.Tensor:
     return tensor.index_select(dim, permutation)
+
+# adapted from https://github.com/eminorhan/silicon-menagerie/blob/master/utils.py
+def load_model(model_name, pretrained=True):
+
+    alg, data, model_spec = model_name.split("_")
+
+    # checks
+    assert alg in ["dino", "mugs", "mae"], "Unrecognized algorithm!"
+    assert data in ["say", "s", "sfp", "a", "y", "imagenet100", "imagenet10", "imagenet3", "imagenet1"], "Unrecognized data!"
+    assert model_spec in ["resnext50", "vitb14", "vitl16", "vitb16", "vits16"], "Unrecognized architecture!"
+
+    if model_spec == "resnext50":
+        arch, patch_size = "resnext50_32x4d", None
+    elif model_spec == "vitb14":
+        arch, patch_size = "vit_base", 14
+    elif model_spec == "vitl16":
+        arch, patch_size = "vit_large", 16
+    elif model_spec == "vitb16":
+        arch, patch_size = "vit_base", 16
+    elif model_spec == "vits16":
+        arch, patch_size = "vit_small", 16
+
+    # download checkpoint from hf
+    checkpoint = hf_hub_download(repo_id="eminorhan/"+model_name, filename=model_name+".pth")
+
+    if alg == "dino" or alg == "mugs":
+        model = build_dino_mugs(arch, patch_size)
+        if pretrained:
+            print("Loading pretrained weights for DINO resnext model")
+            load_dino_mugs(model, checkpoint, "teacher")
+    elif alg == "mae":
+        model = build_mae(arch, patch_size)
+        if pretrained:
+            load_mae(model, checkpoint)
+
+    return model
+
+def load_dino_mugs(model, pretrained_weights, checkpoint_key):
+    if os.path.isfile(pretrained_weights):
+        state_dict = torch.load(pretrained_weights, map_location="cpu")
+        if checkpoint_key is not None and checkpoint_key in state_dict:
+            print(f"Take key {checkpoint_key} in provided checkpoint dict")
+            state_dict = state_dict[checkpoint_key]
+
+        # remove `module.` prefix
+        state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+        # remove `backbone.` prefix induced by multicrop wrapper
+        state_dict = {k.replace("backbone.", ""): v for k, v in state_dict.items()}
+        # remove `encoder.` prefix induced by MAE
+        state_dict = {k.replace("encoder.", ""): v for k, v in state_dict.items()}
+
+        msg = model.load_state_dict(state_dict, strict=False)
+        print('Pretrained weights found at {} and loaded with msg: {}'.format(pretrained_weights, msg))
+    else:
+        print("There is no reference weights available for this model => We use random weights.")
+
+def build_dino_mugs(arch, patch_size):
+    # import vision_transformer_dino_mugs as vits
+    from torchvision import models as torchvision_models
+
+    # check if the architecture is in torchvision models
+    if arch in torchvision_models.__dict__.keys():
+        model = torchvision_models.__dict__[arch]()
+        model.fc = torch.nn.Identity()
+    else:
+        print(f"Unknown architecture: {arch}")
+        sys.exit(1)
+
+    return model

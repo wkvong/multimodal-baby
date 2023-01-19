@@ -21,7 +21,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 
-from multimodal.multimodal_lit import MultiModalLitModel
+from multimodal.utils import load_model
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -37,17 +37,6 @@ parser.add_argument('-b', '--batch-size', default=64, type=int, metavar='N',
 parser.add_argument('--lr', '--learning-rate', default=0.0005, type=float, metavar='LR', help='initial learning rate', dest='lr')
 parser.add_argument('--wd', '--weight-decay', default=0.0, type=float, metavar='W', help='weight decay (default: 0)', dest='weight_decay')
 parser.add_argument('-p', '--print-freq', default=100, type=int, metavar='N', help='print frequency (default: 100)')
-# parser.add_argument('--world-size', default=-1, type=int, help='number of nodes for distributed training')
-# parser.add_argument('--rank', default=-1, type=int, help='node rank for distributed training')
-# parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str, help='url used to set up distributed training')
-# parser.add_argument('--dist-backend', default='nccl', type=str, help='distributed backend')
-# parser.add_argument('--multiprocessing-distributed', action='store_true',
-#                     help='Use multi-processing distributed training to launch '
-#                          'N processes per node, which has N GPUs. This is the '
-#                          'fastest way to use PyTorch for either single node or '
-#                          'multi node data parallel training')
-parser.add_argument('--checkpoint', type=str, help='path to model checkpoint',
-                    default='models/TC-S-resnext.tar')
 parser.add_argument('--num-classes', default=22, type=int, help='number of classes in downstream classification task')
 parser.add_argument('--subset', default=1.0, type=float, choices=[1.0, 0.1, 0.01],
                     help="proportion of training data to use for linear probe")
@@ -100,50 +89,9 @@ def main():
     ngpus_per_node = torch.cuda.device_count()
     num_classes = args.num_classes
 
-    # load our model checkpoint
-    # checkpoint_name = args.checkpoint
-    # checkpoint = glob.glob(f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/epoch*.ckpt")[0]
-
-    # # get seed
-    # if 'seed_0' in checkpoint_name:
-    #     seed = 0
-    # elif 'seed_1' in checkpoint_name:
-    #     seed = 1
-    # elif 'seed_2' in checkpoint_name:
-    #     seed = 2
-
-    # model = MultiModalLitModel.load_from_checkpoint(
-    #     checkpoint, map_location=device)
-    # vision_model = model.vision_encoder
-
-    # # define custom vision model so that only first return arg from forward pass is used
-    # # which contains the actual embedding
-    # class VisionModelWrapper(nn.Module):
-    #     def __init__(self, vision_model):
-    #         super().__init__()
-    #         self.vision_model = vision_model
-
-    #     def forward(self, x):
-    #         x, y = self.vision_model(x)
-    #         return x
-
-    # vision_model = VisionModelWrapper(vision_model)
-
-    model = models.resnext50_32x4d(pretrained=False)
-    model.fc = torch.nn.Linear(
-        in_features=2048, out_features=2765, bias=True)
-
-    # load checkpoint
-    print('Loading pretrained CNN!')
-    checkpoint_name = args.checkpoint
-    checkpoint = torch.load(checkpoint_name)
-
-    prefix = 'module.'
-    n_clip = len(prefix)
-    renamed_checkpoint = {k[n_clip:]: v for k, v in
-                          checkpoint['model_state_dict'].items()}
-
-    model.load_state_dict(renamed_checkpoint)
+    # load model
+    model_name = "dino_sfp_resnext50"
+    model = load_model(model_name, pretrained=True)
     model = model.to(device)
     
     set_parameter_requires_grad(model) 
