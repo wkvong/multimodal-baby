@@ -23,7 +23,7 @@ argparser.add_argument("--checkpoints", type=Path, default=Path("checkpoints"),
                        help="The directory of checkpoints.")
 argparser.add_argument("--code-dir", type=Path, default=Path(),
                        help="The working directory of the jobs.")
-argparser.add_argument("--time", default="96:00:00",
+argparser.add_argument("--time", default="48:00:00",
                        help="The time limit of the jobs.")
 argparser.add_argument("--mem", default="32GB",
                        help="The memory limit of the jobs.")
@@ -158,13 +158,13 @@ for job in jobs:
         slurmfile.write(f"#SBATCH --mem={args.mem}\n")
         slurmfile.write("#SBATCH --cpus-per-task=4\n")
         slurmfile.write("#SBATCH --gres=gpu:1\n")
-        slurmfile.write("#SBATCH --constraint=pascal|turing|volta\n")
+        slurmfile.write("#SBATCH --constraint=pascal|volta\n")
         slurmfile.write(f"#SBATCH --mail-type={args.mail_type}\n")
         slurmfile.write(f"#SBATCH --mail-user={args.mail_user}\n\n")
 
         if args.conda:
             slurmfile.write('source \n')
-            slurmfile.write('conda activate pytorch\n')
+            slurmfile.write('conda activate multimodal-baby\n')
         if job_source_dir != Path():
             slurmfile.write(f"cd {job_source_dir}\n")
         slurmfile.write("srun " + jobcommand)
