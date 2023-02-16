@@ -29,9 +29,21 @@ shuffled_results = ["../results/saycam/shuffle_embedding_frozen_pretrained_seed_
 "../results/saycam/shuffle_embedding_frozen_pretrained_seed_2_image_saycam_test_eval_predictions.json"]
 clip_results = ["../results/saycam/clip_image_saycam_test_eval_predictions.json"]
 
-frozen_linear_probe_all_results = ["../results/saycam/embedding_linear_probe_image_saycam_eval_predictions.json"]
-frozen_linear_probe_1_percent_results = ["../results/saycam/embedding_linear_probe_1_percent_image_saycam_eval_predictions.json"]
-frozen_linear_probe_10_percent_results = ["../results/saycam/embedding_linear_probe_10_percent_image_saycam_eval_predictions.json"]
+frozen_linear_probe_all_results = [
+    "../results/saycam/embedding_linear_probe_seed_0_image_saycam_eval_predictions.json",
+    "../results/saycam/embedding_linear_probe_seed_1_image_saycam_eval_predictions.json",
+    "../results/saycam/embedding_linear_probe_seed_2_image_saycam_eval_predictions.json"
+]
+frozen_linear_probe_10_percent_results = [
+    "../results/saycam/embedding_linear_probe_10_percent_seed_0_image_saycam_eval_predictions.json",
+    "../results/saycam/embedding_linear_probe_10_percent_seed_1_image_saycam_eval_predictions.json",
+    "../results/saycam/embedding_linear_probe_10_percent_seed_2_image_saycam_eval_predictions.json"
+]
+frozen_linear_probe_1_percent_results = [
+    "../results/saycam/embedding_linear_probe_1_percent_seed_0_image_saycam_eval_predictions.json",
+    "../results/saycam/embedding_linear_probe_1_percent_seed_1_image_saycam_eval_predictions.json",
+    "../results/saycam/embedding_linear_probe_1_percent_seed_2_image_saycam_eval_predictions.json"
+]
 
 saycam_results = []
 
@@ -116,9 +128,9 @@ embedding_results = ["../results/saycam/embedding_frozen_pretrained_seed_0_image
 lstm_results = ["../results/saycam/lstm_frozen_pretrained_seed_0_image_saycam_test_eval_predictions.json",
 "../results/saycam/lstm_frozen_pretrained_seed_1_image_saycam_test_eval_predictions.json",
 "../results/saycam/lstm_frozen_pretrained_seed_2_image_saycam_test_eval_predictions.json"]
-embedding_finetune_pretrained_init_results = ["../results/saycam/embedding_finetune_pretrained_seed_0_image_saycam_test_eval_predictions.json",
-"../results/saycam/embedding_finetune_pretrained_seed_1_image_saycam_test_eval_predictions.json",
-"../results/saycam/embedding_finetune_pretrained_seed_2_image_saycam_test_eval_predictions.json"]
+# embedding_finetune_pretrained_init_results = ["../results/saycam/embedding_finetune_pretrained_seed_0_image_saycam_test_eval_predictions.json",
+# "../results/saycam/embedding_finetune_pretrained_seed_1_image_saycam_test_eval_predictions.json",
+# "../results/saycam/embedding_finetune_pretrained_seed_2_image_saycam_test_eval_predictions.json"]
 embedding_finetune_random_init_results = ["../results/saycam/embedding_finetune_random_init_seed_0_image_saycam_test_eval_predictions.json", 
 "../results/saycam/embedding_finetune_random_init_seed_1_image_saycam_test_eval_predictions.json",
 "../results/saycam/embedding_finetune_random_init_seed_2_image_saycam_test_eval_predictions.json"]
@@ -128,9 +140,9 @@ embedding_frozen_random_init_results = ["../results/saycam/embedding_frozen_rand
 single_frame_results = ["../results/saycam/embedding_frozen_pretrained_multiple_frames_False_seed_0_image_saycam_test_eval_predictions.json",
 "../results/saycam/embedding_frozen_pretrained_multiple_frames_False_seed_1_image_saycam_test_eval_predictions.json",
 "../results/saycam/embedding_frozen_pretrained_multiple_frames_False_seed_2_image_saycam_test_eval_predictions.json"]
-no_data_aug_results = ["../results/saycam/embedding_frozen_pretrained_augment_frames_False_seed_0_image_saycam_test_eval_predictions.json",
-"../results/saycam/embedding_frozen_pretrained_augment_frames_False_seed_1_image_saycam_test_eval_predictions.json",
-"../results/saycam/embedding_frozen_pretrained_augment_frames_False_seed_2_image_saycam_test_eval_predictions.json"]
+# no_data_aug_results = ["../results/saycam/embedding_frozen_pretrained_augment_frames_False_seed_0_image_saycam_test_eval_predictions.json",
+# "../results/saycam/embedding_frozen_pretrained_augment_frames_False_seed_1_image_saycam_test_eval_predictions.json",
+# "../results/saycam/embedding_frozen_pretrained_augment_frames_False_seed_2_image_saycam_test_eval_predictions.json"]
 
 for results in embedding_results:
     with open(results) as f:
@@ -154,16 +166,16 @@ for results in lstm_results:
     result_df["config"] = "contrastive_lstm"
     saycam_ablations.append(result_df)
     
-for results in embedding_finetune_pretrained_init_results:
-    with open(results) as f:
-        data = json.load(f)
+# for results in embedding_finetune_pretrained_init_results:
+#     with open(results) as f:
+#         data = json.load(f)
 
-    result_df = pd.DataFrame(data["data"])
-    result_df["target_category"] = result_df["categories"].str[0]
+#     result_df = pd.DataFrame(data["data"])
+#     result_df["target_category"] = result_df["categories"].str[0]
     
-    # add extra columns
-    result_df["config"] = "contrastive_embedding_finetune_pretrained_init"
-    saycam_ablations.append(result_df)
+#     # add extra columns
+#     result_df["config"] = "contrastive_embedding_finetune_pretrained_init"
+#     saycam_ablations.append(result_df)
     
 for results in embedding_finetune_random_init_results:
     with open(results) as f:
@@ -198,16 +210,16 @@ for results in single_frame_results:
     result_df["config"] = "contrastive_embedding_single_frame"
     saycam_ablations.append(result_df)
     
-for results in no_data_aug_results:
-    with open(results) as f:
-        data = json.load(f)
+# for results in no_data_aug_results:
+#     with open(results) as f:
+#         data = json.load(f)
 
-    result_df = pd.DataFrame(data["data"])
-    result_df["target_category"] = result_df["categories"].str[0]
+#     result_df = pd.DataFrame(data["data"])
+#     result_df["target_category"] = result_df["categories"].str[0]
     
-    # add extra columns
-    result_df["config"] = "contrastive_embedding_no_data_aug"
-    saycam_ablations.append(result_df)
+#     # add extra columns
+#     result_df["config"] = "contrastive_embedding_no_data_aug"
+#     saycam_ablations.append(result_df)
     
 saycam_ablations = pd.concat(saycam_ablations)
 
@@ -216,9 +228,17 @@ print("saving saycam ablation results to csv")
 saycam_ablations.to_csv("../results/summary/saycam-ablations.csv", index=False)
 
 # object categories
-object_categories_embedding_results = ["../results/object_categories/embedding_frozen_pretrained_seed_0_image_object_categories_eval_predictions.json",
-"../results/object_categories/embedding_frozen_pretrained_seed_1_image_object_categories_eval_predictions.json",
-"../results/object_categories/embedding_frozen_pretrained_seed_2_image_object_categories_eval_predictions.json"]
+object_categories_embedding_results = ["../results/object_categories/embedding_frozen_pretrained_seed_0_image_object_categories_test_eval_predictions.json",
+"../results/object_categories/embedding_frozen_pretrained_seed_1_image_object_categories_test_eval_predictions.json",
+"../results/object_categories/embedding_frozen_pretrained_seed_2_image_object_categories_test_eval_predictions.json"]
+
+object_categories_frozen_random_init_embedding_results = ["../results/object_categories/embedding_frozen_random_init_seed_0_image_object_categories_test_eval_predictions.json",
+"../results/object_categories/embedding_frozen_random_init_seed_1_image_object_categories_test_eval_predictions.json",
+"../results/object_categories/embedding_frozen_random_init_seed_2_image_object_categories_test_eval_predictions.json"]
+
+object_categories_shuffled_embedding_results = ["../results/object_categories/shuffle_embedding_frozen_pretrained_seed_0_image_object_categories_test_eval_predictions.json",
+"../results/object_categories/shuffle_embedding_frozen_pretrained_seed_1_image_object_categories_test_eval_predictions.json",
+"../results/object_categories/shuffle_embedding_frozen_pretrained_seed_2_image_object_categories_test_eval_predictions.json"]
 
 object_categories_results = []
 
@@ -230,8 +250,31 @@ for results in object_categories_embedding_results:
     result_df["target_category"] = result_df["categories"].str[0]
     
     # add extra columns
-    result_df["config"] = "Contrastive"
+    result_df["config"] = "contrastive"
     object_categories_results.append(result_df)
+
+for results in object_categories_frozen_random_init_embedding_results:
+    with open(results) as f:
+        data = json.load(f)
+
+    result_df = pd.DataFrame(data["data"])
+    result_df["target_category"] = result_df["categories"].str[0]
+    
+    # add extra columns
+    result_df["config"] = "contrastive_frozen_random_init"
+    object_categories_results.append(result_df)
+
+for results in object_categories_shuffled_embedding_results:
+    with open(results) as f:
+        data = json.load(f)
+
+    result_df = pd.DataFrame(data["data"])
+    result_df["target_category"] = result_df["categories"].str[0]
+    
+    # add extra columns
+    result_df["config"] = "contrastive_shuffled"
+    object_categories_results.append(result_df)
+    
     
 # combine results
 object_categories_results_df = pd.concat(object_categories_results)

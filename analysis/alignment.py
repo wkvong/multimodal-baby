@@ -1,3 +1,4 @@
+import argparse
 import glob
 import json
 import os
@@ -18,12 +19,14 @@ from multimodal.multimodal_lit import MultiModalLitModel
 
 from PIL import Image
 
+import clip
+
 # set random seed in python
 random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
 
-def main():
+def main(args):
     # load model
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     normalizer = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -34,12 +37,28 @@ def main():
         transforms.ToTensor(),
         normalizer])
      
-    # load embedding checkpoint
-    # TODO: redo this procedure for diff seeds?
-    checkpoint_name = f"multimodal_text_encoder_embedding_embedding_dim_512_batch_size_8_dropout_i_0.5_lr_0.0001_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_0"
-    checkpoint = glob.glob(f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/epoch*.ckpt")[0]
-    model = MultiModalLitModel.load_from_checkpoint(checkpoint, map_location=device)
-    model.eval()
+    # load embedding checkpoint depending on model
+    if args.model == "cvc":
+        checkpoint_name = f"multimodal_cnn_dino_True_text_encoder_embedding_embedding_dim_512_batch_size_8_dropout_i_0.5_fix_temperature_True_lr_0.0001_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
+        checkpoint = glob.glob(f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/epoch*.ckpt")[0]
+        print(checkpoint)
+        model = MultiModalLitModel.load_from_checkpoint(checkpoint, map_location=device)
+        model.eval()
+    elif args.model == "cvc_random_features":
+        checkpoint_name = f"multimodal_cnn_dino_True_text_encoder_embedding_embedding_dim_512_batch_size_8_dropout_i_0.5_pretrained_cnn_False_finetune_cnn_False_fix_temperature_True_lr_0.0001_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
+        checkpoint = glob.glob(f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/epoch*.ckpt")[0]
+        print(checkpoint)
+        model = MultiModalLitModel.load_from_checkpoint(checkpoint, map_location=device)
+        model.eval()
+    elif args.model == "cvc_shuffled":
+        checkpoint_name = f"multimodal_cnn_dino_True_text_encoder_embedding_embedding_dim_512_batch_size_8_dropout_i_0.5_shuffle_utterances_True_fix_temperature_True_lr_0.0001_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_{args.seed}"
+        checkpoint = glob.glob(f"/home/wv9/code/WaiKeen/multimodal-baby/checkpoints/{checkpoint_name}/epoch*.ckpt")[0]
+        print(checkpoint)
+        model = MultiModalLitModel.load_from_checkpoint(checkpoint, map_location=device)
+        model.eval()
+    elif args.model == "clip":
+        model, preprocess = clip.load("ViT-L/14", device=device)
+        model.eval()
 
     # get paths and categories
     DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
@@ -48,13 +67,13 @@ def main():
      
     # get image embeddings
     # first check if the embeddings have been computed
-    if os.path.exists("../results/alignment/all_image_features.npy"):
+    if os.path.exists(f"../results/alignment/{args.model}_all_image_features_seed_{args.seed}.npy"):
         all_image_features = np.load(
-            "../results/alignment/all_image_features.npy")
+            f"../results/alignment/{args.model}_all_image_features_seed_{args.seed}.npy")
         mean_image_features = np.load(
-            "../results/alignment/mean_image_features.npy")
+            f"../results/alignment/{args.model}_mean_image_features_seed_{args.seed}.npy")
         all_text_features = np.load(
-            "../results/alignment/all_text_features.npy")
+            f"../results/alignment/{args.model}_all_text_features_seed_{args.seed}.npy")
     else:
         # otherwise, compute the embeddings
         all_image_features = []
@@ -67,9 +86,13 @@ def main():
             frames = np.random.choice(frames, size=min(len(frames), 200))
             
             for frame in frames:
-                I = preprocess(
-                    Image.open(frame).convert('RGB')).unsqueeze(0).to(device)
-                image_features, _ = model.model.encode_image(I)
+                if args.model == "clip":
+                    I = preprocess(Image.open(frame).convert("RGB")).unsqueeze(0).to(device)
+                    image_features = model.encode_image(I)
+                else:
+                    I = preprocess(
+                        Image.open(frame).convert('RGB')).unsqueeze(0).to(device)
+                    image_features, _ = model.model.encode_image(I)
                 
                 all_image_features.append(
                     image_features.squeeze().detach().cpu().numpy())
@@ -98,17 +121,22 @@ def main():
         # get text embeddings
         all_text_features = []
         for eval_category in eval_categories:
-            text = torch.tensor([vocab[eval_category]]).unsqueeze(0).to(device)
-            text_len = torch.tensor([len(text)], dtype=torch.long).to(device)
-            text_features, _ = model.model.encode_text(text, text_len)
+            if args.model == "clip":
+                text = clip.tokenize([eval_category]).to(device)
+                text_features = model.encode_text(text)
+            else:
+                text = torch.tensor([vocab[eval_category]]).unsqueeze(0).to(device)
+                text_len = torch.tensor([len(text)], dtype=torch.long).to(device)
+                text_features, _ = model.model.encode_text(text, text_len)
+                
             all_text_features.append(
                 text_features.squeeze().detach().cpu().numpy())
         all_text_features = np.array(all_text_features)
      
         # save embeddings
-        np.save(f"../results/alignment/all_image_features.npy", all_image_features)
-        np.save(f"../results/alignment/mean_image_features.npy", mean_image_features)
-        np.save(f"../results/alignment/all_text_features.npy", all_text_features)
+        np.save(f"../results/alignment/{args.model}_all_image_features_seed_{args.seed}.npy", all_image_features)
+        np.save(f"../results/alignment/{args.model}_mean_image_features_seed_{args.seed}.npy", mean_image_features)
+        np.save(f"../results/alignment/{args.model}_all_text_features_seed_{args.seed}.npy", all_text_features)
     
     # combine features to get joint similarity/distance matrix
     combined_features = []
@@ -133,7 +161,7 @@ def main():
             image_text_sims[i, j] = F.cosine_similarity(x1, x2, dim=0)
             
     # set-up t-sne model
-    tsne_model = TSNE(random_state=1, metric="precomputed", perplexity=5)
+    tsne_model = TSNE(random_state=1, metric="precomputed", perplexity=7.5)
      
     # normalize similarity scores to be between 0 and 1
     normalized_sims = (combined_sims-np.min(combined_sims))/(np.max(combined_sims)-np.min(combined_sims))
@@ -147,7 +175,7 @@ def main():
     tsne_df["modality"] = np.tile(["image", "text"], 22)
 
     # save as csv
-    tsne_df.to_csv(f"../results/alignment/joint_embeddings_tsne.csv", index=False)
+    tsne_df.to_csv(f"../results/alignment/{args.model}_joint_embeddings_tsne_seed_{args.seed}.csv", index=False)
     
     # calculate pearson similarity
     # get image and text sims separately
@@ -180,7 +208,7 @@ def main():
 
     # combine into pandas dataframe and save as csv
     sims_df = pd.DataFrame({"image_sims": image_sims_long, "text_sims": text_sims_long, "eval_category_x": eval_categories_x, "eval_category_y": eval_categories_y})
-    sims_df.to_csv(f"../results/alignment/joint_embeddings_sims.csv", index=False)
+    sims_df.to_csv(f"../results/alignment/{args.model}_joint_embeddings_sims_seed_{args.seed}.csv", index=False)
 
     # do the same thing for image_text_sims
     image_text_sims_long = []
@@ -195,7 +223,7 @@ def main():
 
     # combine into pandas dataframe and save as csv
     sims_df = pd.DataFrame({"image_text_sims": image_text_sims_long, "eval_category_x": eval_categories_x, "eval_category_y": eval_categories_y})
-    sims_df.to_csv(f"../results/alignment/image_text_embeddings_sims.csv", index=False)
+    sims_df.to_csv(f"../results/alignment/{args.model}_image_text_embeddings_sims_seed_{args.seed}.csv", index=False)
      
     # calculate alignment via pearson correlation
     # e.g. alignment between within-category similarities for image and text categories, along the upper triangular of the similarity matrix
@@ -204,6 +232,13 @@ def main():
     print(scipy.stats.pearsonr(image_sims_upper, text_sims_upper))
 
 if __name__ == "__main__":
-    main()
+    # set up argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--model", type=str, default="cvc", choices=["cvc", "cvc_random_features", "cvc_shuffled", "clip"])
 
+    # parse args
+    args = parser.parse_args()
     
+    # run with three different seeds
+    main(args)

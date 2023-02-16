@@ -1,4 +1,5 @@
 import json
+import math
 import os
 from pathlib import Path
 import numpy as np
@@ -8,10 +9,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import seaborn.objects as so
 import cv2 as cv
+import scipy.stats as stats
 
 DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
 VIDEO_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_videos_annotations/S_videos")
-LABELED_S_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_clean_labeled_data_1fps_5")
+LABELED_S_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal/eval/dev")
 OBJECT_CATEGORIES_ORIGINAL_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal/object_categories_original")
 OBJECT_CATEGORIES_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal/object_categories")
 
@@ -223,10 +225,10 @@ def calculate_labeled_s_descriptives(saycam_df):
     """Calculate descriptives for labeled S evaluation dataset."""
     # get number of images per category in Labeled S dataset
     labeled_s_categories = os.listdir(LABELED_S_DIR)
-    labeled_s_categories.remove("carseat")
-    labeled_s_categories.remove("couch")
-    labeled_s_categories.remove("greenery")
-    labeled_s_categories.remove("plushanimal")
+    # labeled_s_categories.remove("carseat")
+    # labeled_s_categories.remove("couch")
+    # labeled_s_categories.remove("greenery")
+    # labeled_s_categories.remove("plushanimal")
     total_images = 0
     img_freq_dict = {}
 
@@ -243,15 +245,25 @@ def calculate_labeled_s_descriptives(saycam_df):
     word_freq_dict = {}
 
     for category in labeled_s_categories:
+        # set category
+        if category == "cat":
+            category = "kitty"
+        
         word_freq = 0
         for utterance in saycam_train_df['utterance'].tolist():
             words = utterance.split()
             if category in words:
                 word_freq += 1
+
+        # unset
+        if category == "kitty":
+            category = "cat"
+                
         word_freq_dict[category] = word_freq
 
+        
     print("Word frequency of Labeled S categories in training split")
-    print(word_freq_dict)
+    print({k: v for k, v in sorted(word_freq_dict.items(), key=lambda item: item[1], reverse=True)})
 
     # sum all values in word_freq_dict
     total_word_freq = 0
@@ -263,10 +275,28 @@ def calculate_labeled_s_descriptives(saycam_df):
 
     # put into dataframe
     freq_df = pd.DataFrame.from_dict([word_freq_dict]).transpose().reset_index()
-    freq_df.columns = ["category", "img_freq"]
-    freq_df["word_freq"] = word_freq_dict.values()
+    freq_df.columns = ["category", "word_freq"]
+    freq_df["img_freq"] = img_freq_dict.values()
+    freq_df["img_freq_10"] = (freq_df["img_freq"] * 0.1).apply(math.ceil)
+    freq_df["img_freq_1"] = (freq_df["img_freq"] * 0.01).apply(math.ceil)
     freq_df = freq_df.sort_values(by="category")
-    
+
+    # sum each column and print result
+    print("word freq:", freq_df["word_freq"].sum())
+    print("linear probe 100%", freq_df["img_freq"].sum())
+    print("linear probe 10%", freq_df["img_freq_10"].sum())
+    print("linear probe 1%", freq_df["img_freq_1"].sum())
+
+    # get correlation between word frequency and performance
+    results = pd.read_csv("../results/summary/saycam-bounds-summary.csv")
+    results = results[results["model"] == "embedding"]
+    results = results.groupby("target_category")["correct"].mean().reset_index()
+    print(results)
+
+    # get correlation between results["correct"] and freq_df["word_freq"] without merging
+    print("Correlation between word frequency and performance")
+    print(stats.pearsonr(freq_df["word_freq"], results["correct"]))
+
     # create seaborn objects scatterplot
     # plot = (
     #     so.Plot(freq_df, x="img_freq", y="word_freq")
@@ -278,7 +308,11 @@ def calculate_labeled_s_descriptives(saycam_df):
     # # save plot
     # plot.save("../figures/labeled-s-freq-scatterplot.png", dpi=600)
 
-    print(freq_df)
+    # print data frame
+    pd.options.display.max_rows = None
+    pd.options.display.max_columns = None
+    print(freq_df.to_string(index=False))
+    
     # create a matplotlib scatterplot of freq_df with img_freq on the x-axis and word_freq on the y-axis
     fig, ax = plt.subplots()
     ax.scatter(freq_df["img_freq"], freq_df["word_freq"])
@@ -329,7 +363,8 @@ def calculate_object_categories_descriptives(saycam_df):
         word_freq_dict[category] = word_freq
 
     print("Word frequency of object categories in training split")
-    print(word_freq_dict)
+    # print sorted by reverse values
+    print({k: v for k, v in sorted(word_freq_dict.items(), key=lambda item: item[1], reverse=True)})
 
     # sum all values in word_freq_dict
     total_word_freq = 0
@@ -338,6 +373,16 @@ def calculate_object_categories_descriptives(saycam_df):
 
     print(f"Total word frequency of object categories in training split: {total_word_freq}")
     print(f"Average word frequency of object categories in training split: {total_word_freq / len(original_categories)}")
+
+    # compare with model performance
+    results = pd.read_csv("../results/summary/object-categories.csv")
+    results = results[results["model"] == "embedding"]
+    results = results.groupby("target_category")["correct"].mean().reset_index()
+    print(results)
+
+    # get correlation between results["correct"] and freq_df["word_freq"] without merging
+    print("Correlation between word frequency and performance")
+    print(stats.pearsonr(list(word_freq_dict.values()), results["correct"]))
     
     # get number of images from filtered object categories dataset
     num_images = 0
@@ -372,7 +417,7 @@ def main():
 
     # get descriptives
     calculate_dataset_descriptives(saycam_df, vocab)
-    calculate_date_descriptives(saycam_df)
+    # calculate_date_descriptives(saycam_df)
     # calculate_video_descriptives(saycam_df)
     calculate_labeled_s_descriptives(saycam_df)
     calculate_object_categories_descriptives(saycam_df)
