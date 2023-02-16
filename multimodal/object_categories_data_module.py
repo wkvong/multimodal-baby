@@ -31,12 +31,26 @@ class ObjectCategoriesEvalDataset(Dataset):
         self.eval_include_sos_eos = eval_include_sos_eos
         self.clip_eval = clip_eval
 
-        self.transform = transforms.Compose([
-            transforms.Resize((IMAGE_H, IMAGE_W),
-                              interpolation=transforms.InterpolationMode.BICUBIC),
-            transforms.ToTensor(),
-            normalizer,
-        ])
+        if self.clip_eval:
+            print("Using CLIP transforms for evaluation")
+            # use CLIP transforms
+            self.transform = transforms.Compose([
+                transforms.Resize(
+                    IMAGE_H, interpolation=transforms.InterpolationMode.BICUBIC),
+                transforms.CenterCrop(IMAGE_H),
+                # _convert_image_to_rgb,  # commeting out since we convert to RGB
+                transforms.ToTensor(),
+                transforms.Normalize((0.48145466, 0.4578275, 0.40821073),
+                                     (0.26862954, 0.26130258, 0.27577711)),
+            ])
+        else:
+            print("Using base transforms for evaluation")
+            self.transform = transforms.Compose([
+                transforms.Resize((IMAGE_H, IMAGE_W),
+                                  interpolation=transforms.InterpolationMode.BICUBIC),
+                transforms.ToTensor(),
+                normalizer,
+            ])
 
     def __getitem__(self, idx):
         # read trial information
@@ -149,7 +163,7 @@ class ObjectCategoriesDataModule(pl.LightningDataModule):
     def __init__(self, args=None) -> None:
         super().__init__()
         self.eval_type = args.eval_type
-
+        self.clip_eval = args.clip_eval
         
     def prepare_data(self, *args, **kwargs) -> None:
         print("Calling prepare_data!")
@@ -167,9 +181,9 @@ class ObjectCategoriesDataModule(pl.LightningDataModule):
             self.data = data['data']
 
         if self.eval_type == "image":
-            self.eval_dataset = ObjectCategoriesEvalDataset(self.data, self.vocab)
+            self.eval_dataset = ObjectCategoriesEvalDataset(self.data, self.vocab, clip_eval=self.clip_eval)
         elif self.eval_type == "text":
-            self.eval_dataset = ObjectCategoriesTextEvalDataset(self.data, self.vocab)
+            self.eval_dataset = ObjectCategoriesTextEvalDataset(self.data, self.vocab, clip_eval=self.clip_eval)
 
     def test_dataloader(self, shuffle=False):
         eval_dataloader = DataLoader(

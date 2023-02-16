@@ -144,7 +144,7 @@ def main(args):
     elif args.eval_dataset == "object_categories":
         # set up object categories dataloader
         object_categories_dm = ObjectCategoriesDataModule(
-            args)  # TODO: check this works
+            data_args)  # TODO: check this works
         object_categories_dm.prepare_data()
         object_categories_dm.setup()
         dataloader = object_categories_dm.test_dataloader()
@@ -198,8 +198,8 @@ def main(args):
             # first, get embeddings
             with torch.no_grad():
                 if args.clip_eval:
-                     label = label.squeeze(0)  # remove extra dim for CLIP
-                     _, logits_per_text = model(img, label)
+                    label = label.squeeze(0)  # remove extra dim for CLIP
+                    _, logits_per_text = model(img, label)
                 else:
                     _, logits_per_text = model(img, label, label_len)
                 logits_list = torch.softmax(logits_per_text,
@@ -280,15 +280,15 @@ def main(args):
 
         # get filename
         if args.clip_eval:
-            results_filename = f"results/clip_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
+            results_filename = f"results/{args.eval_dataset}/clip_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
         elif config["shuffle_utterances"]:
-            results_filename = f"results/shuffle_{config['model']}_{config['cnn']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
+            results_filename = f"results/{args.eval_dataset}/shuffle_{config['model']}_{config['cnn']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
         elif not config["augment_frames"]:
-            results_filename = f"results/{config['model']}_{config['cnn']}_augment_frames_{config['augment_frames']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
+            results_filename = f"results/{args.eval_dataset}/{config['model']}_{config['cnn']}_augment_frames_{config['augment_frames']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
         elif not config["multiple_frames"]:
-            results_filename = f"results/{config['model']}_{config['cnn']}_multiple_frames_{config['multiple_frames']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
+            results_filename = f"results/{args.eval_dataset}/{config['model']}_{config['cnn']}_multiple_frames_{config['multiple_frames']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
         else:
-            results_filename = f"results/{config['model']}_{config['cnn']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
+            results_filename = f"results/{args.eval_dataset}/{config['model']}_{config['cnn']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
 
         # save to JSON
         print(f"Saving predictions to {results_filename}")
