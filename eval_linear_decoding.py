@@ -41,6 +41,13 @@ def main(args):
         config["model"] = "embedding_linear_probe_1_percent"
     else:
         config["model"] = "embedding_linear_probe"
+
+    if "seed_0" in args.checkpoint:
+        config["seed"] = 0
+    elif "seed_1" in args.checkpoint:
+        config["seed"] = 1
+    elif "seed_2" in args.checkpoint:
+        config["seed"] = 2
      
     # initialize linear probe model
     model = models.resnext50_32x4d(pretrained=False)
@@ -103,6 +110,7 @@ def main(args):
         curr_results = {
             "checkpoint": args.checkpoint,
             "model": config["model"],
+            "seed": config["seed"],
             "eval_type": "image",
             "eval_dataset": "saycam",
             "stage": "test",
@@ -133,7 +141,7 @@ def main(args):
         os.makedirs('results', exist_ok=True)
      
         # get filename
-        results_filename = f"results/saycam/{config['model']}_image_saycam_eval_predictions.json"
+        results_filename = f"results/saycam/{config['model']}_seed_{config['seed']}_image_saycam_eval_predictions.json"
      
         # save to JSON
         print(f"Saving predictions to {results_filename}")

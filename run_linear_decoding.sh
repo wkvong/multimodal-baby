@@ -16,7 +16,10 @@ source /home/wv9/code/WaiKeen/miniconda3/etc/profile.d/conda.sh
 conda activate multimodal-baby
 
 subsets=(1 0.1 0.01)
+seeds=(0 1 2)
 
 for subset in ${subsets[@]}; do
-    srun python linear_decoding.py --train_dir '/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal/eval/dev' --test_dir '/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal/eval/test' --num-classes 22 --epochs 100 --subset ${subset}
+    for seed in ${seeds[@]}; do
+        srun python linear_decoding.py --train_dir '/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal/eval/dev' --test_dir '/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal/eval/test' --num-classes 22 --epochs 100 --subset ${subset} --seed ${seed}
+    done
 done

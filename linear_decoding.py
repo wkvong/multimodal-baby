@@ -20,6 +20,7 @@ import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
+import pytorch_lightning as pl
 
 from multimodal.utils import load_model
 
@@ -40,6 +41,7 @@ parser.add_argument('-p', '--print-freq', default=100, type=int, metavar='N', he
 parser.add_argument('--num-classes', default=22, type=int, help='number of classes in downstream classification task')
 parser.add_argument('--subset', default=1.0, type=float, choices=[1.0, 0.1, 0.01],
                     help="proportion of training data to use for linear probe")
+parser.add_argument('--seed', type=int, default=0, help='random seed')
 
 def set_parameter_requires_grad(model, feature_extracting=True):
     '''Helper function for setting body to non-trainable'''
@@ -89,6 +91,9 @@ def main():
     ngpus_per_node = torch.cuda.device_count()
     num_classes = args.num_classes
 
+    # set random seed
+    pl.seed_everything(args.seed)
+
     # load model
     model_name = "dino_sfp_resnext50"
     model = load_model(model_name, pretrained=True)
@@ -103,12 +108,7 @@ def main():
     cudnn.benchmark = True
 
     # Data loading code
-    if 'finetune_cnn_True' in checkpoint_name:
-        savefile_name = f'probe_results/embedding_finetuned_pretrained_contrastive_labeled_s_linear_probe_seed_{seed}_subset_{args.subset}.tar'
-    elif 'finetune_cnn_False' in checkpoint_name:
-        savefile_name = f'probe_results/embedding_frozen_pretrained_contrastive_labeled_s_linear_probe_seed_{seed}_subset_{args.subset}.tar'
-    else:
-        savefile_name = f'probe_results/self_supervised_tc_labeled_s_linear_probe_subset_{args.subset}.tar'
+    savefile_name = f'probe_results/self_supervised_dino_sfp_resnext50_labeled_s_linear_probe_subset_{args.subset}_seed_{args.seed}.tar'
 
     train_loader, test_loader = load_split_train_test(args.train_dir, args.test_dir, args)
     acc1_list = []
