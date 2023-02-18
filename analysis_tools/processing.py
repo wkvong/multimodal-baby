@@ -27,53 +27,83 @@ def examples_from_dataloader(dataloader):
     return itertools.chain.from_iterable((zip(*batch) for batch in dataloader))
 
 
-def get_pos_tags(dataloader, dataset_name, split):
+def raw_utterances_from_dataloader(dataloader):
+    for x, y, y_len, raw_y in dataloader:
+        for raw_y_ in raw_y:
+            yield raw_y_[0]
+
+
+def get_pos_tags(dataloader, dataset_name, split, toolkit='stanza'):
     cache_path = Path('dataset_cache') / dataset_name / f'{split}.pos.cache'
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     if cache_path.exists():
         print(f'load cached pos tags: {cache_path}')
         return torch.load(cache_path)
 
-    import stanza
-    nlp = stanza.Pipeline(lang='en', processors='tokenize,pos', tokenize_pretokenized=True)
+    if toolkit == 'stanza':
+        import stanza
+        nlp = stanza.Pipeline(lang='en', processors='tokenize,pos', tokenize_pretokenized=True)
+
+    elif toolkit == 'spacy':
+        import spacy
+        nlp = spacy.load("en_core_web_trf", exclude=["parser", "attribute_ruler", "lemmatizer", "ner"])
+
+        def tokenizer(text):
+            words = text.split()
+            spaces = [True] * len(words)
+            if len(spaces) >= 1:
+                spaces[-1] = False
+            return spacy.tokens.Doc(nlp.vocab, words=words, spaces=spaces)
+
+        nlp.tokenizer = tokenizer
+
+    else:
+        raise Exception(f"Unknown toolkit {toolkit}")
 
     pos_tags = []
 
-    for x, y, y_len, raw_y in tqdm(dataloader):
-        utterance_words_batch = []
-        clean_idxes = []
-        clean_utterance_words_batch = []
+    def wrap_utterance_pos_tags(utterance_pos_tags):
+        return (
+            ['.']  # SOS
+            + utterance_pos_tags
+            + ['.']  # EOS
+        )
 
-        for raw_y_ in raw_y:
-            utterance_words = raw_y_[0].split()
-            utterance_words_batch.append(utterance_words)
-            # remove empty tagging_words
-            if utterance_words:
-                clean_idxes.append(len(clean_utterance_words_batch))
-                clean_utterance_words_batch.append(utterance_words)
-            else:
-                clean_idxes.append(-1)
+    if toolkit == 'stanza':
+        for x, y, y_len, raw_y in tqdm(dataloader):
+            utterance_words_batch = []
+            clean_idxes = []
+            clean_utterance_words_batch = []
 
-        # pos tagging
-        doc = nlp(clean_utterance_words_batch)
+            for raw_y_ in raw_y:
+                utterance_words = raw_y_[0].split()
+                utterance_words_batch.append(utterance_words)
+                # remove empty tagging_words
+                if utterance_words:
+                    clean_idxes.append(len(clean_utterance_words_batch))
+                    clean_utterance_words_batch.append(utterance_words)
+                else:
+                    clean_idxes.append(-1)
 
-        for y_, y_len_, utterance_words, clean_idx in zip(y, y_len, utterance_words_batch, clean_idxes):
-            utterance_pos_tags = (
-                ['.']  # SOS
-                + ([token.words[0].xpos for token in doc.sentences[clean_idx].tokens] if clean_idx >= 0 else [])
-                + ['.']  # EOS
+            # pos tagging
+            doc = nlp(clean_utterance_words_batch)
+
+            for y_, y_len_, utterance_words, clean_idx in zip(y, y_len, utterance_words_batch, clean_idxes):
+                utterance_pos_tags = wrap_utterance_pos_tags(
+                    ([token.words[0].xpos for token in doc.sentences[clean_idx].tokens] if clean_idx >= 0 else [])
+                )
+                pos_tags.append(utterance_pos_tags)
+
+    elif toolkit == 'spacy':
+        for doc in nlp.pipe(raw_utterances_from_dataloader(tqdm(dataloader))):
+            utterance_pos_tags = wrap_utterance_pos_tags(
+                [token.tag_ for token in doc]
             )
             pos_tags.append(utterance_pos_tags)
 
     torch.save(pos_tags, cache_path)
 
     return pos_tags
-
-
-def raw_utterances_from_dataloader(dataloader):
-    for x, y, y_len, raw_y in dataloader:
-        for raw_y_ in raw_y:
-            yield raw_y_[0]
 
 
 def get_word_pos_cnt(dataloader, pos_tags):
