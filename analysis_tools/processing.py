@@ -23,8 +23,8 @@ def build_ngram_model(N, vocab_size, train_dataloader):
     return ngram_model
 
 
-def examples_from_dataloader(dataloader):
-    return itertools.chain.from_iterable((zip(*batch) for batch in dataloader))
+def examples_from_batches(batches):
+    return itertools.chain.from_iterable((zip(*batch) for batch in batches))
 
 
 def raw_utterances_from_dataloader(dataloader):
@@ -155,7 +155,13 @@ def is_regressional(model):
     return model is not None and (isinstance(model, NGramModel) or model.language_model.text_encoder.regressional)
 
 
-def run_model(model, x, y, y_len, single_example=False, return_all=False):
+def run_model(
+    model, y, y_len, x=None,
+    image_features=None,
+    image_feature_map=None,
+    single_example=False,
+    return_all=False
+):
     if model is None or isinstance(model, NGramModel):
         hidden_dim = 0
         device = y.device
@@ -163,11 +169,14 @@ def run_model(model, x, y, y_len, single_example=False, return_all=False):
         hidden_dim = model.language_model.text_encoder.hidden_dim
         device = get_model_device(model)
 
-    batch = x, y, y_len
+    batch = ((x, y, y_len) if x is not None else (y, y_len))
     if single_example:
         batch = map_structure(lambda t: t.unsqueeze(0), batch)
     batch = map_structure(lambda t: t.to(device=device), batch)
-    x, y, y_len = batch
+    if x is not None:
+        (x, y, y_len) = batch
+    else:
+        (y, y_len) = batch
 
     if model is None:
         loss = torch.zeros_like(y, dtype=torch.float, device=device)
@@ -176,7 +185,12 @@ def run_model(model, x, y, y_len, single_example=False, return_all=False):
         loss = model.calculate_ce_loss(y, y_len, tokenwise=True)
         outputs = torch.zeros(*(y.shape + (hidden_dim,)), dtype=torch.float, device=device)
     else:
-        loss, outputs, logits, attns, labels = model.calculate_ce_loss(y, y_len, x=x, tokenwise=True)
+        loss, outputs, logits, attns, labels = model.calculate_ce_loss(
+            y, y_len, x=x,
+            image_features=image_features,
+            image_feature_map=image_feature_map,
+            tokenwise=True
+        )
     if is_regressional(model):
         # pad loss with preceeding 0
         loss = F.pad(loss, (1, 0))
@@ -191,40 +205,42 @@ def run_model(model, x, y, y_len, single_example=False, return_all=False):
     return ret
 
 
-def run_model_on_data_batches(model, dataloader, use_tqdm=True, return_all=False):
-    """Run model on batches from dataloader and yields batches with model
-        outputs appended.
+def run_model_on_batches(model, batches, return_all=False):
+    """Run model on batches and yield batches with model outputs appended.
     """
-
-    if use_tqdm:
-        dataloader = tqdm(dataloader)
-
     with torch.no_grad():
-        for x, y, y_len, raw_y in dataloader:
+        for batch in batches:
+            if isinstance(batch, tuple):
+                x, y, y_len, raw_y = batch
+                kwargs = {'x': x}
+            elif isinstance(batch, dict):
+                y = batch['y']
+                y_len = batch['y_len']
+                kwargs = batch.copy()
+                del kwargs['y']
+                del kwargs['y_len']
+            else:
+                raise Exception(f"Unable to process batch: {batch}")
             batch_size = len(y)
-            ret = run_model(model, x, y, y_len, return_all=return_all)
-            yield x, y, y_len, raw_y, \
-                *(t if t is not None else [None] * batch_size for t in ret)
+            ret = run_model(model, y, y_len, return_all=return_all, **kwargs)
+            ret = tuple(t if t is not None else [None] * batch_size for t in ret)
+            yield batch, *ret
 
 
-def run_model_on_data(*args, **kwargs):
-    """Run model on batches from dataloader and yields examples with model
-        outputs appended.
+def run_model_on_data(*arg, **kwargs):
+    """Run model on batches and yield examples with model outputs appended.
     """
+    return examples_from_batches((
+        (*batch, *ret)
+        for batch, *ret in run_model_on_batches(*args, **kwargs)
+    ))
 
-    for batch in run_model_on_data_batches(*args, **kwargs):
-        for example in zip(*batch):
-            yield example
 
-
-def get_model_losses_on_data_batches(model, batches, use_tqdm=False):
-    """Run model on batches from datalaoder and returns tensor containing
-    all losses.
+def get_model_losses_on_batches(model, batches):
+    """Run model on batches and return a tensor containing all losses.
     """
-
     losses = []
-    for batch in run_model_on_data_batches(model, batches, use_tqdm=use_tqdm):
-        outputs, loss = batch[4:]
+    for batch, outputs, loss in run_model_on_batches(model, batches):
         loss = loss.sum(-1)
         losses.append(loss.detach())
     losses = torch.cat(losses, 0)
