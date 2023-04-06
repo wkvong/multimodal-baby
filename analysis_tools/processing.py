@@ -227,7 +227,7 @@ def run_model_on_batches(model, batches, return_all=False):
             yield batch, *ret
 
 
-def run_model_on_data(*arg, **kwargs):
+def run_model_on_data(*args, **kwargs):
     """Run model on batches and yield examples with model outputs appended.
     """
     return examples_from_batches((
