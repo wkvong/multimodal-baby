@@ -118,9 +118,11 @@ def extend_items(items, names, idx2word, baseline_name=None):
     # add all fields from imported data
     try:
         concreteness_data.extend_items(items, 'conc Word', idx2word)
-    except:
-        print('failed to extend items by concreteness data')
+    except Exception as err:
+        print('failed to extend items by concreteness data:')
+        print(err)
     try:
         norm_data.extend_items(items, 'norm Word', idx2word)
-    except:
-        print('failed to extend items by norm data')
+    except Exception as err:
+        print('failed to extend items by norm data:')
+        print(err)

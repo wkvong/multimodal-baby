@@ -220,7 +220,7 @@ class MultiModalDataModule(pl.LightningDataModule):
     """
 
     def __init__(self, args=None) -> None:
-        super().__init__(args)
+        super().__init__()
 
         self.args = vars(args) if args is not None else {}
         self.batch_size = self.args.get("batch_size", BATCH_SIZE)

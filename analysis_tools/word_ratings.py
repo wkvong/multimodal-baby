@@ -41,8 +41,13 @@ class WordRatings:
         try:
             return self.word2index[word]
         except KeyError:
+            word = lemmatize(word, pos)
+            word = {
+                "kitty": "cat",
+                "doggy": "dog",
+            }.get(word, word)
             try:
-                return self.word2index[lemmatize(word, pos)]
+                return self.word2index[word]
             except KeyError:
                 return None
 
