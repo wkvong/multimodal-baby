@@ -12,7 +12,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 from multimodal.multimodal_data_module import EVAL_DATA_DIR, SOS_TOKEN_ID, EOS_TOKEN_ID, load_data
-from multimodal.object_categories_data_module import ObjectCategoriesDataModule, _get_vocab, _get_object_categories
+from multimodal.object_categories_data_module import ObjectCategoriesDataModule, _get_object_categories
 from multimodal.multimodal import MultiModalModel
 from multimodal.multimodal_lit import MultiModalLitModel
 from train import _setup_parser
