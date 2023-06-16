@@ -24,6 +24,13 @@ from PIL import Image
 embedding_results = ["../results/saycam/embedding_frozen_pretrained_seed_0_image_saycam_test_eval_predictions.json",
 "../results/saycam/embedding_frozen_pretrained_seed_1_image_saycam_test_eval_predictions.json",
 "../results/saycam/embedding_frozen_pretrained_seed_2_image_saycam_test_eval_predictions.json"]
+# embedding_filtered_results = ["../results/saycam/embedding_frozen_pretrained_seed_0_image_saycam_test_eval_filtered_predictions.json",
+# "../results/saycam/embedding_frozen_pretrained_seed_1_image_saycam_test_eval_filtered_predictions.json",
+# "../results/saycam/embedding_frozen_pretrained_seed_2_image_saycam_test_eval_filtered_predictions.json"]
+embedding_manual_filtered_results = ["../results/saycam/embedding_frozen_pretrained_seed_0_image_saycam_test_eval_manual_filtered_predictions.json",
+"../results/saycam/embedding_frozen_pretrained_seed_1_image_saycam_test_eval_manual_filtered_predictions.json",
+"../results/saycam/embedding_frozen_pretrained_seed_2_image_saycam_test_eval_manual_filtered_predictions.json"]
+
 shuffled_results = ["../results/saycam/shuffle_embedding_frozen_pretrained_seed_0_image_saycam_test_eval_predictions.json",
 "../results/saycam/shuffle_embedding_frozen_pretrained_seed_1_image_saycam_test_eval_predictions.json",
 "../results/saycam/shuffle_embedding_frozen_pretrained_seed_2_image_saycam_test_eval_predictions.json"]
@@ -56,6 +63,31 @@ for results in embedding_results:
     
     # add extra columns
     result_df["config"] = "contrastive_embedding"
+    result_df["filtered"] = False
+    saycam_results.append(result_df)
+
+# for results in embedding_filtered_results:
+#     with open(results) as f:
+#         data = json.load(f)
+
+#     result_df = pd.DataFrame(data["data"])
+#     result_df["target_category"] = result_df["categories"].str[0]
+    
+#     # add extra columns
+#     result_df["config"] = "contrastive_embedding"
+#     result_df["filtered"] = True
+#     saycam_results.append(result_df)
+
+for results in embedding_manual_filtered_results:
+    with open(results) as f:
+        data = json.load(f)
+
+    result_df = pd.DataFrame(data["data"])
+    result_df["target_category"] = result_df["categories"].str[0]
+    
+    # add extra columns
+    result_df["config"] = "contrastive_embedding"
+    result_df["filtered"] = True
     saycam_results.append(result_df)
     
 for results in shuffled_results:
@@ -240,6 +272,13 @@ object_categories_shuffled_embedding_results = ["../results/object_categories/sh
 "../results/object_categories/shuffle_embedding_frozen_pretrained_seed_1_image_object_categories_test_eval_predictions.json",
 "../results/object_categories/shuffle_embedding_frozen_pretrained_seed_2_image_object_categories_test_eval_predictions.json"]
 
+object_categories_clip_results = ["../results/object_categories/clip_image_object_categories_test_eval_predictions.json"]
+
+object_categories_linear_probe_results = ["../results/object_categories/embedding_object_categories_linear_probe_seed_0_split_first_image_object_categories_eval_predictions.json", "../results/object_categories/embedding_object_categories_linear_probe_seed_0_split_last_image_object_categories_eval_predictions.json",
+"../results/object_categories/embedding_object_categories_linear_probe_seed_1_split_first_image_object_categories_eval_predictions.json", "../results/object_categories/embedding_object_categories_linear_probe_seed_1_split_last_image_object_categories_eval_predictions.json",
+"../results/object_categories/embedding_object_categories_linear_probe_seed_2_split_first_image_object_categories_eval_predictions.json",
+"../results/object_categories/embedding_object_categories_linear_probe_seed_2_split_last_image_object_categories_eval_predictions.json"]
+
 object_categories_results = []
 
 for results in object_categories_embedding_results:
@@ -251,6 +290,7 @@ for results in object_categories_embedding_results:
     
     # add extra columns
     result_df["config"] = "contrastive"
+    result_df["split"] = None
     object_categories_results.append(result_df)
 
 for results in object_categories_frozen_random_init_embedding_results:
@@ -262,6 +302,7 @@ for results in object_categories_frozen_random_init_embedding_results:
     
     # add extra columns
     result_df["config"] = "contrastive_frozen_random_init"
+    result_df["split"] = None
     object_categories_results.append(result_df)
 
 for results in object_categories_shuffled_embedding_results:
@@ -269,13 +310,39 @@ for results in object_categories_shuffled_embedding_results:
         data = json.load(f)
 
     result_df = pd.DataFrame(data["data"])
+    result_df["split"] = None
     result_df["target_category"] = result_df["categories"].str[0]
     
     # add extra columns
     result_df["config"] = "contrastive_shuffled"
+    result_df["split"] = None
+    object_categories_results.append(result_df)
+
+for results in object_categories_clip_results:
+    with open(results) as f:
+        data = json.load(f)
+
+    result_df = pd.DataFrame(data["data"])
+    result_df["split"] = None
+    result_df["target_category"] = result_df["categories"].str[0]
+    
+    # add extra columns
+    result_df["config"] = "clip"
+    result_df["split"] = None
     object_categories_results.append(result_df)
     
+for results in object_categories_linear_probe_results:
+    with open(results) as f:
+        data = json.load(f)
+
+    result_df = pd.DataFrame(data["data"])
+    result_df["target_category"] = result_df["categories"].str[0]
     
+    # add extra columns
+    result_df["config"] = "linear_probe"
+    object_categories_results.append(result_df)
+    
+
 # combine results
 object_categories_results_df = pd.concat(object_categories_results)
 

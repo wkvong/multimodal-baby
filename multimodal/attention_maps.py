@@ -50,7 +50,7 @@ def preprocess_attn_map(attn_map, shape, interpolation='cubic', blur=False,
     return attn_map, attn_map_c
 
 
-def getAttMap(img, attn_map, blur=True, cmap='jet', **kwargs):
+def getAttMap(img, attn_map, blur=True, cmap='viridis', **kwargs):
     attn_map, attn_map_c = preprocess_attn_map(
         attn_map, img.shape[:2], blur=blur, cmap=cmap, **kwargs)
     attn_map_weights = (attn_map ** 0.7).reshape(attn_map.shape + (1,))

@@ -12,8 +12,8 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 from multimodal.multimodal_data_module import EVAL_DATA_DIR, SOS_TOKEN_ID, EOS_TOKEN_ID, load_data
-from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule
-from multimodal.object_categories_data_module import ObjectCategoriesDataModule, _get_object_categories, _get_vocab
+from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule, DATA_DIR
+from multimodal.object_categories_data_module import ObjectCategoriesDataModule, _get_object_categories
 from multimodal.multimodal import MultiModalModel
 from multimodal.multimodal_lit import MultiModalLitModel
 from multimodal.attention_maps import gradCAM, getAttMap, n_inv, imshow
@@ -140,7 +140,10 @@ def main(args):
         }[args.stage]()[1]  # second dataloader contains eval data
 
         # get eval categories
-        classes = sorted(os.listdir(EVAL_FRAMES_DIRNAME / "dev"))
+        if data_args.eval_metadata_filename == "eval_manual_filtered_test.json":
+            classes = sorted(os.listdir(DATA_DIR / "eval_manual_filtered" / "test"))
+        else:
+            classes = sorted(os.listdir(EVAL_FRAMES_DIRNAME / "dev"))
     elif args.eval_dataset == "object_categories":
         # set up object categories dataloader
         object_categories_dm = ObjectCategoriesDataModule(
@@ -281,6 +284,10 @@ def main(args):
         # get filename
         if args.clip_eval:
             results_filename = f"results/{args.eval_dataset}/clip_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
+        elif args.eval_metadata_filename == "eval_filtered_test.json":
+            results_filename = f"results/{args.eval_dataset}/{config['model']}_{config['cnn']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_filtered_predictions.json"
+        elif args.eval_metadata_filename == "eval_manual_filtered_test.json":
+            results_filename = f"results/{args.eval_dataset}/{config['model']}_{config['cnn']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_manual_filtered_predictions.json"
         elif config["shuffle_utterances"]:
             results_filename = f"results/{args.eval_dataset}/shuffle_{config['model']}_{config['cnn']}_seed_{config['seed']}_{args.eval_type}_{args.eval_dataset}_{args.stage}_eval_predictions.json"
         elif not config["augment_frames"]:

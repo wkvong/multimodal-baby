@@ -13,6 +13,7 @@ import seaborn.objects as so
 
 import torch
 from torchvision import transforms
+import torch.nn.functional as F
 from multimodal.multimodal_lit import MultiModalLitModel
 import clip
 from sklearn.manifold import TSNE
@@ -47,18 +48,24 @@ EVALUATION_FRAMES_DIR = DATA_DIR / "eval" / "test"
 eval_categories = sorted(os.listdir(EVALUATION_FRAMES_DIR))
 
 all_image_features = []
+mean_image_features = []
 all_eval_categories = []
 all_image_filenames = []
+
+n_samples = 100
 
 for eval_category in eval_categories:
     frames = sorted(glob.glob(os.path.join(EVALUATION_FRAMES_DIR, eval_category, "*.jpeg")))
     print(eval_category, len(frames))
-    frames = np.random.choice(frames, size=min(len(frames), 200), replace=False)
-    
+    frames = np.random.choice(frames, size=min(len(frames), n_samples), replace=False)
+    curr_category_features = []
+
+    # get individual frame features
     for frame in frames:
         I = preprocess(Image.open(frame).convert('RGB')).unsqueeze(0).to(device)
         image_features, _ = model.model.encode_image(I)
         all_image_features.append(image_features.squeeze().detach().cpu().numpy())
+        curr_category_features.append(image_features.squeeze().detach().cpu().numpy())
         all_eval_categories.append(eval_category)
         
         # rename frame
@@ -66,10 +73,15 @@ for eval_category in eval_categories:
         frame = os.path.join(*frame_path[-4:])
         all_image_filenames.append(frame)
 
+    # calculate mean frame features from all frames from current eval_category
+    curr_category_features = np.array(curr_category_features)
+    mean_image_features.append(np.mean(curr_category_features, axis=0))
+
 VOCAB_FILENAME = DATA_DIR / "vocab.json"
 with open(VOCAB_FILENAME) as f:
     vocab = json.load(f)
-    
+
+# calculate text features
 all_text_features = []
 eval_categories[3] = "kitty"  # match eval set-up
 
@@ -79,39 +91,54 @@ for eval_category in eval_categories:
     text_features, _ = model.model.encode_text(text, text_len)
     all_text_features.append(text_features.squeeze().detach().cpu().numpy())
 
-# plot image embeddings
-n_components = 2
-tsne = TSNE(n_components, perplexity=7.5)
-tsne_result = tsne.fit_transform(all_image_features)
- 
-# Plot the result of our TSNE with the label color coded
-# A lot of the stuff here is about making the plot look pretty and not TSNE
-tsne_result_df = pd.DataFrame({'tsne_1': tsne_result[:,0], 'tsne_2': tsne_result[:,1], 'label': all_eval_categories, 'filename': all_image_filenames})
-fig = plt.figure(figsize=(20, 20))
+# combine image and text embeddings
+all_features = np.concatenate([all_image_features, mean_image_features, all_text_features], axis=0)
+print(all_features.shape)
 
-ax = plt.gca()
-sns.scatterplot(x='tsne_1', y='tsne_2', hue='label', data=tsne_result_df, s=100, legend="auto", palette="Paired", linewidth=0, alpha=0.8)
-lim = (tsne_result.min()-5, tsne_result.max()+5)
+# compute similarity matrix
+all_sims = np.zeros((len(all_features), len(all_features)))
+for i in range(len(all_features)):
+    for j in range(len(all_features)):
+        x1 = F.normalize(torch.tensor(all_features[i]), p=2, dim=0)
+        x2 = F.normalize(torch.tensor(all_features[j]), p=2, dim=0)
+        all_sims[i, j] = F.cosine_similarity(x1, x2, dim=0)
+
+# normalize similarity matrix
+all_sims = (all_sims - np.min(all_sims)) / (np.max(all_sims) - np.min(all_sims))
+    
+# get t-SNE of image and text embeddings and put into a dataframe
+n_components = 2
+tsne = TSNE(n_components, random_state=1, metric="precomputed", perplexity=7.5)
+tsne_result = tsne.fit_transform(1 - all_sims)
+tsne_result_df = pd.DataFrame(tsne_result, columns=["x", "y"])
+
+# append additional information to dataframe
+all_eval_categories = all_eval_categories + eval_categories + eval_categories
+all_image_filenames = all_image_filenames + [None] * len(eval_categories) + [None] * len(eval_categories)
+embedding_type = ["image"] * len(all_image_features) + ["image_mean"] * len(mean_image_features) + ["text"] * len(all_text_features)
+
+tsne_result_df["eval_category"] = all_eval_categories
+tsne_result_df["image_filename"] = all_image_filenames
+tsne_result_df["embedding_type"] = embedding_type
 
 # compute cosine similarities for each eval category
-fig = plt.figure(figsize=(50, 40))
 for i, curr_category in enumerate(eval_categories):
     category_idx = eval_categories.index(curr_category)
     sims = []
     for image_feature in all_image_features:
-        sim = np.power(np.dot(image_feature, all_text_features[category_idx]) / (np.linalg.norm(image_feature)*np.linalg.norm(all_text_features[category_idx])), 2)
+        sim = np.dot(image_feature, all_text_features[category_idx])
         sims.append(sim)
 
+    # add extra zeros for mean image and text embeddings
+    for j in range(len(eval_categories)):
+        sims.append(0)
+        
+    for j in range(len(eval_categories)):
+        sims.append(0)
+        
     sims = np.array(sims)
-    sims = (sims - np.min(sims))/np.ptp(sims)
 
     tsne_result_df[curr_category] = sims
-
-    ax = fig.add_subplot(5, 5, i+1)
-    ax.set_title(curr_category)
-    # ax = plt.gca()
-    sns.scatterplot(x='tsne_1', y='tsne_2', data=tsne_result_df, s=25, color='blue', legend='full', alpha=sims)
-    lim = (tsne_result.min()-5, tsne_result.max()+5)
-
+ 
 # save to CSV
 tsne_result_df.to_csv(f"../results/alignment/joint_embeddings_with_eval_sims_seed_{seed}.csv", index=False)
