@@ -13,17 +13,18 @@ from torch.utils.data import Dataset, DataLoader
 import pytorch_lightning as pl
 import clip
 
-from multimodal.multimodal_data_module import MAX_LEN_UTTERANCE, PAD_TOKEN, UNK_TOKEN, SOS_TOKEN, EOS_TOKEN, PAD_TOKEN_ID, UNK_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID, IMAGE_H, IMAGE_W, normalizer, multiModalDataset_collate_fn
+from multimodal.multimodal_data_module import MAX_LEN_UTTERANCE, PAD_TOKEN, UNK_TOKEN, SOS_TOKEN, EOS_TOKEN, PAD_TOKEN_ID, UNK_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID, IMAGE_H, IMAGE_W, normalizer, multiModalDataset_collate_fn, read_vocab
 from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule, DATA_DIR, TRAIN_METADATA_FILENAME
 
 # directories and filenames
 DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/S_multimodal")
+VOCAB_FILENAME = DATA_DIR / "vocab.json"
 OBJECT_CATEGORIES_DATA_DIR = DATA_DIR / "object_categories"
 OBJECT_CATEGORIES_RESIZED_DATA_DIR = DATA_DIR / "object_categories_resized"
 OBJECT_CATEGORIES_EVAL_METADATA_FILENAME = DATA_DIR / \
     "eval_object_categories.json"
 
-
+    
 class ObjectCategoriesEvalDataset(Dataset):
     def __init__(self, data, vocab, eval_include_sos_eos=False, clip_eval=False):
         self.data = data
@@ -152,9 +153,7 @@ class ObjectCategoriesTextEvalDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-
-
-
+    
 class ObjectCategoriesDataModule(pl.LightningDataModule):
     """
     The data module associated with evaluation using naturalistic object categories.
@@ -167,7 +166,7 @@ class ObjectCategoriesDataModule(pl.LightningDataModule):
         
     def prepare_data(self, *args, **kwargs) -> None:
         print("Calling prepare_data!")
-        self.vocab = _get_vocab()
+        self.vocab = self.read_vocab()
         self.object_categories = _get_object_categories(self.vocab)
         # _move_test_items(self.object_categories)  # skip this step
         # _resize_images(self.object_categories)  # skip this step
@@ -175,7 +174,7 @@ class ObjectCategoriesDataModule(pl.LightningDataModule):
 
     def setup(self, *args, **kwargs) -> None:
         print("Calling setup!")
-        self.vocab = _get_vocab()
+        self.vocab = self.read_vocab()
         with open(OBJECT_CATEGORIES_EVAL_METADATA_FILENAME) as f:
             data = json.load(f)
             self.data = data['data']
@@ -196,12 +195,8 @@ class ObjectCategoriesDataModule(pl.LightningDataModule):
         )
         return eval_dataloader
 
-
-def _get_vocab():
-    """Get vocab dict from SAYCam"""
-    multimodal_dm = MultiModalSAYCamDataModule()
-    vocab = multimodal_dm.read_vocab()
-    return vocab
+    def read_vocab(self):
+        return read_vocab(VOCAB_FILENAME)
 
 
 def _get_object_categories(vocab):

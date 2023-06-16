@@ -238,6 +238,9 @@ class MultiModalDataModule(pl.LightningDataModule):
         self.clip_eval = self.args.get(
             "clip_eval", CLIP_EVAL)
 
+        # check which metadata file is being used
+        print(f"Using metadata file: {self.eval_metadata_filename}")
+
         if self.augment_frames:
             # add same augmentations as emin used
             self.transform = transforms.Compose([
