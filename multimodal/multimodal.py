@@ -16,7 +16,7 @@ from multimodal.utils import load_model
 
 TEXT_ENCODER = "embedding"
 ATTENTION_ACTIVATION = "relu"
-EMBEDDING_TYPE = "spatial"
+EMBEDDING_TYPE = "flat"
 EMBEDDING_DIM = 128
 CRANGE = 1
 DROPOUT_I = 0.0
@@ -31,6 +31,7 @@ FIX_TEMPERATURE = False
 # vision encoder arguments
 CNN_MODEL = "models/TC-S-resnext.tar"  # link to TC resnext model
 CNN_DINO = False  # boolean flag to use DINO resnext model
+VIT_DINO = False  # boolean flag to use DINO vision transformer model
 
 def set_parameter_requires_grad(model, feature_extracting=True):
     '''Helper function for setting body to non-trainable'''
@@ -63,6 +64,7 @@ class VisionEncoder(nn.Module):
         self.pretrained_cnn = self.args.get("pretrained_cnn")
         self.cnn_model = self.args.get("cnn_model", CNN_MODEL)
         self.cnn_dino = self.args.get("cnn_dino", CNN_DINO)
+        self.vit_dino = self.args.get("vit_dino", VIT_DINO)
         self.finetune_cnn = self.args.get("finetune_cnn")
         self.model = self._load_pretrained_cnn()
 
@@ -75,17 +77,25 @@ class VisionEncoder(nn.Module):
                                  "the path to the CNN model checkpoint")
         parser.add_argument("--cnn_dino", action="store_true", default=CNN_DINO,
                             help="use DINO resnext model")
+        parser.add_argument("--vit_dino", action="store_true", default=VIT_DINO,
+                            help="use DINO vision transformer model")
         parser.add_argument("--finetune_cnn", action="store_true",
                             help="finetune CNN (frozen by default)")
 
     def forward(self, x):
-        if self.embedding_type == "spatial":
-            layer = self.model[-2]
+        if self.vit_dino:
+            x = self.model(x)
+            features = self.model.head(x)
+            feature_map = None
         else:
-            layer = self.model.layer4
-        with Hook(layer, requires_grad=False) as hook:
-            features = self.model(x)
-            feature_map = hook.activation
+            if self.embedding_type == "spatial":
+                layer = self.model[-2]
+            else:
+                layer = self.model.layer4
+            with Hook(layer, requires_grad=False) as hook:
+                features = self.model(x)
+                feature_map = hook.activation
+                
         return features, feature_map
 
     def _forward_unbatched(self, x):
@@ -105,12 +115,19 @@ class VisionEncoder(nn.Module):
         This may vary with different models, so it may be changed if other
         models are used.
         """
-        return 2048
+        if self.vit_dino:
+            return 768 
+        else:
+            return 2048
 
     def _load_pretrained_cnn(self):
         if self.cnn_dino:
-            print("Loading DINO model!")
+            print("Loading DINO resnext model!")
             model_name = "dino_sfp_resnext50"
+            model = load_model(model_name, self.pretrained_cnn)
+        elif self.vit_dino:
+            print("Loading DINO vision transformer model!")
+            model_name = "dino_s_vitb14"  # TODO: change to sfp once available
             model = load_model(model_name, self.pretrained_cnn)
         else:
             # get the model name and checkpoint path
@@ -163,8 +180,11 @@ class VisionEncoder(nn.Module):
                 nn.Conv2d(self.last_cnn_out_dim, self.embedding_dim, 1))
         elif self.embedding_type == "flat":
             # remove classifier head and add linear layer to map original embedding to embedding_dim
-            model.fc = nn.Linear(self.last_cnn_out_dim, self.embedding_dim)
-            print(model)
+            print("Adding linear layer to vision encoder!")
+            if self.vit_dino:
+                model.head = nn.Linear(self.last_cnn_out_dim, self.embedding_dim)
+            else:
+                model.fc = nn.Linear(self.last_cnn_out_dim, self.embedding_dim)
 
         return model
 
@@ -289,6 +309,9 @@ class TextEncoder(nn.Module):
         if self.text_encoder in ["lstm", "bilstm"]:
             self.lstm = nn.LSTM(self.input_dim, self.hidden_dim,
                                 bidirectional= self.text_encoder == "bilstm")
+        elif self.text_encoder == "transformer":
+            self.encoder_layer = nn.TransformerEncoderLayer(d_model=self.embedding_dim, nhead=8)
+            self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=1)
 
         # build captioning related parts
         if self.captioning:
@@ -313,7 +336,7 @@ class TextEncoder(nn.Module):
     @staticmethod
     def add_to_argparse(parser):
         parser.add_argument("--text_encoder", type=str, default=TEXT_ENCODER,
-                            choices=["embedding", "cbow", "lstm", "bilstm"],
+                            choices=["embedding", "cbow", "lstm", "bilstm", "transformer"],
                             help="text encoder architecture")
         parser.add_argument("--captioning", action="store_true",
                             help="whether to initialize the hidden states with the image features")
@@ -494,6 +517,28 @@ class TextEncoder(nn.Module):
                 # flat embedding for biLSTM using final hidden states
                 # get final hidden state by averaging forward and backward passes
                 ret = hidden.mean(dim=0)  # (B, E)
+        elif self.text_encoder == "transformer":
+            # first, calculate src padding mask based on input
+            # print(f"x shape: {x.shape}")
+            src_key_padding_mask = (x == 0).bool()
+            # print(f"src_key_padding_mask: {src_key_padding_mask.shape}")
+
+            # then, transpose to (L, B, E) for transformer encoder and pass through
+            # print(f'embedding shape: {embedding.shape}')
+            embedding = embedding.permute(1, 0, 2)
+            # print(f'embedding shape after permutation: {embedding.shape}')
+            
+            raw_output = self.transformer_encoder(embedding, src_key_padding_mask=src_key_padding_mask)
+            # print(f"raw_output: {raw_output.shape}")
+
+            # transpose back to (B, L, E)
+            raw_output = raw_output.permute(1, 0, 2)
+            # print(f"raw_output after permutation: {raw_output.shape}")
+
+            # perform average pooling over inputs
+            if self.embedding_type == "flat":  # flat embedding for transformer 
+                # calculate mean embedding per utterance
+                ret = torch.sum(raw_output, dim=1) / x_len.unsqueeze(1)
 
         output = self.lockdrop(raw_output, self.dropout_o)
 
@@ -501,6 +546,8 @@ class TextEncoder(nn.Module):
             ret = self.output_dropout(ret)
         elif self.embedding_type == "spatial":
             ret = output
+
+        # print(f'output shape: {output.shape}')
 
         return ret, output, attns
 
