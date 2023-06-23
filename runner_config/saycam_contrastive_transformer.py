@@ -1,4 +1,4 @@
-pgrids = [
+grids = [
     {
         "main_file": ["train"],
         "dataset": ["saycam"],
@@ -9,6 +9,7 @@ pgrids = [
         "embedding_dim": [512],
         "dropout_i": [.5],
         "dropout_o": [.0],
+        "pos_embed_type": ["learned"],
         "vit_dino": [True],
         "pretrained_cnn": [True],
         "multiple_frames": [True],
@@ -36,11 +37,12 @@ pgrids = [
 ]
 # ordered flags to display in jobname
 flags = [
-    "cnn_dino",
+    "vit_dino",
     "text_encoder",
     "embedding_dim",
     "batch_size",
     "dropout_i",
+    "pos_embed_type",
     "fix_temperature",
     "lr",
     "lr_scheduler",
