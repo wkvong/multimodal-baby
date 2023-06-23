@@ -168,7 +168,7 @@ def load_model(model_name, pretrained=True):
     if alg == "dino" or alg == "mugs":
         model = build_dino_mugs(arch, patch_size)
         if pretrained:
-            print("Loading pretrained weights for DINO resnext model")
+            print("Loading pretrained weights for DINO model")
             load_dino_mugs(model, checkpoint, "teacher")
     elif alg == "mae":
         model = build_mae(arch, patch_size)

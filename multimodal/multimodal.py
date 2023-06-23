@@ -1,4 +1,5 @@
 import argparse
+import math
 import numpy as np
 import torch
 import torch.nn as nn
@@ -6,9 +7,8 @@ import torch.nn.functional as F
 import torchvision
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence, \
     PackedSequence
-# from locked_dropout import LockedDropout
 from multimodal.multimodal_data_module import \
-    PAD_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID
+    PAD_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID, MAX_LEN_UTTERANCE
 from multimodal.beam_search import beam_search
 from multimodal.utils import get_entropy, map_structure, apply_permutation
 from multimodal.attention_maps import Hook
@@ -32,6 +32,9 @@ FIX_TEMPERATURE = False
 CNN_MODEL = "models/TC-S-resnext.tar"  # link to TC resnext model
 CNN_DINO = False  # boolean flag to use DINO resnext model
 VIT_DINO = False  # boolean flag to use DINO vision transformer model
+
+# text encoder arguments
+POS_EMBED_TYPE = "no_pos_embed"
 
 def set_parameter_requires_grad(model, feature_extracting=True):
     '''Helper function for setting body to non-trainable'''
@@ -127,7 +130,7 @@ class VisionEncoder(nn.Module):
             model = load_model(model_name, self.pretrained_cnn)
         elif self.vit_dino:
             print("Loading DINO vision transformer model!")
-            model_name = "dino_s_vitb14"  # TODO: change to sfp once available
+            model_name = "dino_sfp_vitb14"
             model = load_model(model_name, self.pretrained_cnn)
         else:
             # get the model name and checkpoint path
@@ -293,6 +296,7 @@ class TextEncoder(nn.Module):
         self.crange = self.args.get("crange")
         self.dropout_i = self.args.get("dropout_i")
         self.dropout_o = self.args.get("dropout_o")
+        self.pos_embed_type = self.args.get("pos_embed_type", POS_EMBED_TYPE)
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu")
 
@@ -310,8 +314,32 @@ class TextEncoder(nn.Module):
             self.lstm = nn.LSTM(self.input_dim, self.hidden_dim,
                                 bidirectional= self.text_encoder == "bilstm")
         elif self.text_encoder == "transformer":
+            # add transformer components
+            print("Building transformer text encoder!")
             self.encoder_layer = nn.TransformerEncoderLayer(d_model=self.embedding_dim, nhead=8)
             self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=1)
+            
+            # set-up positional embeddings
+            if self.pos_embed_type == "sinusoidal":
+                # create sinusoidal positional embeddings
+                # adapted from http://nlp.seas.harvard.edu/2018/04/03/attention.html
+                print("Initializing sinusoidal positional embeddings!")
+                pos_embed = torch.zeros(MAX_LEN_UTTERANCE, self.embedding_dim)
+                position = torch.arange(0, MAX_LEN_UTTERANCE).unsqueeze(1)
+                div_term = torch.exp(torch.arange(0, self.embedding_dim, 2) *
+                    -(math.log(10000.0) / self.embedding_dim))
+                pos_embed[:, 0::2] = torch.sin(position * div_term)
+                pos_embed[:, 1::2] = torch.cos(position * div_term)
+                pos_embed = pos_embed.unsqueeze(0).permute(1, 0, 2)
+                self.register_buffer('pos_embed', pos_embed)
+            elif self.pos_embed_type == "learned":
+                # set up learned positional embeddings
+                print("Initializing learned positional embeddings!")
+                self.pos_embed = nn.Parameter(torch.zeros(MAX_LEN_UTTERANCE, 1, self.embedding_dim))
+            else:
+                # don't use any positional embeddings
+                print("Initializing no positional embeddings!")
+                pass
 
         # build captioning related parts
         if self.captioning:
@@ -354,6 +382,9 @@ class TextEncoder(nn.Module):
                             help="input dropout rate; not applicable for embedding text encoder")
         parser.add_argument("--dropout_o", type=float, default=DROPOUT_O,
                             help="output dropout rate")
+        parser.add_argument("--pos_embed_type", type=str, default=POS_EMBED_TYPE,
+                            choices=["no_pos_embed", "sinusoidal", "learned"],
+                            help="type of positional embedding to use")
 
     def inputs_to_outputs(self, inputs, states,
                           image_feature_map=None,
@@ -519,21 +550,20 @@ class TextEncoder(nn.Module):
                 ret = hidden.mean(dim=0)  # (B, E)
         elif self.text_encoder == "transformer":
             # first, calculate src padding mask based on input
-            # print(f"x shape: {x.shape}")
             src_key_padding_mask = (x == 0).bool()
-            # print(f"src_key_padding_mask: {src_key_padding_mask.shape}")
 
             # then, transpose to (L, B, E) for transformer encoder and pass through
-            # print(f'embedding shape: {embedding.shape}')
             embedding = embedding.permute(1, 0, 2)
-            # print(f'embedding shape after permutation: {embedding.shape}')
-            
+
+            # add positional embedding if specified
+            if self.pos_embed_type == "sinusoidal" or self.pos_embed_type == "learned":
+                pos_embed = self.pos_embed[:embedding.size(0), :, :]
+                embedding = embedding + pos_embed
+
             raw_output = self.transformer_encoder(embedding, src_key_padding_mask=src_key_padding_mask)
-            # print(f"raw_output: {raw_output.shape}")
 
             # transpose back to (B, L, E)
             raw_output = raw_output.permute(1, 0, 2)
-            # print(f"raw_output after permutation: {raw_output.shape}")
 
             # perform average pooling over inputs
             if self.embedding_type == "flat":  # flat embedding for transformer 
