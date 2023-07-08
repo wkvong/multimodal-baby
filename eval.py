@@ -61,6 +61,8 @@ def main(args):
         config = {}
         if "lstm" in checkpoint_name:
             config["model"] = "lstm"
+        elif "transformer" in checkpoint_name:
+            config["model"] = "transformer"
         elif "embedding" in checkpoint_name:
             config["model"] = "embedding"
      
@@ -153,7 +155,7 @@ def main(args):
         dataloader = object_categories_dm.test_dataloader()
 
         # load vocab and metadata
-        vocab = _get_vocab()
+        vocab = object_categories_dm.read_vocab()
         eval_data = load_data(EVAL_DATA_DIR / "eval_object_categories.json")
         classes = _get_object_categories(vocab)
 
