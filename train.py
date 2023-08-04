@@ -11,6 +11,7 @@ from torchinfo import summary
 from multimodal.multimodal_data_module import MultiModalDataModule
 from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule
 from multimodal.coco_captions_data_module import COCOCaptionsDataModule
+from multimodal.text_only_data_module import TextOnlyDataModule
 from multimodal.multimodal import VisionEncoder, TextEncoder, MultiModalModel, LanguageModel
 from multimodal.multimodal_lit import MultiModalLitModel
 
@@ -41,7 +42,7 @@ def _setup_parser():
 
     parser.add_argument("--exp_name", type=str, default="multimodal_test",
                         help="experiment name for logging")
-    parser.add_argument("--dataset", type=str, choices=["saycam", "coco"],
+    parser.add_argument("--dataset", type=str, choices=["saycam", "coco", "childes"],
                         default="saycam",
                         help="which dataset to use")
     parser.add_argument("--seed", type=int, default=0,
@@ -72,6 +73,7 @@ def main():
     DataModuleClass = {
         "saycam": MultiModalSAYCamDataModule,
         "coco": COCOCaptionsDataModule,
+        "childes": TextOnlyDataModule,
     }[args.dataset]
     data = DataModuleClass(args)
     vocab = data.read_vocab()
@@ -93,11 +95,11 @@ def main():
         # add checkpoint callback and wandb logging
         wandb_logger = WandbLogger(project='multimodal-saycam', name=args.exp_name,
                                    log_model=True)
-        trainer = pl.Trainer.from_argparse_args(args,
-                                                enable_checkpointing=args.checkpoint_callback,
-                                                callbacks=[
-                                                    checkpoint_callback],
-                                                logger=wandb_logger)
+        trainer = pl.Trainer.from_argparse_args(
+            args,
+            enable_checkpointing = args.checkpoint_callback if hasattr(args, 'checkpoint_callback') else args.enable_checkpointing,
+            callbacks=[checkpoint_callback],
+            logger=wandb_logger)
     else:
         trainer = pl.Trainer.from_argparse_args(args)
 

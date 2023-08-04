@@ -29,7 +29,8 @@ NUM_WORKERS = 4
 EVAL_INCLUDE_SOS_EOS = False
 
 # evaluation arguments
-N_VAL_DATALOADERS_PER_SPLIT = 2
+DO_EVAL = False
+N_VAL_DATALOADERS_PER_SPLIT = 1 + int(DO_EVAL)
 TEST_WHILE_VAL = False
 EVAL_TYPE = "image"
 
@@ -97,7 +98,7 @@ class MultiModalDataset(Dataset):
 
 def multiModalDataset_collate_fn(batch):
     img, utterance_idxs, utterance_length, raw_utterance = zip(*batch)
-    img = torch.stack(img, 0)
+    img = torch.stack(img, 0) if img[0] is not None else None
     utterance_idxs = pad_sequence(
         utterance_idxs, batch_first=True, padding_value=PAD_TOKEN_ID)
     utterance_length = torch.tensor(utterance_length, dtype=torch.long)
@@ -324,8 +325,9 @@ class MultiModalDataModule(pl.LightningDataModule):
         # read and create image-text data splits (train/val/test)
         self.datasets = self.create_datasets(vocab)
 
-        # read and create eval data splits (val/test)
-        self.eval_datasets = self.create_eval_datasets(vocab)
+        if DO_EVAL:
+            # read and create eval data splits (val/test)
+            self.eval_datasets = self.create_eval_datasets(vocab)
 
     def read_vocab(self):
         raise NotImplementedError
@@ -387,6 +389,9 @@ class MultiModalDataModule(pl.LightningDataModule):
             pin_memory=False,
         )
 
+        if not DO_EVAL:
+            return [dataloader]
+
         eval_dataloader = DataLoader(
             eval_dataset,
             collate_fn=multiModalDataset_collate_fn,
@@ -402,7 +407,7 @@ class MultiModalDataModule(pl.LightningDataModule):
     def val_dataloader(self, batch_size=None, shuffle=False, drop_last=False):
         dataloaders = self.val_test_dataloader(
             self.datasets['val'],
-            self.eval_datasets['val'],
+            self.eval_datasets['val'] if DO_EVAL else None,
             batch_size=batch_size,
             shuffle=shuffle,
             drop_last=drop_last,
@@ -417,7 +422,7 @@ class MultiModalDataModule(pl.LightningDataModule):
     def test_dataloader(self, batch_size=None, shuffle=False, drop_last=False):
         return self.val_test_dataloader(
             self.datasets['test'],
-            self.eval_datasets['test'],
+            self.eval_datasets['test'] if DO_EVAL else None,
             batch_size=batch_size,
             shuffle=shuffle,
             drop_last=drop_last,

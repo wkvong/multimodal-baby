@@ -161,7 +161,7 @@ class MultiModalLitModel(pl.LightningModule):
 
         # dict of results to return
         ret = {
-            'batch_size': x.size(0),
+            'batch_size': (x if x is not None else y).size(0),
         }
 
         # reuse image_features, image_feature_map and text_outputs if possible
@@ -458,6 +458,8 @@ class MultiModalLitModel(pl.LightningModule):
                 dataloader_idx=dataloader_idx - N_VAL_DATALOADERS_PER_SPLIT)
 
     def validation_epoch_end(self, outputs):
+        if N_VAL_DATALOADERS_PER_SPLIT * (1 + int(self.args.get('test_while_eval', False))) == 1:
+            outputs = [outputs]
         self.validation_test_epoch_end(
             'val', outputs[:N_VAL_DATALOADERS_PER_SPLIT])
         if len(outputs) > N_VAL_DATALOADERS_PER_SPLIT:
