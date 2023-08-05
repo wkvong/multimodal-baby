@@ -1,5 +1,6 @@
 from multimodal.multimodal_saycam_data_module import MultiModalSAYCamDataModule
 from multimodal.coco_captions_data_module import COCOCaptionsDataModule
+from multimodal.text_only_data_module import TextOnlyDataModule
 from train import _setup_parser
 
 
@@ -7,6 +8,7 @@ from train import _setup_parser
 DataModuleClasses = {
     "saycam": MultiModalSAYCamDataModule,
     "coco": COCOCaptionsDataModule,
+    "childes": TextOnlyDataModule,
 }
 
 

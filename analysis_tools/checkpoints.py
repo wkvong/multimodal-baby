@@ -1,4 +1,5 @@
 all_groups = {
+    "LSTM 0": ["LSTM 0"],
     "LSTM": ["LSTM 0", "LSTM 1", "LSTM 2"],
     "Captioning LSTM": ["Captioning LSTM 0", "Captioning LSTM 1", "Captioning LSTM 2"],
     "CBOW": ["CBOW 0", "CBOW 1", "CBOW 2"],
@@ -12,6 +13,9 @@ all_groups = {
 }
 
 all_checkpoint_paths = {
+    "childes": {
+        "LSTM 0": "checkpoints/lm_dataset_childes_text_encoder_lstm_embedding_dim_512_dropout_i_0.5_dropout_o_0.0_batch_size_16_lr_0.006_lr_scheduler_True_patience_5_weight_decay_0.04_seed_0/epoch=35.ckpt",
+    },
     "saycam": {
         "LSTM 0": "checkpoints/lm_dataset_saycam_captioning_False_text_encoder_lstm_embedding_dim_512_dropout_i_0.5_dropout_o_0.0_batch_size_16_lr_0.006_lr_scheduler_True_weight_decay_0.04_seed_0/epoch=29.ckpt",
         "LSTM 1": "checkpoints/lm_dataset_saycam_captioning_False_text_encoder_lstm_embedding_dim_512_dropout_i_0.5_dropout_o_0.0_batch_size_16_lr_0.006_lr_scheduler_True_weight_decay_0.04_seed_1/epoch=38.ckpt",
