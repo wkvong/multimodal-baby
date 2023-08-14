@@ -21,7 +21,8 @@ np.random.seed(0)
 torch.manual_seed(0)
 
 # selection type for images to generate attention maps for
-selection_type = 'random' # 'random' or 'manual'
+# selection_type = 'random' # 'random' or 'manual'
+selection_type = 'manual'
 
 # load pretrained model
 model_checkpoint_name = "multimodal_cnn_dino_True_text_encoder_embedding_embedding_dim_512_batch_size_8_dropout_i_0.5_fix_temperature_True_lr_0.0001_lr_scheduler_True_weight_decay_0.1_max_epochs_400_seed_0"
