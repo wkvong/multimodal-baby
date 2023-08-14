@@ -86,11 +86,13 @@ class VisionEncoder(nn.Module):
                             help="finetune CNN (frozen by default)")
 
     def forward(self, x):
-        if self.vit_dino:
+        if hasattr(self, 'vit_dino') and self.vit_dino:
+            # forward pass for vit models
             x = self.model(x)
             features = self.model.head(x)
             feature_map = None
         else:
+            # forward pass for cnn models
             if self.embedding_type == "spatial":
                 layer = self.model[-2]
             else:
