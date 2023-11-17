@@ -1,7 +1,10 @@
 import argparse
 import functools
 import copy
+import json
 import numpy as np
+import os
+import spacy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -13,6 +16,7 @@ from multimodal.textgen_eval import evaluate as textgen_eval
 from multimodal.multimodal_data_module import \
     N_VAL_DATALOADERS_PER_SPLIT, MAX_LEN_UTTERANCE, \
     PAD_TOKEN_ID, SOS_TOKEN_ID, EOS_TOKEN_ID
+from huggingface_hub import hf_hub_download
 
 OPTIMIZER = torch.optim.AdamW
 LR = 3e-4
@@ -58,6 +62,12 @@ class MultiModalLitModel(pl.LightningModule):
         self.model = MultiModalModel(
             self.vision_encoder, self.text_encoder, args)
         self.language_model = LanguageModel(self.text_encoder, args)
+
+        # get vocab
+        self.vocab_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vocab.json")
+        with open(self.vocab_path) as f:
+            self.vocab = json.load(f)
+        self.nlp = spacy.load("en_core_web_sm")
 
         # save hyperparameters to logger
         self.save_hyperparameters()
@@ -119,6 +129,47 @@ class MultiModalLitModel(pl.LightningModule):
     def forward(self, x, y, y_len):
         return self.model(x, y, y_len)
 
+    @staticmethod
+    def load_model(model_name="cvcl"):
+        """Load pre-trained CVCL model from HuggingFace Hub"""
+        if model_name == "cvcl":
+            checkpoint_name = "cvcl_s_dino_resnext50_embedding"
+            checkpoint = hf_hub_download(repo_id="wkvong/"+checkpoint_name, filename=checkpoint_name+".ckpt")
+            model = MultiModalLitModel.load_from_checkpoint(checkpoint_path=checkpoint)
+        else:
+            raise ValueError("Model name not found.")
+            
+        return model
+
+    def encode_image(self, x):
+        """Encode images to obtain image features"""
+        image_features, _ = self.model.encode_image(x)
+        return image_features
+
+    def encode_text(self, y, y_len=None):
+        """Encode text to obtain text features"""
+        text_features, _ = self.model.encode_text(y, y_len)
+        return text_features
+
+    def tokenize(self, texts):
+        """Tokenize texts to obtain tokens and token lengths"""
+        max_seq_len = 25
+
+        if isinstance(texts, str):
+            texts = [texts]
+
+        all_tokens = []
+        for text in texts:
+            doc = self.nlp(text)
+            tokens = [token.text for token in doc]
+            # TODO: might
+            tokens = [self.vocab["<sos>"]] + [self.vocab.get(token, self.vocab["<unk>"]) for token in tokens] + [self.vocab["<eos>"]] + [self.vocab["<pad>"]] * (max_seq_len - len(tokens))
+            all_tokens.append(tokens)
+
+        tokens = torch.tensor(all_tokens, dtype=torch.long)
+        token_lengths = torch.tensor([len(text) + 2 for text in texts], dtype=torch.long)
+        return tokens, token_lengths
+    
     def calculate_ce_loss(
         self, y, y_len, x=None,
         outputs=None,
