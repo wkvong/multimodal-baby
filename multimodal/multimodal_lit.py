@@ -8,6 +8,7 @@ import spacy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision import transforms
 import pytorch_lightning as pl
 from multimodal.multimodal import MultiModalModel, LanguageModel, \
     calculate_attn_reg_loss
@@ -138,8 +139,14 @@ class MultiModalLitModel(pl.LightningModule):
             model = MultiModalLitModel.load_from_checkpoint(checkpoint_path=checkpoint)
         else:
             raise ValueError("Model name not found.")
+
+        preprocess = transforms.Compose([
+            transforms.Resize((224, 224),
+                              interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
             
-        return model
+        return model, preprocess
 
     def encode_image(self, x):
         """Encode images to obtain image features"""

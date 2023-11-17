@@ -5,7 +5,8 @@ from multimodal.multimodal_lit import MultiModalLitModel
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-cvcl = MultiModalLitModel.load_model(model_name="cvcl").to(device)
+cvcl, preprocess = MultiModalLitModel.load_model(model_name="cvcl")
+cvcl = cvcl.to(device)
 cvcl.eval()
 print("CVCL model loaded!")
 
