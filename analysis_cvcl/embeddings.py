@@ -37,7 +37,8 @@ preprocess = transforms.Compose([
         ])
 
 # list of models
-model_names = ['cvcl', 'cvcl (shuffled)', 'cvcl (random features)']
+# model_names = ['cvcl', 'cvcl (shuffled)', 'cvcl (random features)']
+model_names = ['cvcl']
 
 for model_name in model_names:
     # load embedding checkpoint
@@ -102,6 +103,21 @@ for model_name in model_names:
         text_features, _ = model.model.encode_text(text, text_len)
         all_text_features.append(text_features.squeeze().detach().cpu().numpy())
 
+    # calculate euclidean distance between corresponding mean image and text features (rather than pairwise)
+    all_sims = np.zeros(len(mean_image_features))
+    for i in range(len(mean_image_features)):
+        x1 = torch.tensor(mean_image_features[i]).unsqueeze(0)
+        x2 = torch.tensor(all_text_features[i]).unsqueeze(0)
+        all_sims[i] = F.pairwise_distance(x1, x2, p=2)
+
+    print(all_sims)
+
+    cvcl_classification_perf = [77.33333, 28.33333, 89.33333, 65.66667, 69.66667, 64.33333, 90.33333, 50.66667, 39.00000, 45.00000, 58.33333, 24.33333, 59.00000, 88.66667, 78.00000, 76.00000, 26.00000, 96.00000, 81.00000, 53.33333, 31.00000, 64.00000]
+
+    # correlation
+    print(scipy.stats.pearsonr(all_sims, cvcl_classification_perf))
+
+        
     # combine image and text embeddings
     # all_features = np.concatenate([all_image_features, mean_image_features, all_text_features], axis=0)
     # print(all_features.shape)
@@ -167,23 +183,23 @@ for model_name in model_names:
 
     # calculate pearson correlation of mean image-text sims
     # get image and text sims separately
-    image_sims = np.zeros((len(mean_image_features), len(mean_image_features)))
-    text_sims = np.zeros((len(all_text_features), len(all_text_features)))
+    # image_sims = np.zeros((len(mean_image_features), len(mean_image_features)))
+    # text_sims = np.zeros((len(all_text_features), len(all_text_features)))
      
-    for i in range(len(mean_image_features)):
-        for j in range(len(mean_image_features)):
-            x1 = F.normalize(torch.Tensor(mean_image_features[i]), p=2, dim=0)
-            x2 = F.normalize(torch.Tensor(mean_image_features[j]), p=2, dim=0)
-            image_sims[i, j] = F.cosine_similarity(x1, x2, dim=0) 
+    # for i in range(len(mean_image_features)):
+    #     for j in range(len(mean_image_features)):
+    #         x1 = F.normalize(torch.Tensor(mean_image_features[i]), p=2, dim=0)
+    #         x2 = F.normalize(torch.Tensor(mean_image_features[j]), p=2, dim=0)
+    #         image_sims[i, j] = F.cosine_similarity(x1, x2, dim=0) 
             
-    for i in range(len(all_text_features)):
-        for j in range(len(all_text_features)):
-            x1 = F.normalize(torch.Tensor(all_text_features[i]), p=2, dim=0)
-            x2 = F.normalize(torch.Tensor(all_text_features[j]), p=2, dim=0)
-            text_sims[i, j] = F.cosine_similarity(x1, x2, dim=0)
+    # for i in range(len(all_text_features)):
+    #     for j in range(len(all_text_features)):
+    #         x1 = F.normalize(torch.Tensor(all_text_features[i]), p=2, dim=0)
+    #         x2 = F.normalize(torch.Tensor(all_text_features[j]), p=2, dim=0)
+    #         text_sims[i, j] = F.cosine_similarity(x1, x2, dim=0)
 
-    # calculate alignment via pearson correlation
-    # e.g. alignment between within-category similarities for image and text categories, along the upper triangular of the similarity matrix
-    image_sims_upper = image_sims[np.triu_indices_from(image_sims, k=1)]
-    text_sims_upper = text_sims[np.triu_indices_from(text_sims, k=1)]
-    print(f"Mean image-text correlation for {model_name}: ", scipy.stats.pearsonr(image_sims_upper, text_sims_upper))
+    # # calculate alignment via pearson correlation
+    # # e.g. alignment between within-category similarities for image and text categories, along the upper triangular of the similarity matrix
+    # image_sims_upper = image_sims[np.triu_indices_from(image_sims, k=1)]
+    # text_sims_upper = text_sims[np.triu_indices_from(text_sims, k=1)]
+    # print(f"Mean image-text correlation for {model_name}: ", scipy.stats.pearsonr(image_sims_upper, text_sims_upper))
