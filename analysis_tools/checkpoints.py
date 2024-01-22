@@ -1,4 +1,7 @@
 all_groups = {
+    "GPT2 2-layers": ["GPT2 2-layers"],
+    "GPT2 8-layers": ["GPT2 8-layers"],
+    "BabyBERTa 8-layers": ["BabyBERTa 8-layers"],
     "LSTM 0": ["LSTM 0"],
     "LSTM": ["LSTM 0", "LSTM 1", "LSTM 2"],
     "Captioning LSTM": ["Captioning LSTM 0", "Captioning LSTM 1", "Captioning LSTM 2"],
@@ -13,6 +16,16 @@ all_groups = {
 }
 
 all_checkpoint_paths = {
+    "saycam_yulu": {
+        "GPT2 8-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/saycam/0121/gpt2/single-child_model_name_gpt2_id_3_corpora_saycam_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.001_batch_size_8_weight_decay_0.16_dropout_0.15_seed_0/best",
+        "BabyBERTa 8-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/saycam/0122/babyBerta/single-child_model_name_babyBerta_id_3_corpora_saycam_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.0001_batch_size_16_weight_decay_0.06_dropout_0.05_seed_0/best",
+    },
+    "sarah_yulu": {
+        "GPT2 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/sarah/0112/gpt2/single-child_model_name_gpt2_id_2_num_attention_heads_16_tokenizer_simple_scheduler_True_lr_0.001_batch_size_8_weight_decay_0.16_variational_dropout_0.1_seed_2/best",
+    },
+    "ellie_yulu": {
+        "GPT2 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/ellie/0112/gpt2/single-child_model_name_gpt2_id_1_corpora_ellie_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.001_batch_size_16_weight_decay_0.16_variational_dropout_0.15_seed_2/best",
+    },
     "childes": {
         "LSTM 0": "checkpoints/lm_dataset_childes_text_encoder_lstm_embedding_dim_512_dropout_i_0.5_dropout_o_0.0_batch_size_16_lr_0.006_lr_scheduler_True_patience_5_weight_decay_0.04_seed_0/epoch=35.ckpt",
     },

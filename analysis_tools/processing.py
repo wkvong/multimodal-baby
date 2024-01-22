@@ -8,6 +8,8 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 from ngram import NGramModel
+from transformers import PreTrainedModel, GPT2LMHeadModel, RobertaForMaskedLM
+from multimodal.multimodal_lit import MultiModalLitModel
 from multimodal.utils import map_structure
 from .token_items_data import token_field, Key
 from .sumdata import *
@@ -24,7 +26,7 @@ def build_ngram_model(N, vocab_size, train_dataloader):
 
 
 def examples_from_batches(batches):
-    return itertools.chain.from_iterable((zip(*batch) for batch in batches))
+    return itertools.chain.from_iterable((zip(*map(lambda a: itertools.repeat(a) if a is None else a, batch)) for batch in batches))
 
 
 def raw_utterances_from_dataloader(dataloader):
@@ -33,7 +35,7 @@ def raw_utterances_from_dataloader(dataloader):
             yield raw_y_[0]
 
 
-def get_pos_tags(dataloader, dataset_name, split, toolkit='stanza'):
+def get_pos_tags(dataloader, dataset_name, split, toolkit='stanza', spacy_model="en_core_web_trf"):
     cache_path = Path('dataset_cache') / dataset_name / f'{split}.pos.cache'
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     if cache_path.exists():
@@ -46,7 +48,7 @@ def get_pos_tags(dataloader, dataset_name, split, toolkit='stanza'):
 
     elif toolkit == 'spacy':
         import spacy
-        nlp = spacy.load("en_core_web_trf", exclude=["parser", "attribute_ruler", "lemmatizer", "ner"])
+        nlp = spacy.load(spacy_model, exclude=["parser", "attribute_ruler", "lemmatizer", "ner"])
 
         def tokenizer(text):
             words = text.split()
@@ -152,7 +154,12 @@ def get_pos_stats_for_words(words, word_pos_stat, pos_mapping=identity):
 def is_regressional(model):
     """Whether the model is regressional, so the predicted loss, logits, labels are shifted.
     """
-    return model is not None and (isinstance(model, NGramModel) or model.language_model.text_encoder.regressional)
+    if isinstance(model, (NGramModel, GPT2LMHeadModel)):
+        return True
+    elif isinstance(model, MultiModalLitModel):
+        return model.language_model.text_encoder.regressional
+    else:
+        return False
 
 
 def run_model(
@@ -162,12 +169,12 @@ def run_model(
     single_example=False,
     return_all=False
 ):
-    if model is None or isinstance(model, NGramModel):
-        hidden_dim = 0
-        device = y.device
-    else:
+    if isinstance(model, MultiModalLitModel):
         hidden_dim = model.language_model.text_encoder.hidden_dim
         device = get_model_device(model)
+    else:
+        hidden_dim = 0
+        device = 'cpu'
 
     batch = ((x, y, y_len) if x is not None else (y, y_len))
     if single_example:
@@ -178,19 +185,19 @@ def run_model(
     else:
         (y, y_len) = batch
 
-    if model is None:
-        loss = torch.zeros_like(y, dtype=torch.float, device=device)
-        outputs = torch.zeros(*(y.shape + (hidden_dim,)), dtype=torch.float, device=device)
-    elif isinstance(model, NGramModel):
-        loss = model.calculate_ce_loss(y, y_len, tokenwise=True)
-        outputs = torch.zeros(*(y.shape + (hidden_dim,)), dtype=torch.float, device=device)
-    else:
+    if isinstance(model, MultiModalLitModel):
         loss, outputs, logits, attns, labels = model.calculate_ce_loss(
             y, y_len, x=x,
             image_features=image_features,
             image_feature_map=image_feature_map,
             tokenwise=True
         )
+    elif isinstance(model, NGramModel):
+        loss = model.calculate_ce_loss(y, y_len, tokenwise=True)
+        outputs = torch.zeros(*(y.shape + (hidden_dim,)), dtype=torch.float, device=device)
+    else:
+        loss = torch.zeros_like(y, dtype=torch.float, device=device)
+        outputs = torch.zeros(*(y.shape + (hidden_dim,)), dtype=torch.float, device=device)
     if is_regressional(model):
         # pad loss with preceeding 0
         loss = F.pad(loss, (1, 0))
@@ -272,8 +279,8 @@ def get_token_items(token_pos_items):
     return token_items
 
 
-def update_items_with_embedding(items, embedding):
-    return {key: SumData(cnt=value.cnt, loss=value.loss, vector=value.vector, embedding=embedding[key.token_id])
+def update_items_with_embedding(items, get_embedding_by_id):
+    return {key: SumData(cnt=value.cnt, loss=value.loss, vector=value.vector, embedding=get_embedding_by_id(key.token_id))
             for key, value in items.items()}
 
 
@@ -292,7 +299,7 @@ def build_series_from_pairs(pairs):
 ModelItems = namedtuple('ModelItems', ['losses', 'all_token_items', 'token_pos_items', 'token_items'])
 
 
-def get_model_items(model, dataloader, pos_tags, ignore_all_token_items=True):
+def get_model_items(model, dataloader, pos_tags, ignore_all_token_items=True, token_id_to_embedding_id=None):
     """Get losses and items of various types.
     model: the model to run
     dataloader: dataloader to generate batches
@@ -301,12 +308,12 @@ def get_model_items(model, dataloader, pos_tags, ignore_all_token_items=True):
     Returns: ModelItems
     """
 
-    if model is None or isinstance(model, NGramModel):
-        hidden_dim = 0
-        device = y.device
-    else:
+    if isinstance(model, MultiModalLitModel):
         hidden_dim = model.language_model.text_encoder.hidden_dim
         device = get_model_device(model)
+    else:
+        hidden_dim = 0
+        device = 'cpu'
 
     def torch_zero_sum_data():
         return SumData(
@@ -333,9 +340,20 @@ def get_model_items(model, dataloader, pos_tags, ignore_all_token_items=True):
     token_pos_items = {key: value.to_numpy() for key, value in token_pos_items.items()}
     token_items = get_token_items(token_pos_items)
 
-    if hasattr(model, 'text_encoder'):
-        embedding = model.text_encoder.embedding.weight.detach().cpu().numpy()
-        token_items = update_items_with_embedding(token_items, embedding)
+    if isinstance(model, MultiModalLitModel):
+        embedding_weight = model.text_encoder.embedding.weight
+    elif isinstance(model, GPT2LMHeadModel):
+        embedding_weight = model.transformer.wte.weight
+    elif isinstance(model, RobertaForMaskedLM):
+        embedding_weight = model.roberta.embeddings.word_embeddings.weight
+    else:
+        embedding_weight = None
+    if embedding_weight is not None:
+        embedding = embedding_weight.detach().cpu().numpy()
+        get_embedding_by_id = embedding.__getitem__
+        if token_id_to_embedding_id is not None:
+            get_embedding_by_id = lambda token_id: embedding[token_id_to_embedding_id[token_id]]
+        token_items = update_items_with_embedding(token_items, get_embedding_by_id)
 
     if all_token_items is not None:
         all_token_items = build_series_from_pairs(all_token_items)

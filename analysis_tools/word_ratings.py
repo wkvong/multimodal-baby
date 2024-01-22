@@ -1,3 +1,4 @@
+from pathlib import Path
 import pandas as pd
 
 
@@ -62,7 +63,11 @@ class WordRatings:
         items[d.columns] = d
 
 
-concreteness_data = WordRatings("/misc/vlgscratch4/LakeGroup/shared_data/Concreteness ratings Brysbaert2014.xlsx")
-norm_data = WordRatings("/misc/vlgscratch4/LakeGroup/shared_data/VanArsdall_Blunt_NormData.xlsx", sheet_name=1)
+data_path = [
+    Path("/misc/vlgscratch4/LakeGroup/shared_data"),
+    Path("/scratch/ww2135/shared_data"),
+][1]
+concreteness_data = WordRatings(data_path/"Concreteness ratings Brysbaert2014.xlsx")
+norm_data = WordRatings(data_path/"VanArsdall_Blunt_NormData.xlsx", sheet_name=1)
 
 conc_field = 'Conc.M'

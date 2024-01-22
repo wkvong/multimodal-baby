@@ -9,7 +9,7 @@ import random
 import re
 import shutil
 import time
-import cv2 as cv
+#import cv2 as cv
 
 import imageio
 from PIL import Image

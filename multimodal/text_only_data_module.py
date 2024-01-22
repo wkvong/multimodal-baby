@@ -17,11 +17,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # directories and filenames
 # use CHILDES single child data
 DATA_DIR = Path("/misc/vlgscratch4/LakeGroup/shared_data/CHILDES/sarah")
-RAW_FILENAME = DATA_DIR / "sarah.txt"
-TRAIN_FILENAME = DATA_DIR / "train.txt"
-VAL_FILENAME = DATA_DIR / "val.txt"
-TEST_FILENAME = DATA_DIR / "test.txt"
-VOCAB_FILENAME = DATA_DIR / "vocab.json"
 
 # default arguments
 # dataset arguments
@@ -76,6 +71,14 @@ class TextOnlyDataModule(MultiModalDataModule):
 
     def __init__(self, args=None) -> None:
         super().__init__(args)
+        self.data_dir = self.args.get("data_dir", DATA_DIR)
+        self.vocab_filename = self.data_dir / "vocab.json"
+        self.raw_filename = self.data_dir / f"{self.data_dir.stem}.txt"
+        self.split_filenames = {
+            "train": self.data_dir / "train.txt",
+            "val": self.data_dir / "valid.txt",
+            "test": self.data_dir / "test.txt",
+        }
 
     @staticmethod
     def add_additional_to_argparse(parser):
@@ -90,39 +93,39 @@ class TextOnlyDataModule(MultiModalDataModule):
 
     def prepare_data(self, *args, **kwargs) -> None:
         super().prepare_data(*args, **kwargs)
-        _split_data()
-        _create_vocab()
+        _split_data(self.raw_filename, self.split_filenames)
+        _create_vocab(self.vocab_filename, self.raw_filename)
 
     def read_vocab(self):
-        return read_vocab(VOCAB_FILENAME)
+        return read_vocab(self.vocab_filename)
 
     def create_datasets(self, vocab):
         datasets = {}
 
-        stage_splits = [
-            ("train", TRAIN_FILENAME),
-            ("val", VAL_FILENAME),
-            ("test", TEST_FILENAME),
-        ]
-
-        for split, filename in stage_splits:
-            data = list(read_lines(filename))
-            dataset = TextOnlyDataset(data, vocab)
-            datasets[split] = dataset
+        for split, filename in self.split_filenames.items():
+            if filename.exists():
+                data = list(read_lines(filename))
+                dataset = TextOnlyDataset(data, vocab)
+                datasets[split] = dataset
 
         return datasets
 
 
-def _split_data(seed=0):
+def _split_data(
+        raw_filename: Path, split_filenames: dict[str, Path],
+        train_frac: float = TRAIN_FRAC, val_frac: float = VAL_FRAC,
+        seed=0,
+):
     """Creates data split files"""
 
-    if TRAIN_FILENAME.exists() and VAL_FILENAME.exists() and TEST_FILENAME.exists():
-        print("Data split files have already been created. Skipping this step.")
-        return
+    for split, filename in split_filenames.items():
+        if filename.exists():
+            print("Data split files have already been created. Skipping this step.")
+            return
 
     print("Creating files for train, validation and test split.")
 
-    utterances = list(read_lines(RAW_FILENAME))
+    utterances = list(read_lines(raw_filename))
 
     # shuffle utterances
     np.random.seed(seed)
@@ -130,8 +133,8 @@ def _split_data(seed=0):
     np.random.shuffle(idxs)
 
     # split utterances into train/val/test
-    train_n = int(len(utterances) * TRAIN_FRAC)
-    val_n = int(round((len(utterances) - train_n) * (VAL_FRAC / (1 - TRAIN_FRAC))))
+    train_n = int(len(utterances) * train_frac)
+    val_n = int(round((len(utterances) - train_n) * (val_frac / (1 - train_frac))))
     split_points = [train_n, train_n + val_n]
     split_idxs = np.split(idxs, split_points)
     split_utterances = []
@@ -140,17 +143,18 @@ def _split_data(seed=0):
         _utterances = [utterances[i] for i in _idxs]
         split_utterances.append(_utterances)
 
-    for filename, _utterances in zip(
-        [TRAIN_FILENAME, VAL_FILENAME, TEST_FILENAME], split_utterances
+    for split, _utterances in zip(
+        ["train", "val", "test"], split_utterances
     ):
+        filename = split_filenames[split]
         with open(filename, "w") as f:
             f.write('\n'.join(_utterances))
 
 
-def _create_vocab(freq_threshold=0):
+def _create_vocab(vocab_filename: Path, filename: Path, freq_threshold=0):
     """Create vocabulary object and save to file"""
 
-    if VOCAB_FILENAME.exists():
+    if vocab_filename.exists():
         print("Vocabulary file already exists. Skipping this step.")
         return
 
@@ -159,7 +163,7 @@ def _create_vocab(freq_threshold=0):
     counter = Counter()
 
     # load utterances
-    utterances = list(read_lines(RAW_FILENAME))
+    utterances = list(read_lines(filename))
 
     # get token frequency
     for utterance in utterances:
@@ -189,7 +193,7 @@ def _create_vocab(freq_threshold=0):
     vocab_dict = {token: idx for idx, token in enumerate(vocab)}
 
     # save as JSON file
-    with open(VOCAB_FILENAME, "w") as f:
+    with open(vocab_filename, "w") as f:
         json.dump(vocab_dict, f)
 
 
