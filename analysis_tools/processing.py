@@ -154,7 +154,7 @@ def get_pos_stats_for_words(words, word_pos_stat, pos_mapping=identity):
 def is_regressional(model):
     """Whether the model is regressional, so the predicted loss, logits, labels are shifted.
     """
-    if isinstance(model, (NGramModel, GPT2LMHeadModel)):
+    if isinstance(model, (NGramModel, GPT2LMHeadModel, dict)):
         return True
     elif isinstance(model, MultiModalLitModel):
         return model.language_model.text_encoder.regressional
@@ -346,6 +346,8 @@ def get_model_items(model, dataloader, pos_tags, ignore_all_token_items=True, to
         embedding_weight = model.transformer.wte.weight
     elif isinstance(model, RobertaForMaskedLM):
         embedding_weight = model.roberta.embeddings.word_embeddings.weight
+    elif isinstance(model, dict) and "encoder.weight" in model:
+        embedding_weight = model["encoder.weight"]
     else:
         embedding_weight = None
     if embedding_weight is not None:

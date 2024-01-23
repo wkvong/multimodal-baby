@@ -1,4 +1,5 @@
 all_groups = {
+    "LSTM 2-layers": ["LSTM 2-layers"],
     "GPT2 2-layers": ["GPT2 2-layers"],
     "GPT2 8-layers": ["GPT2 8-layers"],
     "BabyBERTa 8-layers": ["BabyBERTa 8-layers"],
@@ -17,6 +18,7 @@ all_groups = {
 
 all_checkpoint_paths = {
     "saycam_yulu": {
+        "LSTM 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/saycam/0119/lstm/single-child_model_name_lstm_corpora_saycam_num_layers_2_lr_0.003_weight_decay_0.1_dropout_0.2_batch_size_8_num_epochs_80_train_prob_0.8_scheduler_True_tokenizer_simple_seed_0/best",
         "GPT2 8-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/saycam/0121/gpt2/single-child_model_name_gpt2_id_3_corpora_saycam_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.001_batch_size_8_weight_decay_0.16_dropout_0.15_seed_0/best",
         "BabyBERTa 8-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/saycam/0122/babyBerta/single-child_model_name_babyBerta_id_3_corpora_saycam_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.0001_batch_size_16_weight_decay_0.06_dropout_0.05_seed_0/best",
     },
