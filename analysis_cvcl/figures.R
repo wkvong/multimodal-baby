@@ -26,12 +26,12 @@ saycam_bounds <- saycam_bounds %>%
 # combine 
 saycam_bounds <- bind_rows(saycam_bounds, saycam_frozen_random_init) 
 saycam_bounds <- saycam_bounds %>%
-    mutate(config = ifelse(config == "contrastive_embedding", "CVC", config)) %>%
-    mutate(config = ifelse(config == "contrastive_shuffled", "CVC (Shuffled)", config)) %>%
+    mutate(config = ifelse(config == "contrastive_embedding", "CVCL", config)) %>%
+    mutate(config = ifelse(config == "contrastive_shuffled", "CVCL (Shuffled)", config)) %>%
     mutate(config = ifelse(config == "clip (vit-l/14)", "CLIP", config)) %>%
     mutate(config = ifelse(config == "supervised_linear_probe_all", "Linear Probe", config)) %>%
-    mutate(config = ifelse(config == "contrastive_embedding_frozen_random_init", "CVC (Rand. Features)", config)) %>%
-    mutate(config = factor(config, levels = c("CVC", "CVC (Shuffled)", "CVC (Rand. Features)", "CLIP", "Linear Probe")))
+    mutate(config = ifelse(config == "contrastive_embedding_frozen_random_init", "CVCL (Rand. Features)", config)) %>%
+    mutate(config = factor(config, levels = c("CVCL", "CVCL (Shuffled)", "CVCL (Rand. Features)", "CLIP", "Linear Probe")))
 
 ## get summary stats for main bounds
 saycam_bounds_summary <- saycam_bounds %>%
@@ -41,7 +41,7 @@ saycam_bounds_summary <- saycam_bounds %>%
     summarise(mean = 100*mean(correct), se = 100*sd(correct) / sqrt(n()))
 saycam_bounds_summary
 
-## bar plot of bounds
+## bar plot of bounds, fig 2a
 ggplot(saycam_bounds_summary, aes(x = config, y = mean, fill=config)) +
     geom_bar(stat = "identity") +
     geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2) +
@@ -59,12 +59,12 @@ ggplot(saycam_bounds_summary, aes(x = config, y = mean, fill=config)) +
           axis.text.x = element_text(size=20))
 
 ## save figure
-ggsave("~/code/multimodal-baby/figures/saycam-bounds-summary.pdf", height=7, width=7, units="in", dpi=500) 
+## ggsave("../figures/saycam-bounds-summary.pdf", height=7, width=7, units="in", dpi=500) 
 
 ## results by target category
 ## get summary stats for main bounds
 saycam_bounds_by_target_category_summary <- saycam_bounds %>%
-    #filter(config != "CVC (Shuffled)") %>%
+    #filter(config != "CVCL (Shuffled)") %>%
     group_by(target_category, config, seed) %>%
     summarise(correct = mean(correct)) %>%
     group_by(target_category, config) %>%
@@ -73,7 +73,7 @@ saycam_bounds_by_target_category_summary
 
 ## get factor ordering based on contrastive model accuracy
 target_category_factor_ordering <- saycam_bounds_by_target_category_summary %>%
-    filter(config == "CVC") %>%
+    filter(config == "CVCL") %>%
     arrange(-mean) %>%
     pull(target_category)
 
@@ -81,40 +81,49 @@ target_category_factor_ordering <- saycam_bounds_by_target_category_summary %>%
 saycam_bounds_by_target_category_summary$target_category <- factor(
     saycam_bounds_by_target_category_summary$target_category, levels=target_category_factor_ordering)
 
+## create new column for extended model name
+saycam_bounds_by_target_category_summary <- saycam_bounds_by_target_category_summary %>%
+    mutate(config_long = config) %>%
+    mutate(config_long = case_when(
+               config == "CVCL (Rand. Features)" ~ "CVCL (Random Features)"
+           ))
+
 capitalize <- function(string) {
     substr(string, 1, 1) <- toupper(substr(string, 1, 1))
     string
 }
 
+## fig 2d
 ggplot(saycam_bounds_by_target_category_summary, aes(x = config, y = mean, fill = config)) +
     geom_bar(stat = "identity") +
     geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2) +
     geom_hline(yintercept = 25, linetype = "dashed") +
-    scale_fill_manual(values = c("#33A02C", "#FED976", "#FDBF6F", "#A6CEE3", "#1F78B4")) +
+    scale_fill_manual(values = c("#33A02C", "#FED976", "#FDBF6F", "#A6CEE3", "#1F78B4"), name = "Model", labels = c("CVCL", "CVCL (Shuffled)", "CVCL (Random Features)", "CLIP", "Linear Probe")) +
     labs(x = "Model", y = "Classification Accuracy") +
     scale_x_discrete(labels = function(x) 
         stringr::str_wrap(x, width = 10)) +
     ylim(0, 100) + 
     theme_bw(base_size=30) +
     theme(legend.position = "bottom",
+          legend.title=element_text(size=24),
     #axis.text.x = element_text(angle = 90, hjust = 1)) +
     axis.text.x=element_blank(),
     axis.ticks.x=element_blank()) +
     facet_wrap(~ target_category, labeller = labeller(target_category = capitalize), ncol = 6)
 
-ggsave("~/code/multimodal-baby/figures/saycam-bounds-by-target-category-summary.pdf", height=14, width=20, units="in", dpi=500) 
+## ggsave("../figures/saycam-bounds-by-target-category-summary.pdf", height=14, width=20, units="in", dpi=500) 
 
-## do comparison between CVC and linear probe
+## do comparison between CVCL and linear probe
 saycam_cvc_vs_linear_probe <- saycam_bounds_by_target_category_summary %>%
-    filter(config == "CVC" | config == "Linear Probe") %>%
+    filter(config == "CVCL" | config == "Linear Probe") %>%
     select(config, target_category, mean) %>%
     spread(config, mean) %>%
-    mutate(diff = `Linear Probe` - CVC)
+    mutate(diff = `Linear Probe` - CVCL)
 
 ## plot difference
 ggplot(saycam_cvc_vs_linear_probe, aes(x = diff, y = target_category)) +
     geom_bar(stat = "identity") +
-    labs(x = "Linear Probe - CVC", y = "Target Category") +
+    labs(x = "Linear Probe - CVCL", y = "Target Category") +
     ## reverse ordering of y-axis
     scale_y_discrete(limits = rev(saycam_cvc_vs_linear_probe$target_category),
                      labels = function(x) 
@@ -123,7 +132,7 @@ ggplot(saycam_cvc_vs_linear_probe, aes(x = diff, y = target_category)) +
     theme(legend.position = "none")
 
 ## perform rank correlation
-saycam_rank_cor <- cor.test(saycam_cvc_vs_linear_probe$CVC,
+saycam_rank_cor <- cor.test(saycam_cvc_vs_linear_probe$CVCL,
                             saycam_cvc_vs_linear_probe$`Linear Probe`,
                             method="spearman")
 
@@ -141,6 +150,7 @@ saycam_filtered_comp <- saycam_summary %>%
 saycam_filtered_comp$Condition <- ifelse(saycam_filtered_comp$filtered, "Filtered", "Original")
 saycam_filtered_comp$Condition <- factor(saycam_filtered_comp$Condition, levels=c("Original", "Filtered"))
 
+## fig s3
 ggplot(saycam_filtered_comp, aes(x = target_category, y = mean, group = Condition, fill = Condition)) +
     geom_bar(stat="identity", position=position_dodge()) +
     geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2,
@@ -153,7 +163,7 @@ ggplot(saycam_filtered_comp, aes(x = target_category, y = mean, group = Conditio
     theme_bw(base_size=30) +
     theme(legend.position = "bottom",
           axis.text.x = element_text(size=20, angle=45, hjust=1))
-ggsave("~/code/multimodal-baby/figures/labeled-s-manual-filtering.pdf", height=10, width=12, units="in", dpi=500) 
+## ggsave("../figures/labeled-s-manual-filtering.pdf", height=10, width=12, units="in", dpi=500) 
 
 ## extract configs for linear probe summary
 saycam_linear_probes <- saycam_summary %>%
@@ -162,11 +172,11 @@ saycam_linear_probes <- saycam_summary %>%
 
 ## rename configs and re-order
 saycam_linear_probes <- saycam_linear_probes %>%
-    mutate(config = ifelse(config == "contrastive_embedding", "CVC", config)) %>%
+    mutate(config = ifelse(config == "contrastive_embedding", "CVCL", config)) %>%
     mutate(config = ifelse(config == "supervised_linear_probe_all", "Linear Probe (100%)", config)) %>%
     mutate(config = ifelse(config == "supervised_linear_probe_10_percent", "Linear Probe (10%)", config)) %>%
     mutate(config = ifelse(config == "supervised_linear_probe_1_percent", "Linear Probe (1%)", config)) %>%
-    mutate(config = factor(config, levels = c("CVC", "Linear Probe (1%)", "Linear Probe (10%)", "Linear Probe (100%)")))
+    mutate(config = factor(config, levels = c("CVCL", "Linear Probe (1%)", "Linear Probe (10%)", "Linear Probe (100%)")))
 
 ## get summary stats for linear probes
 saycam_linear_probes_summary <- saycam_linear_probes %>%
@@ -176,7 +186,7 @@ saycam_linear_probes_summary <- saycam_linear_probes %>%
     summarise(mean = 100*mean(correct), se = 100*sd(correct) / sqrt(n()))
 saycam_linear_probes_summary
 
-## bar plot of linear probes
+## bar plot of linear probes, fig 2b
 ggplot(saycam_linear_probes_summary, aes(x = config, y = mean, fill=config)) +
     geom_bar(stat = "identity") +
     geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2) +
@@ -192,18 +202,19 @@ ggplot(saycam_linear_probes_summary, aes(x = config, y = mean, fill=config)) +
           axis.text.x = element_text(size=20))
 
 ## save figure
-ggsave("~/code/multimodal-baby/figures/saycam-linear-probes-summary.pdf", height=7, width=7, units="in", dpi=500) 
+## ggsave("../figures/saycam-linear-probes-summary.pdf", height=7, width=7, units="in", dpi=500) 
 
 ## results by target category
 ## get summary stats for main bounds
 saycam_linear_probes_by_target_category_summary <- saycam_linear_probes %>%
-    filter(config != "CVC (Shuffled)") %>%
+    filter(config != "CVCL (Shuffled)") %>%
     group_by(target_category, config, seed) %>%
     summarise(correct = mean(correct)) %>%
     group_by(target_category, config) %>%
     summarise(mean = 100*mean(correct), se = 100*sd(correct) / sqrt(n()))
 saycam_linear_probes_by_target_category_summary
 
+## fig s2
 ggplot(saycam_linear_probes_by_target_category_summary, aes(x = config, y = mean, fill = config)) +
     geom_bar(stat = "identity") +
     geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2) +
@@ -221,25 +232,25 @@ ggplot(saycam_linear_probes_by_target_category_summary, aes(x = config, y = mean
     axis.ticks.x=element_blank()) +
     facet_wrap(~ target_category, labeller = labeller(target_category = capitalize), ncol = 6)
 
-ggsave("~/code/multimodal-baby/figures/saycam-linear-probes-by-target-category-summary.pdf", height=14, width=22, units="in", dpi=500) 
+## ggsave("../figures/saycam-linear-probes-by-target-category-summary.pdf", height=14, width=22, units="in", dpi=500) 
 
 ## ablation results
 saycam_ablations <- read_csv("../results/summary/saycam-ablations.csv")
 
 ## extract configs for summary bounds figure
 saycam_ablations <- saycam_ablations %>%
-    filter(config == "contrastive_embedding" & filtered == FALSE | 
+    filter(config == "contrastive_embedding" | 
            config == "contrastive_lstm" |
            config == "contrastive_embedding_finetune_random_init" | 
            config == "contrastive_embedding_single_frame")
 
 ## rename configs and re-order
 saycam_ablations <- saycam_ablations %>%
-    mutate(config = ifelse(config == "contrastive_embedding", "CVC", config)) %>%
-    mutate(config = ifelse(config == "contrastive_lstm", "CVC (LSTM)", config)) %>%
-    mutate(config = ifelse(config == "contrastive_embedding_finetune_random_init", "CVC (Scratch)", config)) %>%
-    mutate(config = ifelse(config == "contrastive_embedding_single_frame", "CVC (Single Frame)", config)) %>%
-    mutate(config = factor(config, levels = c("CVC", "CVC (LSTM)", "CVC (Single Frame)", "CVC (Scratch)")))
+    mutate(config = ifelse(config == "contrastive_embedding", "CVCL", config)) %>%
+    mutate(config = ifelse(config == "contrastive_lstm", "CVCL (LSTM)", config)) %>%
+    mutate(config = ifelse(config == "contrastive_embedding_finetune_random_init", "CVCL (Scratch)", config)) %>%
+    mutate(config = ifelse(config == "contrastive_embedding_single_frame", "CVCL (Single Frame)", config)) %>%
+    mutate(config = factor(config, levels = c("CVCL", "CVCL (LSTM)", "CVCL (Single Frame)", "CVCL (Scratch)")))
 
 ## get summary stats for ablations
 saycam_ablations_summary <- saycam_ablations %>%
@@ -249,7 +260,8 @@ saycam_ablations_summary <- saycam_ablations %>%
     summarise(mean = 100*mean(correct), se = 100*sd(correct) / sqrt(n()))
 saycam_ablations_summary
 
-## bar plot of bounds
+## bar plot of ablations
+## fig 2c
 ggplot(saycam_ablations_summary, aes(x = config, y = mean, fill=config)) +
     geom_bar(stat = "identity") +
     geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2) +
@@ -266,7 +278,7 @@ ggplot(saycam_ablations_summary, aes(x = config, y = mean, fill=config)) +
           axis.text.x = element_text(size=20))
 
 ## save figure
-ggsave("~/code/multimodal-baby/figures/saycam-ablations-summary.pdf", height=7, width=7, units="in", dpi=500) 
+## ggsave("../figures/saycam-ablations-summary.pdf", height=7, width=7, units="in", dpi=500) 
 
 ## object categories
 object_categories <- read_csv("../results/summary/object-categories.csv", col_types = cols(split = col_character()))
@@ -311,14 +323,14 @@ object_categories_bounds_summary <- object_categories %>%
     summarise(correct = mean(correct)) %>%
     group_by(config) %>%
     summarise(mean = 100*mean(correct), se = 100*sd(correct) / sqrt(n())) %>%
-    mutate(config = ifelse(config == "contrastive", "CVC", config)) %>%
-    mutate(config = ifelse(config == "contrastive_shuffled", "CVC (Shuffled)", config)) %>%
-    mutate(config = ifelse(config == "contrastive_frozen_random_init", "CVC (Rand. Features)", config)) %>%
+    mutate(config = ifelse(config == "contrastive", "CVCL", config)) %>%
+    mutate(config = ifelse(config == "contrastive_shuffled", "CVCL (Shuffled)", config)) %>%
+    mutate(config = ifelse(config == "contrastive_frozen_random_init", "CVCL (Rand. Features)", config)) %>%
     mutate(config = ifelse(config == "clip", "CLIP", config)) %>%
     mutate(config = ifelse(config == "linear_probe", "Linear Probe", config)) %>%
-    mutate(config = factor(config, levels = c("CVC", "CVC (Shuffled)", "CVC (Rand. Features)", "CLIP", "Linear Probe")))
+    mutate(config = factor(config, levels = c("CVCL", "CVCL (Shuffled)", "CVCL (Rand. Features)", "CLIP", "Linear Probe")))
 
-## create bar plot    
+## create bar plot, fig 3a
 ggplot(object_categories_bounds_summary, aes(x = config, y = mean, fill=config)) +
     geom_bar(stat = "identity") +
     geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2) +
@@ -334,7 +346,8 @@ ggplot(object_categories_bounds_summary, aes(x = config, y = mean, fill=config))
     theme_bw(base_size=30) +
     theme(legend.position = "none",
           axis.text.x = element_text(size=20))
-ggsave("~/code/multimodal-baby/figures/object-categories-bounds-summary.pdf", height=7, width=7, units="in", dpi=500) 
+
+## ggsave("../figures/object-categories-bounds-summary.pdf", height=7, width=7, units="in", dpi=500) 
 
 ## summary plot by category
 object_categories_bounds_summary_by_category <- object_categories %>%
@@ -342,12 +355,12 @@ object_categories_bounds_summary_by_category <- object_categories %>%
     summarise(correct = mean(correct)) %>%
     group_by(config, target_category) %>%
     summarise(mean = 100*mean(correct), se = 100*sd(correct) / sqrt(n())) %>%
-    mutate(config = ifelse(config == "contrastive", "CVC", config)) %>%
-    mutate(config = ifelse(config == "contrastive_shuffled", "CVC (Shuffled)", config)) %>%
-    mutate(config = ifelse(config == "contrastive_frozen_random_init", "CVC (Rand. Features)", config)) %>%
+    mutate(config = ifelse(config == "contrastive", "CVCL", config)) %>%
+    mutate(config = ifelse(config == "contrastive_shuffled", "CVCL (Shuffled)", config)) %>%
+    mutate(config = ifelse(config == "contrastive_frozen_random_init", "CVCL (Rand. Features)", config)) %>%
     mutate(config = ifelse(config == "clip", "CLIP", config)) %>%
     mutate(config = ifelse(config == "linear_probe", "Linear Probe", config)) %>%
-    mutate(config = factor(config, levels = c("CVC", "CVC (Shuffled)", "CVC (Rand. Features)", "CLIP", "Linear Probe")))
+    mutate(config = factor(config, levels = c("CVCL", "CVCL (Shuffled)", "CVCL (Rand. Features)", "CLIP", "Linear Probe")))
 
 ggplot(object_categories_bounds_summary_by_category, aes(x = config, y = mean, fill = config)) +
     geom_bar(stat = "identity") +
@@ -367,16 +380,15 @@ ggplot(object_categories_bounds_summary_by_category, aes(x = config, y = mean, f
 
 ## compare cvc and linear probe
 object_categories_cvc_vs_linear_probe <- object_categories_bounds_summary_by_category %>%
-    filter(config == "Linear Probe" | config == "CVC") %>%
+    filter(config == "Linear Probe" | config == "CVCL") %>%
     select(-se) %>%
     spread(config, mean)
 
 object_categories_rank_cor <- cor.test(
-    object_categories_cvc_vs_linear_probe$CVC,
+    object_categories_cvc_vs_linear_probe$CVCL,
     object_categories_cvc_vs_linear_probe$`Linear Probe`,
     method="spearman")
 print(object_categories_rank_cor)
-
 
 ## get frequency info
 object_categories_freq <- c(ball = 481, train = 235, socks = 129, bottle = 110, camera = 92, pants = 91, 
@@ -448,8 +460,8 @@ ggplot() +
           strip.text.x = element_blank())
           # panel.spacing = unit(2, "lines"))    
 
-ggsave("~/code/multimodal-baby/figures/object-categories-by-target-category-summary-full.pdf", 
-       height=8, width=12, units="in", dpi=500)
+## ggsave("../figures/object-categories-by-target-category-summary-full.pdf", 
+##        height=8, width=14, units="in", dpi=500)
 
 ## scatterplot with accuracy and frequency
 ggplot(object_categories_cvc_summary, aes(x = log(freq), y = mean, label=labels)) +
@@ -462,7 +474,7 @@ ggplot(object_categories_cvc_summary, aes(x = log(freq), y = mean, label=labels)
 ## fig. 4a
 embeddings <- read_csv("../results/alignment/joint_embeddings_with_eval_sims_seed_0.csv")
 
-# group categories
+## group categories
 embeddings <- embeddings %>%
     rename(cat = kitty) %>%
     mutate(eval_category = ifelse(eval_category == "kitty", "cat", eval_category)) %>%
@@ -474,11 +486,11 @@ embeddings <- embeddings %>%
                              eval_category %in% c("room", "hand") ~ 6,
                              TRUE ~ 0))
 
-# get mean image and text embeddings
+## get mean image and text embeddings
 mean_image_text_embeddings <- embeddings %>%
     filter(embedding_type == "image_mean" | embedding_type == "text")
 
-# only want labels for one set
+## only want labels for one set
 labels <- mean_image_text_embeddings %>%
     pull(eval_category)
 for (i in 1:(length(labels)/2)) {
@@ -486,7 +498,7 @@ for (i in 1:(length(labels)/2)) {
 }
 text_labels <- labels[23:44]
 
-# mean embedding plot
+## mean embedding plot, fig 4b
 mean_image_text_embeddings <- mean_image_text_embeddings %>%
     mutate(embedding_type = case_when(
         embedding_type == "image_mean" ~ "Image",
@@ -512,19 +524,63 @@ ggplot(mean_image_text_embeddings, aes(x = x, y = y, color = embedding_type, gro
        axis.ticks.x = element_blank(),
        axis.ticks.y = element_blank())
 
-ggsave("~/code/multimodal-baby/figures/joint-tsne-text-only.pdf", height=10, width=10, units="in", dpi=500)
+## ggsave("../figures/joint-tsne-text-only.pdf", height=10, width=10, units="in", dpi=500)
 
-## calculate correlation
+## calculate correlation between visual prototype and text embedding
 mean_image_text_embeddings_dist <- mean_image_text_embeddings %>%
     group_by(eval_category) %>%
     summarise(dist = sqrt(sum((c(first(x), first(y)) - c(last(x), last(y)))^2))) %>%
-    mutate(correct = saycam_bounds_by_target_category_summary %>% filter(config == "CVC") %>% pull(mean))
-    
-# plot embeddings across all categories
-# set factor of embeddings based on classification performance
+    mutate(correct = saycam_bounds_by_target_category_summary %>% filter(config == "CVCL") %>% pull(mean))
+
+## calculate correlation
+cor.test(mean_image_text_embeddings_dist$dist,
+         mean_image_text_embeddings_dist$correct)
+
+## scatterplot to show correlation, fig s5
+ggplot(mean_image_text_embeddings_dist,
+       aes(x = dist, y = correct, label=eval_category)) +
+    geom_point(size = 3, aes(color = eval_category)) +
+    geom_smooth(method = 'lm') +
+    geom_label_repel(size=5, force=0.5, min.segment.length = 0, box.padding=1, 
+                     nudge_x = 8, nudge_y = -4, 
+                     aes(color = eval_category)) +
+    labs(x = "Euclidean Distance in t-SNE space", y = "Classification Accuracy") +
+    theme_bw(base_size=24) +
+    theme(legend.position = "none")
+
+## ggsave("../figures/embedding-distance-vs-classification-performance-scatterplot.pdf", height=10, width=10, units="in", dpi=500)
+
+## calculate correlation between mean distance to prototype and performance
+embeddings_only <- embeddings %>%
+    filter(embedding_type == "image")
+
+## rename mean_image_text_embeddings
+mean_image_text_embeddings_only <- mean_image_text_embeddings %>%
+    filter(embedding_type == "Image") %>%
+    rename(mean_x = x, mean_y = y) %>%
+    select(eval_category, mean_x, mean_y)
+
+## perform join between embeddigs
+embeddings_only <- embeddings_only %>%
+    left_join(mean_image_text_embeddings_only, by="eval_category") %>%
+    select(eval_category, x, y, mean_x, mean_y)
+
+## compute average distance to centroid
+embeddings_avg_dist <- embeddings_only %>%
+    mutate(dist = sqrt((x - mean_x)^2 + (y - mean_y)^2)) %>%
+    group_by(eval_category) %>%
+    summarise(dist = mean(dist)) %>%
+    mutate(correct = saycam_bounds_by_target_category_summary %>% filter(config == "CVCL") %>% pull(mean))
+
+## compute correlation
+cor.test(embeddings_avg_dist$dist,
+         embeddings_avg_dist$correct)
+
+## set factor of embeddings based on classification performance
 embeddings$eval_category <- factor(embeddings$eval_category, target_category_factor_ordering)
 
-# Define a vector of 22 different colors
+## plot embeddings across all categories
+## Define a vector of 22 different colors
 colors <- sample(c("#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD",
             "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF",
             "#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD",
@@ -558,9 +614,11 @@ ggplot(embeddings %>% filter(embedding_type == "image") %>% select(-group), aes(
           axis.ticks.x = element_blank(),
           axis.ticks.y = element_blank())
 
-ggsave("~/code/multimodal-baby/figures/joint-tsne-all.pdf", height=7, width=10, units="in", dpi=500)
+## ggsave("../figures/joint-tsne-all.pdf", height=7, width=10, units="in", dpi=500)
 
-# per category embeddings
+## per category embeddings
+## fig s6
+
 set.seed(42)
 all_plots <- list()
 all_categories <- embeddings %>% pull(eval_category) %>% unique()
@@ -612,9 +670,11 @@ for (curr_category in all_categories) {
     idx <- idx + 2
 }    
 wrap_plots(all_plots, ncol=8) + plot_layout(widths=c(), heights=c())
-ggsave("~/code/multimodal-baby/figures/tsne-label-most-sim-all.pdf", height=12, width=12, units="in", dpi=500) 
+
+## ggsave("../figures/tsne-label-most-sim-all.pdf", height=12, width=12, units="in", dpi=500) 
 
 ## remake plot for three categories (sand, puzzle, stairs)
+## fig 4c
 subset_categories <- c("sand", "stairs", "puzzle")
 for (curr_category in subset_categories) {
     embeddings <- embeddings %>%
@@ -659,245 +719,26 @@ for (curr_category in subset_categories) {
             axis.ticks.x = element_blank(),
             axis.ticks.y = element_blank())
     (a|b)
-    ggsave(glue("~/code/multimodal-baby/figures/tsne-label-most-sim-{curr_category}-with-filenames.pdf"), height=8, width=12, units="in", dpi=500) 
+    ## ggsave(glue("../figures/tsne-label-most-sim-{curr_category}-with-filenames.pdf"), height=8, width=12, units="in", dpi=500) 
 }
 
-## correlations to classification performance
-## get image variability using sampled image embeddings
-image_variability <- embeddings %>% filter(embedding_type == "image") %>%
-    group_by(eval_category) %>%
-    summarise(x_sd = sd(x), y_sd = sd(y)) %>%
-    mutate(rmse = sqrt(x_sd ** 2 + y_sd **2))
+## overlap plot
+matched_df <- read_csv("../results/duplicates/matched_results.csv")
 
-# get word frequency from training data frequency counts
-word_freq <- list(ball = 481, basket = 19, car = 176, cat = 416,
-                  chair = 54, computer = 24, crib = 51, door = 44,
-                  floor = 24, foot = 114, ground = 18, hand = 118,
-                  kitchen = 12, paper = 51, puzzle = 71, road = 15,
-                  room = 62, sand = 85, stairs = 36, table = 21,
-                  toy = 37, window = 32)
-word_freq <- tibble(eval_category = names(word_freq), word_freq = unlist(word_freq))
+## convert cosine sims into bins of width 0.05
+matched_df <- matched_df %>%
+    mutate(bin = ((cosine_sim * 20) %/% 1) / 20)
 
-## get image frequency based on size of labeled-S
-image_freq <- list(floor = 3572, ball = 2106, toy = 4307, room = 1979,
-                   road = 1740, hand = 1546, puzzle = 1529, table = 1323,
-                   door = 1267, window = 1188, kitchen = 1079, ground = 1090,
-                   computer = 840, cat = 751, paper = 715, car = 645,
-                   chair = 535, stairs = 477, crib = 459, foot = 407,
-                   sand = 318, basket = 74)
-image_freq <- tibble(eval_category = names(image_freq), image_freq = unlist(image_freq))
+## fig s8
+ggplot(matched_df, aes(x = bin, fill = matched)) +
+    geom_bar(stat="count", position=position_dodge2(preserve="single"), color="black", width=0.04) +
+    xlab("Cosine Similarity of Nearest Training Frame") +
+    ## scale_x_continuous(breaks=seq(0.5, 1.0, by=0.1)) +
+    xlim(0.5, 1) +
+    scale_fill_manual(breaks = c("match", "mismatch"), values = c("match" = "#33A02C", "mismatch" = "#88D78F"), labels = c("Match", "Mismatch")) +
+    labs(fill = "Matched evaluation category in utterance") +
+    ylab("Count") +
+    theme_bw(base_size=18) +
+    theme(legend.position = "bottom")
 
-## add each of these to regression data frame using left joins
-regression <- saycam_bounds_by_target_category_summary %>%
-    filter(config == "CVC") %>%
-    rename(eval_category = target_category) %>%
-    left_join(image_variability, by="eval_category") %>%
-    left_join(word_freq, by="eval_category") %>%
-    left_join(image_freq, by="eval_category") %>%
-    mutate(log_word_freq = log(word_freq),
-           log_image_freq = log(image_freq))
-
-## calculate correlations
-cor.test(regression$mean, regression$rmse)
-cor.test(regression$mean, regression$log_word_freq)
-cor.test(regression$mean, regression$log_image_freq)
-
-## calculate linear model fit
-lm_fit <- lm(mean ~ log_word_freq*log_image_freq*rmse, data=regression)
-summary(lm_fit)
-
-## create plots comparing mean against each of these predictors
-ggplot(regression, aes(x=rmse, y=mean, label=eval_category)) +
-    geom_point(size=3) +
-    geom_smooth(method="lm") +
-    geom_label_repel() +
-    theme_bw(base_size=20) +
-    xlab("Image Variabiilty (RMSE)") +
-    ylab("Mean")
-
-ggplot(regression, aes(x=log_word_freq, y=mean, label=eval_category)) +
-    geom_point(size=3) +
-    geom_smooth(method="lm") +
-    geom_label_repel() +
-    theme_bw(base_size=20) +
-    xlab("Log Word Frequency") +
-    ylab("Mean")
-
- ggplot(regression, aes(x=log_image_freq, y=mean, label=eval_category)) +
-    geom_point(size=3) +
-    geom_smooth(method="lm") +
-    geom_label_repel() +
-    theme_bw(base_size=20) +
-    xlab("Log Image Frequency") +
-    ylab("Mean")
- 
-## get konkle objects t-sne results
-konkle_objects_tsne <- read_csv("../results/alignment/konkle-objects-avg-image-text-embeddings_seed_0.csv")
-
-konkle_objects_tsne$eval_category <- factor(konkle_objects_tsne$eval_category, levels = object_categories_cvc_summary$target_category)
-
-## plot image and text embeddings
-ggplot(konkle_objects_tsne, aes(x=x, y=y)) +
-    geom_point(data=konkle_objects_tsne %>% filter(embedding_type == "image_mean") %>% select(x, y), size=1.5, color="grey70") +
-    geom_point(size=3, aes(color = embedding_type)) +
-    geom_line(aes(label=eval_category, group=eval_category), linetype = 2, color = "grey10", size=0.2) +
-    geom_text_repel(aes(label=eval_category)) +
-    coord_fixed() +
-    scale_fill_brewer() +
-    theme_bw(base_size=20) +
-    xlab("") +
-    ylab("") +
-    facet_wrap(~ eval_category, ncol=8) + 
-    ggtitle("Mean Image and Text Embeddings for Konkle Objects Eval") +
-    theme(
-        legend.position = "none",
-        axis.text.x = element_blank(),
-        axis.text.y = element_blank(),
-        axis.ticks.x = element_blank(),
-        axis.ticks.y = element_blank())
-
-## save plot
-ggsave("~/code/multimodal-baby/figures/konkle-objects-image-text-embeddings.pdf", height=20, width=20, units="in", dpi=500) 
-
-## old, unused code, can safely ignore
-## image and text embeddings
-## note: earlier version of this plot using different set of embeddings
-## model <- "cvc"
-## joint_tsne_df <- read_csv(glue("../results/alignment/{model}_joint_embeddings_tsne_seed_0.csv"))
-
-## labels <- joint_tsne_df %>% pull(eval_category)
-## for (i in 1:length(labels)) {
-##     if (i %% 2 == 1) {
-##         labels[i] <- ""
-##     }
-## }
-## print(labels)
-
-## ggplot(joint_tsne_df, aes(x = x, y = y, color = modality, group = eval_category)) +
-##     geom_line(linetype = 2, color = "grey30", size=1) +
-##     geom_text_repel(label = labels, color = "black", min.segment.length = 10, segment.color = "grey50",
-##                     nudge_x = 0, nudge_y = -8, size = 7) +
-##     geom_point(size = 5) +
-##     scale_color_manual(name = "Embedding", values = c(brewer.pal(9, "Blues")[7], brewer.pal(9, "Greens")[4])) +
-##     theme_bw(base_size=22) +
-##     xlab("") +
-##     ylab("") +
-##     theme(
-##         legend.position = "bottom",
-##         legend.title = element_text(size = 18),
-##         legend.margin = margin(-40, 0, 0, 0),
-##         axis.text.x = element_blank(),
-##         axis.text.y = element_blank(),
-##         axis.ticks.x = element_blank(),
-##         axis.ticks.y = element_blank())
-
-## ggsave(glue("~/code/multimodal-baby/figures/{model}-joint-tsne.pdf"), height=8, width=8, units="in", dpi=500) 
-
-## TODO: move this code to the end and comment out
-## k-means clustering
-## eval_categories <- joint_tsne_df$eval_category %>% unique()
-## image_tsne_df <- joint_tsne_df %>%
-##     filter(modality == "text")
-
-## library(cluster)
-## kmeans_result <- kmeans(scale(image_tsne_df %>% select(x, y)), center = 4, nstart = 25)
-## clustered_eval_categories <- image_tsne_df %>%
-##     mutate(cluster = kmeans_result$cluster) %>%
-##     arrange(cluster) %>%
-##     pull(eval_category)
- 
-## # image and text similarity matrices
-## joint_embedding_sims <- read_csv("../results/alignment/joint_embeddings_sims_seed_0.csv")
-
-## # histogram of similarities
-## ggplot(joint_embedding_sims, aes(x = image_sims)) +
-##     geom_histogram() +
-##     theme_bw()
-
-## ggplot(joint_embedding_sims, aes(x = text_sims)) + 
-##     geom_histogram() +
-##     theme_bw()
-
-## # re-order factors
-## joint_embedding_sims$eval_category_x <- factor(joint_embedding_sims$eval_category_x, 
-##                                                   levels=clustered_eval_categories)
-## joint_embedding_sims$eval_category_y <- factor(joint_embedding_sims$eval_category_y, 
-##                                                   levels=clustered_eval_categories)
-
-## # image sims plot
-## ggplot(joint_embedding_sims, aes(eval_category_x, eval_category_y, fill=image_sims)) + 
-##     geom_tile() +
-##     scale_y_discrete(limits = rev) +
-##     scale_fill_distiller(palette="Blues", direction=1, limits=c(min(joint_embedding_sims$text_sims), 0.8), oob=squish) +
-##     xlab("") +
-##     ylab("") +
-##     theme_minimal(base_size = 16) +
-##     theme(
-##         legend.position = "none",
-##         axis.text.x = element_text(angle = 90, hjust = 1))
-
-## ggsave("~/code/multimodal-baby/figures/image-sims.pdf", height=8, width=8, units="in", dpi=500) 
-
-## # text sims plot
-## ggplot(joint_embedding_sims, aes(eval_category_x, eval_category_y, fill=text_sims)) + 
-##     geom_tile() +
-##     scale_y_discrete(limits = rev) +
-##     scale_fill_distiller(palette="Greens", direction=1, limits=c(min(joint_embedding_sims$text_sims), 0.4), oob=squish) +
-##     xlab("") +
-##     ylab("") +
-##     theme_minimal(base_size = 16) +
-##     theme(
-##         legend.position = "none",
-##         axis.text.x = element_text(angle = 90, hjust = 1))
-
-## ggsave("~/code/multimodal-baby/figures/text-sims.pdf", height=8, width=8, units="in", dpi=500) 
-
-## # image-text similarity matrix
-## image_text_embedding_sims <- read_csv("../results/alignment/cvc_image_text_embeddings_sims_seed_0.csv")
-## image_text_ordering <- image_text_embedding_sims %>%
-##     filter(eval_category_x == eval_category_y) %>%
-##     arrange(desc(image_text_sims)) %>%
-##     pull(eval_category_x)
-## image_text_embedding_sims$eval_category_x <- factor(image_text_embedding_sims$eval_category_x, 
-##                                                     levels=image_text_ordering)
-## image_text_embedding_sims$eval_category_y <- factor(image_text_embedding_sims$eval_category_y, 
-##                                                     levels=image_text_ordering)
-
-## # get subset of image_text_embedding_sims
-## image_text_embedding_sims_subset <- image_text_embedding_sims %>%
-##     filter(eval_category_x %in% c("sand", "ball", "car", "road", "foot", "ground", "toy", "basket")) %>%
-##     filter(eval_category_y %in% c("sand", "ball", "car", "road", "foot", "ground", "toy", "basket"))
-## image_text_embedding_sims_subset
-
-## # full plot
-## ggplot(image_text_embedding_sims, aes(eval_category_x, eval_category_y, fill=image_text_sims)) + 
-##     geom_tile() +
-##     coord_equal() +
-##     scale_y_discrete(limits = rev) +
-##     scale_fill_distiller(name = "Cosine\nSimilarity", palette="YlGnBu", direction=1, limits=c(min(image_text_embedding_sims$image_text_sims), 1.0), oob=squish) +
-##     xlab("Image") +
-##     ylab("Text") +
-##     theme_minimal(base_size = 22) +
-##     theme(
-##         legend.position = "right",
-##         axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5))
-
-
-## ggsave("~/code/multimodal-baby/figures/image-text-sims.pdf", height=8, width=10, units="in", dpi=500) 
-
-## # subset plot
-## ggplot(image_text_embedding_sims_subset, aes(eval_category_x, eval_category_y, fill=image_text_sims)) + 
-##     geom_tile() +
-##     coord_equal() +
-##     scale_y_discrete(limits = rev) +
-##     scale_fill_distiller(name = "Cosine\nSimilarity", palette="YlGnBu", direction=1, limits=c(min(image_text_embedding_sims$image_text_sims), 1.0), oob=squish) +
-##     xlab("Image") +
-##     ylab("Text") +
-##     theme_minimal(base_size = 22) +
-##     theme(
-##         legend.position = "right",
-##         axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5))
-
-## ggsave("~/code/multimodal-baby/figures/image-text-subset-sims.pdf", height=8, width=9, units="in", dpi=500) 
-
-
+## ggsave("../figures/cosine-similarity-indirect-overlap.pdf", height=7, width=8)
