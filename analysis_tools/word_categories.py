@@ -68,20 +68,31 @@ special_tokens = (
 )
 untypical_words = ' '.join((possessives + negations + be_verbs + pronoun_contractions + other_contractions + quantifiers + pos_ambiguous_words + special_tokens)).split()
 
+wiki_semantic_categories = {
+    #"animals": ("", ""),
+    #"vehicles": ("", ""),
+    "toys": ("ball baseball drum bell ring stick", "basketball football piano aircraft cards gun spin comics ruler sword matches cricket guitar plane throne rocket disk medal"),
+    #"food_drink": ("water", ""),
+    "clothing": ("cape jean coat hat pants suit", "cape ties cap dress"),
+    #"body_parts": ("", ""),
+    "household": ("television calendar cup bowl glass box", "radio dishes computer key fuel magazine medicine instruments map paper computers electricity coal paintings"),
+    "places": ("church museum park library airport beach", "university school europe england china america france office germany college india canada london australia africa britain japan uk spain california paris ireland asia sea island empire"),
+}
+
 # manually labelled all words with freq >= 24 (i.e., ends at "works" in the vocab)
 pos_subcats = {
     "noun": {
         "sounds": ("boop bloop ruff ya blo mmkay bop nom quack vroom boom mwah woof ma", "yeah oh yea uh yeahh ah hey yep mm mmm yay hmm um ohh yup yeahhh ahh op ooh yum woah hm ohhh ha oops"),
         "animals": ("kitty bear bunny doggy duck cow sheep kitties ducks fish birds horse birdy hippo birdies doggies bird giraffe dog dinosaur lamb mouse chick cows pig lion cat butterfly", "marmite chicken animals"),
         "vehicles": ("train car truck cars boat trucks tractor wagon", ""),
-        "toys": ("ball puzzle balloon balls blocks dolly doh", "toys toy book books bubbles dummy marker pen"),
+        "toys": ("ball puzzle balloon balls blocks dolly dollie doll doh", "baseball drum bell ring stick toys toy book books bubbles dummy marker pen"),
         "food_drink": ("water banana bread eggs egg milk apple browns jam juice grapes biscuit strawberry rice fruit sushi hashbrowns coffee puree", "food breakfast breaky"),
-        "clothing": ("shoes socks shirt pants jacket sock shoe hat", "clothes nappy backpack blanket"),
+        "clothing": ("shoes socks shirt pants jacket sock shoe hat cape jean coat suit", "clothes nappy backpack blanket"),
         "body_parts": ("hand foot mouth hands head feet teeth nose lap toes face belly hair eyes", ""),
-        "household": ("cup bottle brush bucket spoon bag box bowl plate sandpit cups boxes", ""),
+        "household": ("cup bottle brush bucket spoon bag box bowl plate sandpit cups boxes", "television calendar glass"),
         "furniture_rooms": ("bin potty chair crib door bed stairs window mirror floor basket", "computer"),
         "outside": ("sand flowers flower tree trees sun rocks", ""),
-        "places": ("beach farm library store playground park", "house room"),
+        "places": ("beach farm library store playground park church museum shop garden airport", "house room school"),
         "people": ("baby mommy girl boy babies aunt papa", "people sam guy toby"),
         "games_routines": ("game nap breaky", ""),
     },

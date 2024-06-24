@@ -10,6 +10,8 @@ import torch.nn.functional as F
 from ngram import NGramModel
 from transformers import PreTrainedModel, GPT2LMHeadModel, RobertaForMaskedLM
 from multimodal.multimodal_lit import MultiModalLitModel
+import model_yulu
+from multimodal.multimodal_data_module import PAD_TOKEN_ID
 from multimodal.utils import map_structure
 from .token_items_data import token_field, Key
 from .sumdata import *
@@ -154,12 +156,24 @@ def get_pos_stats_for_words(words, word_pos_stat, pos_mapping=identity):
 def is_regressional(model):
     """Whether the model is regressional, so the predicted loss, logits, labels are shifted.
     """
-    if isinstance(model, (NGramModel, GPT2LMHeadModel, dict)):
+    if isinstance(model, (NGramModel, GPT2LMHeadModel, dict, model_yulu.GPT2Model, model_yulu.LSTMModel)):
         return True
     elif isinstance(model, MultiModalLitModel):
         return model.language_model.text_encoder.regressional
     else:
         return False
+
+
+def build_attention_mask(lengths, max_length):
+    return torch.arange(max_length, device=lengths.device) < lengths.unsqueeze(1)
+
+
+def to_yulu_batch(y, y_len):
+    attention_mask = build_attention_mask(y_len, y.size(1))
+    return {
+        'input_ids': y,
+        'attention_mask': attention_mask,
+    }
 
 
 def run_model(
@@ -171,6 +185,9 @@ def run_model(
 ):
     if isinstance(model, MultiModalLitModel):
         hidden_dim = model.language_model.text_encoder.hidden_dim
+        device = get_model_device(model)
+    elif isinstance(model, model_yulu.LanguageModel):
+        hidden_dim = 0
         device = get_model_device(model)
     else:
         hidden_dim = 0
@@ -194,6 +211,15 @@ def run_model(
         )
     elif isinstance(model, NGramModel):
         loss = model.calculate_ce_loss(y, y_len, tokenwise=True)
+        outputs = torch.zeros(*(y.shape + (hidden_dim,)), dtype=torch.float, device=device)
+    elif isinstance(model, model_yulu.LanguageModel):
+        shift_token_ids = True
+        if shift_token_ids:
+            y = y - (y > model_yulu.MASK_TOKEN_ID).to(y.dtype)  # shift token ids since vocab of such a model does not contain the mask token
+        batch = to_yulu_batch(y, y_len)
+        logits = model(batch)
+        loss = model_yulu.calculate_ce_loss(
+            logits, y, shift=True, reduction='none', ignore_index=PAD_TOKEN_ID)
         outputs = torch.zeros(*(y.shape + (hidden_dim,)), dtype=torch.float, device=device)
     else:
         loss = torch.zeros_like(y, dtype=torch.float, device=device)

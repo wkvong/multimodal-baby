@@ -1,7 +1,9 @@
 all_groups = {
+    "LSTM 1-layer": ["LSTM 1-layer"],
     "LSTM 2-layers": ["LSTM 2-layers"],
     "GPT2 2-layers": ["GPT2 2-layers"],
     "GPT2 8-layers": ["GPT2 8-layers"],
+    "BabyBERTa 2-layers": ["BabyBERTa 2-layers"],
     "BabyBERTa 8-layers": ["BabyBERTa 8-layers"],
     "LSTM 0": ["LSTM 0"],
     "LSTM": ["LSTM 0", "LSTM 1", "LSTM 2"],
@@ -18,16 +20,46 @@ all_groups = {
 
 all_checkpoint_paths = {
     "saycam_yulu": {
-        "LSTM 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/saycam/0119/lstm/single-child_model_name_lstm_corpora_saycam_num_layers_2_lr_0.003_weight_decay_0.1_dropout_0.2_batch_size_8_num_epochs_80_train_prob_0.8_scheduler_True_tokenizer_simple_seed_0/best",
         "GPT2 8-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/saycam/0121/gpt2/single-child_model_name_gpt2_id_3_corpora_saycam_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.001_batch_size_8_weight_decay_0.16_dropout_0.15_seed_0/best",
+        "GPT2 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/saycam/0119/gpt2/single-child_model_name_gpt2_id_1_corpora_saycam_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.001_batch_size_8_weight_decay_0.16_dropout_0.15_seed_0/best",
         "BabyBERTa 8-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/saycam/0122/babyBerta/single-child_model_name_babyBerta_id_3_corpora_saycam_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.0001_batch_size_16_weight_decay_0.06_dropout_0.05_seed_0/best",
+        "BabyBERTa 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/saycam/0122/babyBerta/single-child_model_name_babyBerta_id_1_corpora_saycam_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.0001_batch_size_8_weight_decay_0.06_dropout_0.15_seed_0/best",
+        "LSTM 1-layer": "/scratch/yq810/babyBerta/newBerta/saved_models/saycam/0120/lstm/single-child_model_name_lstm_corpora_saycam_num_layers_1_lr_0.003_weight_decay_0.15_dropout_0.4_batch_size_16_num_epochs_80_train_prob_0.8_scheduler_True_tokenizer_simple_seed_0/best",
+        "LSTM 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/saycam/0130/lstm/single-child_model_name_lstm_corpora_saycam_num_layers_2_lr_0.001_weight_decay_0.24_dropout_0.2_batch_size_8_num_epochs_80_train_prob_0.8_scheduler_True_tokenizer_simple_seed_0/best",
     },
     "sarah_yulu": {
-        "GPT2 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/sarah/0112/gpt2/single-child_model_name_gpt2_id_2_num_attention_heads_16_tokenizer_simple_scheduler_True_lr_0.001_batch_size_8_weight_decay_0.16_variational_dropout_0.1_seed_2/best",
+        "GPT2 8-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/sarah/0121/gpt2/single-child_model_name_gpt2_id_3_corpora_sarah_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.001_batch_size_8_weight_decay_0.16_dropout_0.1_seed_0/best",
+        "GPT2 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/sarah/0119/gpt2/single-child_model_name_gpt2_id_1_corpora_sarah_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.001_batch_size_8_weight_decay_0.16_dropout_0.1_seed_0/best",
+        "BabyBERTa 8-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/sarah/0122/babyBerta/single-child_model_name_babyBerta_id_3_corpora_sarah_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.0001_batch_size_16_weight_decay_0.06_dropout_0.1_seed_0/best",
+        "BabyBERTa 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/sarah/0122/babyBerta/single-child_model_name_babyBerta_id_1_corpora_sarah_num_attention_heads_8_tokenizer_simple_scheduler_True_lr_0.0001_batch_size_8_weight_decay_0_dropout_0.05_seed_0/best",
+        "LSTM 1-layer": "/scratch/yq810/babyBerta/newBerta/saved_models/sarah/0105/lstm/single-child_model_name_lstm_corpora_sarah_num_layers_1_lr_0.003_weight_decay_0.15_variational_dropout_0.4_batch_size_16_num_epochs_80_train_prob_0.8_scheduler_True_tokenizer_simple_seed_0/best",
+        "LSTM 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/sarah/0130/lstm/single-child_model_name_lstm_corpora_sarah_num_layers_2_lr_0.001_weight_decay_0.15_dropout_0.3_batch_size_8_num_epochs_80_train_prob_0.8_scheduler_True_tokenizer_simple_seed_0/best",
     },
     "ellie_yulu": {
-        "GPT2 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/ellie/0112/gpt2/single-child_model_name_gpt2_id_1_corpora_ellie_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.001_batch_size_16_weight_decay_0.16_variational_dropout_0.15_seed_2/best",
+        "GPT2 8-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/ellie/0118/gpt2/single-child_model_name_gpt2_id_3_corpora_ellie_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.001_batch_size_8_weight_decay_0.16_dropout_0.1_seed_0/best",
+        "GPT2 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/ellie/0117/gpt2/single-child_model_name_gpt2_id_1_corpora_ellie_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.001_batch_size_8_weight_decay_0.16_dropout_0.1_seed_0/best",
+        "BabyBERTa 8-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/ellie/0122/babyBerta/single-child_model_name_babyBerta_id_3_corpora_ellie_num_attention_heads_8_tokenizer_simple_scheduler_True_lr_0.0001_batch_size_16_weight_decay_0_dropout_0.05_seed_0/best",
+        "BabyBERTa 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/ellie/0122/babyBerta/single-child_model_name_babyBerta_id_1_corpora_ellie_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.0001_batch_size_16_weight_decay_0.06_dropout_0.05_seed_0/best",
+        "LSTM 1-layer": "/scratch/yq810/babyBerta/newBerta/saved_models/ellie/0114/lstm/single-child_model_name_lstm_corpora_ellie_num_layers_1_lr_0.001_weight_decay_0.1_dropout_0.4_batch_size_8_num_epochs_80_train_prob_0.8_scheduler_True_tokenizer_simple_seed_0/best",
+        "LSTM 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/ellie/0130/lstm/single-child_model_name_lstm_corpora_ellie_num_layers_2_lr_0.003_weight_decay_0.15_dropout_0.4_batch_size_16_num_epochs_80_train_prob_0.8_scheduler_True_tokenizer_simple_seed_0/best",
     },
+    "wiki_yulu": {
+        "GPT2 8-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/wiki/0122/gpt2/single-child_model_name_gpt2_id_3_corpora_wiki_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.0003_batch_size_8_weight_decay_0.16_dropout_0.4_seed_0/best",
+        "GPT2 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/wiki/0118/gpt2/single-child_model_name_gpt2_id_1_corpora_wiki_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.0001_batch_size_8_weight_decay_0.16_dropout_0.2_seed_0/best",
+        "BabyBERTa 8-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/wiki/0122/babyBerta/single-child_model_name_babyBerta_id_3_corpora_wiki_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.0003_batch_size_16_weight_decay_0_dropout_0.1_seed_0/best",
+        "BabyBERTa 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/wiki/0122/babyBerta/single-child_model_name_babyBerta_id_1_corpora_wiki_num_attention_heads_8_tokenizer_simple_scheduler_True_lr_0.0003_batch_size_8_weight_decay_0_dropout_0.1_seed_0/best",
+        "LSTM 1-layer": "/scratch/yq810/babyBerta/newBerta/saved_models/wiki/0120/lstm/single-child_model_name_lstm_corpora_wiki_num_layers_1_lr_0.003_weight_decay_0.24_dropout_0.3_batch_size_8_num_epochs_80_train_prob_0.8_scheduler_True_tokenizer_simple_seed_0/best",
+        "LSTM 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/wiki/0129/lstm/single-child_model_name_lstm_corpora_wiki_num_layers_2_lr_0.003_weight_decay_0.24_dropout_0.3_batch_size_8_num_epochs_80_train_prob_0.8_scheduler_True_tokenizer_simple_seed_0/best",
+    },
+    "childes_yulu": {
+        "GPT2 8-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/childes/0119/gpt2/single-child_model_name_gpt2_id_3_corpora_childes_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.0003_batch_size_16_weight_decay_0.16_dropout_0.1_seed_0/best",
+        "GPT2 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/childes/0118/gpt2/single-child_model_name_gpt2_id_1_corpora_childes_num_attention_heads_32_tokenizer_simple_scheduler_True_lr_0.0003_batch_size_16_weight_decay_0.16_dropout_0.1_seed_0/best",
+        "BabyBERTa 8-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/childes/0120/babyBerta/single-child_model_name_babyBerta_id_3_corpora_childes_num_attention_heads_8_tokenizer_simple_scheduler_True_lr_0.0001_batch_size_16_weight_decay_0_dropout_0.1_seed_0/best",
+        "BabyBERTa 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/childes/0119/babyBerta/single-child_model_name_babyBerta_id_1_corpora_childes_num_attention_heads_8_tokenizer_simple_scheduler_True_lr_0.0001_batch_size_16_weight_decay_0_dropout_0.1_seed_0/best",
+        "LSTM 1-layer": "/scratch/yq810/babyBerta/newBerta/saved_models/childes/0119/lstm/single-child_model_name_lstm_corpora_childes_num_layers_1_lr_0.003_weight_decay_0.1_dropout_0.4_batch_size_16_num_epochs_80_train_prob_0.8_scheduler_True_tokenizer_simple_seed_0/best",
+        "LSTM 2-layers": "/scratch/yq810/babyBerta/newBerta/saved_models/childes/0130/lstm/single-child_model_name_lstm_corpora_childes_num_layers_2_lr_0.003_weight_decay_0.1_dropout_0.4_batch_size_8_num_epochs_80_train_prob_0.8_scheduler_True_tokenizer_simple_seed_0/best",
+    },
+
     "childes": {
         "LSTM 0": "checkpoints/lm_dataset_childes_text_encoder_lstm_embedding_dim_512_dropout_i_0.5_dropout_o_0.0_batch_size_16_lr_0.006_lr_scheduler_True_patience_5_weight_decay_0.04_seed_0/epoch=35.ckpt",
     },
