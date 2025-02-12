@@ -1,0 +1,41 @@
+[project]
+name = "multimodal-baby"
+version = "0.1.0"
+requires-python = ">=3.8,<3.9"
+dependencies = [
+    "torch==2.4.0",
+    "torchvision==0.19.0",
+    "numpy==1.24.4",
+    "scipy==1.10.1",
+    "matplotlib==3.7.5",
+    "opencv-python==4.9.0.80",
+    "pandas==2.0.3",
+    "pytorch-lightning==1.6.0",
+    "torchinfo==1.8.0",
+    "gsheets==0.6",
+    "wandb==0.16.5",
+    "pycocoevalcap==1.2",
+    "pillow==10.3.0",
+    "spacy==3.7.4",
+    "huggingface-hub>=0.28.1",
+    "pip>=25.0.1",
+]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu118" },
+]
+torchvision = [
+    { index = "pytorch-cu118" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu118"
+url = "https://download.pytorch.org/whl/cu118"
+explicit = true
+
+[tool.uv]
+link-mode = "symlink"
+
+[tool.setuptools]
+packages = ["multimodal-baby"]

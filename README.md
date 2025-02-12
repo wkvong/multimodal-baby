@@ -4,16 +4,48 @@ This repository contains code and models from the following papers:
 - Vong, W. K., Wang, W., Orhan, A. E., & Lake, B. M (2024). Grounded language acquisition through the eyes and ears of a single child. *Science*.
 - Wang, W., Vong, W. K., Kim, N., & Lake, B. M. (2023). Finding Structure in One Child's Linguistic Experience. *Cognitive Science*.
 
-## Requirements
-* torch==2.0.1
-* torchvision==0.15.2
-* pytorch-lightning==1.6.0
-* spacy==3.0.0
-* clip==1.0
-* huggingface_hub==0.17.3
-* Some other packages for preprocessing, evaluation and visualization may be required, see `requirements.txt`
+## Installation
 
-Slightly older or newer versions will probably work as well.
+This project uses Python 3.8, and [`uv`](https://docs.astral.sh/uv/) for dependency management. Follow these steps to set up the environment:
+
+1. Install `uv`:
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+2. Clone the repository:
+```bash
+git clone git@github.com:wkvong/multimodal-baby.git
+cd multimodal-baby
+```
+
+3. Create and set up the virtual environment:
+```bash
+# Create a virtual environment in this folder
+uv venv
+
+# Optional: If you need to create the environment in a custom location, run the following commands instead:
+uv venv ${UV_CACHE_DIR}/multimodal_baby_env
+export VIRTUAL_ENV=${UV_CACHE_DIR}/multimodal_baby_env
+
+# Install dependencies
+uv sync
+```
+
+4. Install additional requirements:
+```bash
+# Install CLIP from source
+uv pip install git+https://github.com/openai/CLIP.git
+
+# Download spaCy language model
+uv run -- spacy download en_core_web_sm
+```
+
+5. Test the installation:
+```bash
+# Run the demo script to verify everything is working
+uv run demo.py
+```
 
 ## Usage
 Usage of CVCL follows the [CLIP](https://github.com/openai/CLIP) API. The following code downloads the pre-trained CVCL model (trained on the SAYCam-S dataset) from HuggingFace Hub, and then encodes images and utterances using the model:
@@ -40,6 +72,9 @@ texts_features = cvcl.encode_text(texts, texts_len)
 
 # get logits from a batch of images and texts
 logits_per_image, logits_per_text = cvcl(images, texts, texts_len)
+
+print("Logits per image shape:", logits_per_image.shape)
+print("Logits per text shape:", logits_per_text.shape)
 ```
 
 ## Figures

@@ -10,6 +10,9 @@ scripts
 wandb
 __pycache__
 .ipynb_checkpoints
+.venv
 *.DS_Store
 *.pyc
 *.mp4
+.python-version
+uv.lock
