@@ -166,15 +166,27 @@ class MultiModalLitModel(pl.LightningModule):
             texts = [texts]
 
         all_tokens = []
+        token_lengths = []
+
         for text in texts:
             doc = self.nlp(text)
-            tokens = [token.text for token in doc]
-            # TODO: might
-            tokens = [self.vocab["<sos>"]] + [self.vocab.get(token, self.vocab["<unk>"]) for token in tokens] + [self.vocab["<eos>"]] + [self.vocab["<pad>"]] * (max_seq_len - len(tokens))
+            word_tokens = [token.text for token in doc]
+               
+            # Truncate if too long (leaving room for special tokens)
+            if len(word_tokens) > max_seq_len - 2:  # -2 for <sos> and <eos>
+                word_tokens = word_tokens[:max_seq_len - 2]
+               
+            # Calculate correct token length
+            token_length = len(word_tokens) + 2  # +2 for <sos> and <eos>
+               
+            # Add special tokens and padding if necessary
+            tokens = [self.vocab["<sos>"]] + [self.vocab.get(token, self.vocab["<unk>"]) for token in word_tokens] + [self.vocab["<eos>"]] + [self.vocab["<pad>"]] * (max_seq_len - len(word_tokens) - 2)
+               
             all_tokens.append(tokens)
-
+            token_lengths.append(token_length)
+        
         tokens = torch.tensor(all_tokens, dtype=torch.long)
-        token_lengths = torch.tensor([len(text) + 2 for text in texts], dtype=torch.long)
+        token_lengths = torch.tensor(token_lengths, dtype=torch.long)
         return tokens, token_lengths
     
     def calculate_ce_loss(
